@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  # Pull requests only - direct pushes to main do NOT trigger CI.
+  pull_request:
+  # On-demand: run it yourself from the Actions tab (or `gh workflow
+  # run ci.yml`) without opening a PR. Never runs automatically.
+  workflow_dispatch:
+
+# Cancel an in-progress run when a newer commit lands on the same ref,
+# so a rapid push sequence doesn't pile up stale jobs.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Typecheck + unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        # Reads the version from the root package.json "packageManager"
+        # field (pnpm@11.0.9).
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # pnpm 11.x needs Node >= 22.13 (it requires the node:sqlite
+          # builtin); on Node 20 it crashes at "pnpm store path".
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # Unit tests across every workspace (shared / db / renderer / mcp).
+      # No Electron or display needed: db + mcp use better-sqlite3 at the
+      # Node ABI (the pretest hooks ensure it), the renderer runs under
+      # jsdom, and mcp spawns its built bundle as a plain Node process.
+      - name: Unit tests (vitest)
+        run: pnpm test
+
+      # Pure node:test units for the packaging payload-guard helpers.
+      - name: Script tests (node:test)
+        run: pnpm --filter @kanbini/desktop run test:scripts
+
+  # TODO: Electron launch smoke + Playwright e2e (deferred).
+  # Left out of CI for now because they need a virtual display + Electron's
+  # runtime libs on a headless Linux runner. The Playwright config already
+  # drops to 2 workers under CI. To enable, uncomment + tune:
+  #
+  # e2e:
+  #   name: Launch smoke + Playwright e2e
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: pnpm/action-setup@v4
+  #     - uses: actions/setup-node@v4
+  #       with:
+  #         node-version: 22
+  #         cache: pnpm
+  #     - run: pnpm install --frozen-lockfile
+  #     # Electron/Chromium runtime libs + a virtual framebuffer. Without
+  #     # these the BrowserWindow can't start on a headless runner.
+  #     - run: |
+  #         sudo apt-get update
+  #         sudo apt-get install -y xvfb libnss3 libatk1.0-0 libatk-bridge2.0-0 \
+  #           libgtk-3-0 libgbm1 libasound2t64 libdrm2 libxkbcommon0 libxshmfence1
+  #     - run: xvfb-run -a pnpm --filter @kanbini/desktop run test:launch
+  #     - run: xvfb-run -a pnpm e2e

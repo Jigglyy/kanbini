@@ -1,0 +1,18 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+# pnpm blocks dependency lifecycle (build) scripts unless allowlisted.
+# - esbuild: installs its native binary (Vite/electron-vite dep)
+# - electron: postinstall downloads the Electron binary
+# - @tailwindcss/oxide: Tailwind v4 native engine install script
+# - better-sqlite3: prebuild-install fetches/builds the native binding
+allowBuilds:
+  esbuild: true
+  electron: true
+  '@tailwindcss/oxide': true
+  better-sqlite3: true
+  # electron-builder transitive - we don't ship the Squirrel.Windows
+  # target (NSIS + portable only, ADR-0039), so its postinstall is
+  # skippable. Flip to true if we add a 'squirrelWindows' target later.
+  electron-winstaller: false

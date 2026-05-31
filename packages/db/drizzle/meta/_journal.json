@@ -1,0 +1,83 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1779198515450,
+      "tag": "0000_talented_barracuda",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1779386160585,
+      "tag": "0001_lovely_the_stranger",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1779396898957,
+      "tag": "0002_stormy_daimon_hellstrom",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1779470356636,
+      "tag": "0003_flawless_marten_broadcloak",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1779561885075,
+      "tag": "0004_demonic_bullseye",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1779574559905,
+      "tag": "0005_woozy_kulan_gath",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1779620349971,
+      "tag": "0006_aberrant_valeria_richards",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1779634596128,
+      "tag": "0007_steep_hydra",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1779637603274,
+      "tag": "0008_cool_sinister_six",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1779724800000,
+      "tag": "0009_grand_ironclad",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1780227130285,
+      "tag": "0010_normalize_escaped_text",
+      "breakpoints": true
+    }
+  ]
+}

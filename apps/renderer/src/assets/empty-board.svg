@@ -1,0 +1,37 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 200 200"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+  aria-hidden="true"
+>
+  <!-- konbini awning hovering above the stack -->
+  <g class="kanbini-awning" opacity="0.55">
+    <path d="M62 42 L138 42 L128 18 L72 18 Z" />
+    <line x1="86" y1="20" x2="80" y2="40" />
+    <line x1="100" y1="20" x2="100" y2="40" />
+    <line x1="114" y1="20" x2="120" y2="40" />
+  </g>
+
+  <!-- card-1 (back, lowest opacity, tilted left) -->
+  <rect id="card-1" class="kanbini-item" x="40" y="90" width="70" height="50" rx="6" transform="rotate(-12 75 115)" opacity="0.35" />
+
+  <!-- card-2 (middle, medium opacity) -->
+  <rect id="card-2" class="kanbini-item" x="65" y="105" width="70" height="50" rx="6" transform="rotate(8 100 130)" opacity="0.7" />
+
+  <!-- card-3 (front, full opacity) -->
+  <rect id="card-3" class="kanbini-item" x="90" y="120" width="70" height="50" rx="6" transform="rotate(-15 125 145)" />
+  <rect x="90" y="120" width="70" height="50" rx="6" transform="rotate(-15 125 145)" fill="currentColor" opacity="0.12" stroke="none" />
+
+  <!-- sparkles -->
+  <g class="kanbini-sparkles" opacity="0.6">
+    <path d="M30 60 L30 52 M30 60 L30 68 M30 60 L22 60 M30 60 L38 60" />
+    <path d="M170 50 L170 44 M170 50 L170 56 M170 50 L164 50 M170 50 L176 50" />
+    <path d="M175 165 L175 158 M175 165 L175 172 M175 165 L168 165 M175 165 L182 165" />
+    <circle cx="25" cy="155" r="2" fill="currentColor" stroke="none" />
+    <circle cx="160" cy="95" r="1.5" fill="currentColor" stroke="none" />
+  </g>
+</svg>

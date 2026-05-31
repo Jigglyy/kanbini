@@ -1,0 +1,23 @@
+{
+  "name": "kanbini",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Offline, single-user desktop kanban app with a local MCP server.",
+  "license": "MIT",
+  "packageManager": "pnpm@11.0.9",
+  "engines": {
+    "node": ">=22.13",
+    "pnpm": ">=11"
+  },
+  "scripts": {
+    "typecheck": "pnpm -r run typecheck",
+    "test": "pnpm -r --workspace-concurrency=1 run test",
+    "e2e": "pnpm --filter @kanbini/desktop-e2e run e2e",
+    "verify": "pnpm typecheck && pnpm test && pnpm --filter @kanbini/desktop run test:scripts && pnpm --filter @kanbini/desktop run test:launch",
+    "clean": "pnpm -r run clean"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "vitest": "^3.2.0"
+  }
+}

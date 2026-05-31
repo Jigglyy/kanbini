@@ -1,0 +1,1 @@
+ALTER TABLE `list` ADD `wip_limit` integer;

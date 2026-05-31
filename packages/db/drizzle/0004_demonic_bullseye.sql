@@ -1,0 +1,1 @@
+ALTER TABLE `list` ADD `sort_mode` text;

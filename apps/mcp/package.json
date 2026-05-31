@@ -1,0 +1,33 @@
+{
+  "name": "@kanbini/mcp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "kanbini-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "smoke": "node scripts/smoke.mjs",
+    "smoke:write": "node scripts/smoke-write.mjs",
+    "explore": "node scripts/explore.mjs",
+    "typecheck": "tsc --noEmit",
+    "pretest": "node ../../packages/db/scripts/ensure-node-abi.mjs && pnpm run build",
+    "test": "vitest run",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
+  },
+  "dependencies": {
+    "@kanbini/shared": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@kanbini/db": "workspace:*",
+    "@types/node": "^25.9.0",
+    "better-sqlite3": "^12.10.0",
+    "tsup": "^8.5.1",
+    "vitest": "^3.2.4"
+  }
+}

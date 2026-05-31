@@ -1,0 +1,1 @@
+ALTER TABLE `board` ADD `swimlane_mode` text;

@@ -1,0 +1,19 @@
+{
+  "name": "@kanbini/desktop-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "pree2e": "node scripts/prepare.mjs",
+    "e2e": "playwright test",
+    "pree2e:headed": "node scripts/prepare.mjs",
+    "e2e:headed": "node scripts/run-headed.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@kanbini/shared": "workspace:*",
+    "@playwright/test": "^1.49.1",
+    "@types/node": "^25.9.0",
+    "typescript": "^5.9.3"
+  }
+}

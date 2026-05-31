@@ -1,0 +1,1942 @@
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties
+} from 'react'
+import { flushSync } from 'react-dom'
+import { useQueryClient } from '@tanstack/react-query'
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  closestCorners,
+  defaultDropAnimationSideEffects,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
+  type DropAnimation
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import {
+  ArrowDown,
+  ArrowUp,
+  Check,
+  Globe,
+  ListPlus,
+  Pencil
+} from 'lucide-react'
+// Inline SVG (currentColor inherits the text colour, light/dark
+// theme-aware without two assets). Vite's `?raw` returns the file
+// source as a string; rendered via dangerouslySetInnerHTML. Using
+// a relative path (not the `@/` alias) so the `*.svg?raw` ambient
+// declaration in env.d.ts matches under Bundler module resolution.
+import emptyBoardSvg from '../assets/empty-board.svg?raw'
+import type {
+  BoardView,
+  CardView,
+  LabelView,
+  Mutation,
+  SwimlaneMode
+} from '@kanbini/shared'
+import { type Optimistic, useBoardMutation } from '../hooks/useBoardMutation'
+import { boardKey } from '../hooks/useBoard'
+import { useSmoothHeight } from '../hooks/useSmoothHeight'
+import { useJustCompleted } from '../lib/animations'
+import { ipc } from '../lib/ipc'
+import { tint } from '../lib/palette'
+import { useSettings } from '../lib/settings'
+import {
+  resolveBindings,
+  useShortcutDispatch,
+  type ActionId
+} from '../lib/shortcuts'
+import { detectFirstUrl, domainOf } from '../lib/url'
+import { cn } from '../lib/utils'
+import { ContextMenu } from './ui/context-menu'
+import { CardLabels } from './labels'
+import { CardDetail } from './card-detail'
+import { CardChecklistPreview } from './checklists'
+import { DueBadge } from './due-date'
+import { PriorityBadge } from './priority'
+import { CardMenu } from './card-menu'
+import { SwimlaneBoard } from './swimlane-board'
+import { CardCoverThumb } from './attachments'
+import { ListEditor } from './list-menu'
+import { SaveTemplateDialog, TemplatePickerDialog } from './templates'
+import { UrlCoverModal } from './url-cover-modal'
+import {
+  computeMoveTarget,
+  findNextNonEmptyListIndex,
+  findWipBlock,
+  isSortedListReorder,
+  isUnchangedMove,
+  planSwimlaneDrop,
+  reduceCardMove
+} from '../lib/board-dnd'
+import {
+  DROP_ANIMATION_DURATION_MS,
+  POST_DROP_HOLD_MS
+} from '../lib/drag-polish'
+
+// Buttery drop in 200 ms. Two-keyframe LIFT → REST with a strong
+// ease-out so the card decelerates into the slot instead of gliding
+// at constant speed. We previously split the keyframes with an offset
+// (position lands at 0.55, shadow fades to 1.0) to disguise a
+// shadow-snap at handoff - that's no longer needed now that
+// REST_SHADOW matches the source's hovered `shadow-md` exactly AND
+// the source pre-paints itself to the same value during postDropHold
+// (`SortableCard` below). With handoff smooth, the extended tail
+// just felt slow.
+//
+// REST_SHADOW = Tailwind v4 `shadow-md` (the source's `:hover` value).
+// Typical drops end with the cursor still on the landing card; source
+// :hover engages the instant the overlay unmounts → matched shadow
+// means no transition fires. The source's class-force during
+// postDropHold makes this match hold even when :hover wasn't already
+// computed (source is opacity-0 during drag, so its computed shadow
+// would otherwise be `shadow-sm` and the visible-on-unmount switch to
+// `shadow-md` via :hover would fire a 150 ms transition - the "shadow
+// appears again" pop we keep chasing).
+const LIFT_SHADOW = '0 14px 30px -8px rgb(0 0 0 / 0.55)'
+const REST_SHADOW =
+  '0 4px 6px -1px rgb(0 0 0 / 0.10), 0 2px 4px -2px rgb(0 0 0 / 0.10)'
+
+const DROP_ANIMATION: DropAnimation = {
+  duration: DROP_ANIMATION_DURATION_MS,
+  easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+  keyframes: ({ transform }) => [
+    {
+      transform: CSS.Transform.toString(transform.initial) ?? '',
+      boxShadow: LIFT_SHADOW
+    },
+    {
+      transform: CSS.Transform.toString(transform.final) ?? '',
+      boxShadow: REST_SHADOW
+    }
+  ],
+  sideEffects: defaultDropAnimationSideEffects({
+    styles: { active: { opacity: '0' } }
+  })
+}
+
+// Auto cover from URL in title (ADR-0033). When linkPreviews +
+// autoCoverFromUrl are both on, this hook silently calls
+// `linkPreview:create` for any (cardId, url-in-title) pair we
+// haven't seen before AND that has no cover yet. The per-board
+// "seen" Set is persisted to localStorage so reloads don't refire,
+// and the first ever effect run on each mount is a *priming* pass:
+// it records current state without firing, so flipping the toggle
+// on doesn't surprise-fetch every existing URL-titled card (the
+// scenario the TODO explicitly calls out). Subsequent renders
+// fire on each genuinely new (cardId, url) - the user just pasted
+// it, or the MCP/another window just changed it.
+const AUTO_COVER_STORAGE_PREFIX = 'kanbini.autoCoverSeen.'
+
+function loadSeen(boardId: string): Set<string> {
+  try {
+    const raw = localStorage.getItem(AUTO_COVER_STORAGE_PREFIX + boardId)
+    if (!raw) return new Set()
+    const parsed = JSON.parse(raw) as unknown
+    // Guard against non-array storage shapes: a string would otherwise
+    // be iterated as individual chars by `new Set(...)`, and an object
+    // would throw. Either way the seen set is meant to be a list of
+    // (cardId, url) strings; anything else starts fresh.
+    if (!Array.isArray(parsed)) return new Set()
+    return new Set(parsed.filter((v): v is string => typeof v === 'string'))
+  } catch {
+    return new Set()
+  }
+}
+
+function saveSeen(boardId: string, seen: Set<string>): void {
+  try {
+    localStorage.setItem(
+      AUTO_COVER_STORAGE_PREFIX + boardId,
+      JSON.stringify([...seen])
+    )
+  } catch {
+    /* full disk / private mode - auto-cover may refire after reload */
+  }
+}
+
+function useAutoCoverFromUrl({
+  boardId,
+  data,
+  enabled
+}: {
+  boardId: string
+  data: BoardView
+  enabled: boolean
+}): void {
+  const seenRef = useRef<Set<string> | null>(null)
+  const primedRef = useRef(false)
+  // Reset both refs when the board changes - a fresh board gets a
+  // fresh priming pass.
+  useEffect(() => {
+    seenRef.current = loadSeen(boardId)
+    primedRef.current = false
+  }, [boardId])
+
+  useEffect(() => {
+    const seen = seenRef.current
+    if (!seen) return
+    const wasPrimed = primedRef.current
+    primedRef.current = true
+
+    let changed = false
+    for (const list of data.lists) {
+      for (const card of list.cards) {
+        const url = detectFirstUrl(card.title)
+        if (!url) continue
+        const key = `${card.id}:${url}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        changed = true
+        // Priming pass - record current state silently so the toggle
+        // never retro-fetches the cards that pre-existed it.
+        if (!wasPrimed) continue
+        if (!enabled) continue
+        // Don't overwrite an already-set cover; manual / earlier
+        // auto-cover wins.
+        if (card.coverAttachmentId) continue
+        // Skip optimistic placeholder ids - the real id arrives on
+        // the next refetch and we'll fire then.
+        if (card.id.startsWith('tmp-')) continue
+        // Fire-and-forget. Expected misses come back as
+        // `{ok:false}` and are ignored; the manual "Set cover from
+        // URL…" modal is the path that surfaces errors. The .catch
+        // is defense-in-depth for unexpected transport failures.
+        void ipc
+          .linkPreviewCreate({ cardId: card.id, url })
+          .catch(() => {})
+      }
+    }
+    if (changed) saveSeen(boardId, seen)
+  }, [data, enabled, boardId])
+}
+
+/** Small chip rendered just under the title when the title text
+ *  contains a URL. Visual cue only - doesn't open the link (the card
+ *  opens on click). M4-H slice 7. */
+function TitleUrlChip({ title }: { title: string }) {
+  const url = detectFirstUrl(title)
+  const domain = url ? domainOf(url) : null
+  if (!domain) return null
+  return (
+    <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+      <Globe className="size-2.5 shrink-0" />
+      <span className="truncate" title={url ?? undefined}>
+        {domain}
+      </span>
+    </div>
+  )
+}
+
+/** Static card visual - shared by the list item and the drag overlay
+ *  so a dragged card looks identical (labels included) start to end. */
+function CardFace({
+  card,
+  labels,
+  dragging,
+  focused,
+  showChecklist,
+  labelsExpanded
+}: {
+  card: CardView
+  labels: LabelView[]
+  dragging?: boolean
+  // Mirrors the resting <li>'s `focused` ring (ADR-0035 keyboard nav).
+  // The source <li> is `opacity-0` while dragging, so without this the
+  // ring blinks out for the whole drag and snaps back on drop - pass
+  // it through to the DragOverlay's CardFace and the highlight stays
+  // continuous. Composed into the inline box-shadow (not a `ring-*`
+  // class) because Tailwind's ring utilities are themselves
+  // `box-shadow`, and the inline LIFT_SHADOW would clobber them.
+  focused?: boolean
+  showChecklist?: boolean
+  /** Mirror of the source card's label display so the overlay matches
+   *  (bars vs names). No toggle here - the overlay is a frozen clone. */
+  labelsExpanded?: boolean
+}) {
+  // Replicates `ring-2 ring-ring ring-offset-1 ring-offset-background`
+  // as a two-shadow stack: a 1px solid in the background colour right
+  // against the card (the "offset" gap), then a 3px solid in the ring
+  // colour beyond that - the first shadow paints OVER the inner 1px
+  // of the second (CSS box-shadow paints earlier-listed shadows on
+  // top), leaving a 2px visible ring with a 1px gap. Same visual the
+  // Tailwind class produces.
+  //
+  // The LIFT_SHADOW used to be merged in here too, but dnd-kit's drop
+  // animation animates the OVERLAY WRAPPER's box-shadow - not this
+  // inner element's - so a constant LIFT_SHADOW here was dominating
+  // any animation up at the wrapper level (the shadow looked like it
+  // snapped off the instant the overlay unmounted). The lift now
+  // lives on the DragOverlay's wrapper via its `style` prop (see the
+  // DragOverlay below); keeping only the ring here means the
+  // wrapper's animated shadow is the only big shadow visible.
+  const ringShadow = focused
+    ? '0 0 0 1px var(--color-background), 0 0 0 3px var(--color-ring)'
+    : ''
+  return (
+    <div
+      style={
+        dragging && ringShadow ? { boxShadow: ringShadow } : undefined
+      }
+      className={`flex flex-col gap-1 overflow-hidden rounded-md border bg-card px-3 py-2 text-sm transition-[border-color] duration-150 ease-out ${
+        // The dragging overlay is "in the user's hand" - mirror the
+        // SortableCard's :hover border-color (border-ring/60). Drives
+        // off the `group/dragoverlay` :hover on the wrapper in the
+        // DragOverlay below (NOT React state), because dnd-kit clones
+        // the previous render of these children for the drop
+        // animation and any prop-threaded state wouldn't reach that
+        // frozen snapshot - but the live DOM node still responds to
+        // :hover, so the cascade works through cloning. When the
+        // cursor leaves the gliding overlay post-drop, the CSS
+        // transition fades the border back to neutral instead of
+        // holding blue and snapping off at unmount.
+        dragging
+          ? 'border-border group-hover/dragoverlay:border-ring/60'
+          : 'border-border shadow-sm'
+      } ${card.completed ? 'opacity-70' : ''} ${
+        !dragging && focused
+          ? 'ring-2 ring-ring ring-offset-1 ring-offset-background'
+          : ''
+      }`}
+    >
+      <CardCoverThumb card={card} />
+      <CardLabels
+        labelIds={card.labelIds}
+        labels={labels}
+        expanded={labelsExpanded}
+      />
+      <div className="flex items-start gap-2">
+        <span
+          className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border ${
+            card.completed
+              ? 'border-primary bg-primary text-primary-foreground'
+              : 'border-border'
+          }`}
+        >
+          {card.completed && <Check className="size-3" />}
+        </span>
+        {/* `pr-5` mirrors the in-list SortableCard title's reserved
+            space for the absolute pencil button. `min-w-0` +
+            `wrap-anywhere` let unbreakable strings wrap so a long
+            title can't blow the card out of the list. */}
+        <span
+          className={`min-w-0 flex-1 wrap-anywhere pr-5 ${card.completed ? 'text-muted-foreground line-through' : ''}`}
+        >
+          {card.title}
+        </span>
+      </div>
+      <TitleUrlChip title={card.title} />
+      <div className="flex flex-wrap items-center gap-1.5">
+        <PriorityBadge card={card} />
+        <DueBadge card={card} />
+      </div>
+      {showChecklist && (
+        // Match SortableCard's hovered-state ml - its wrapper shifts the
+        // checklist right (16 px) to clear the now-visible checkbox
+        // column. The overlay's CardFace ALWAYS shows the checkbox
+        // column, so it always needs the same shift; without it the
+        // checklist items had 16 px more width than in the source's
+        // hovered state, wrapped to fewer lines, and the overlay's
+        // visible card was shorter than the source the user just
+        // grabbed → "card shrinks from the bottom on drag start."
+        // Completed cards use ml-1 (matches SortableCard's completed
+        // branch); everyone else gets ml-4.
+        <div className={card.completed ? 'ml-1' : 'ml-4'}>
+          <CardChecklistPreview card={card} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Drag uses the canonical dnd-kit pattern: reorder the query cache LIVE
+// in onDragOver so siblings animate under the drag and "drop = what you
+// saw"; onDragEnd just persists via card.move (server mints the
+// fractional key, ADR-0011; the `changed` event reconciles). Other
+// CRUD stays optimistic via useBoardMutation.
+
+const mapLists = (
+  b: BoardView,
+  fn: (l: BoardView['lists'][number]) => BoardView['lists'][number]
+): BoardView => ({ ...b, lists: b.lists.map(fn) })
+
+export function Board({
+  board,
+  blockCreate,
+  blockDrag,
+  showChecklist,
+  labelsExpanded,
+  onToggleLabelsExpanded,
+  linkPreviews,
+  autoCoverFromUrl,
+  boardZoom,
+  initialOpenCardId,
+  onConsumedOpenCard
+}: {
+  board: BoardView
+  blockCreate: boolean
+  blockDrag: boolean
+  showChecklist: boolean
+  /** Trello-style label display (mirror of settings.labelsExpanded).
+   *  When false, in-list cards collapse their label chips to compact
+   *  colour bars; when true they show named chips. The card detail
+   *  always shows names. */
+  labelsExpanded?: boolean
+  /** Flip the board-wide label-names display. Clicking a label bar (or
+   *  a name chip) on any card calls this; App writes settings. */
+  onToggleLabelsExpanded?: () => void
+  /** Mirror of settings.linkPreviews - required for the auto-cover
+   *  side effect (no-op when off; the safety gate that keeps the
+   *  app strict-offline by default - ADR-0023). */
+  linkPreviews: boolean
+  /** Mirror of settings.autoCoverFromUrl - when both flags are on,
+   *  pasting a URL into a card title silently fetches the cover. */
+  autoCoverFromUrl: boolean
+  /** Mirror of settings.boardZoom - App applies CSS `zoom` to the
+   *  outer board wrapper. We re-apply it to the dnd-kit DragOverlay
+   *  contents because the overlay is body-portaled (escapes the
+   *  wrapper) - dnd-kit sizes the overlay container to the source's
+   *  zoom-aware getBoundingClientRect, so the wrapper IS the right
+   *  visual size but its 1× contents would render at half text/
+   *  padding scale without this re-zoom. */
+  boardZoom: number
+  /** When the command palette navigates to a card, App passes its id
+   *  through the route; we mirror it into local state on mount /
+   *  prop change so the CardDetail modal opens. */
+  initialOpenCardId?: string | null
+  /** Called once we've consumed `initialOpenCardId` into local state.
+   *  App clears the route's openCardId in response, so the prop is a
+   *  true one-shot - re-activating the SAME card id from the palette
+   *  (undefined → id again) is then a real prop change that reopens the
+   *  detail, instead of a silent no-op (the value never changed). */
+  onConsumedOpenCard?: () => void
+}) {
+  useAutoCoverFromUrl({
+    boardId: board.board.id,
+    data: board,
+    enabled: linkPreviews && autoCoverFromUrl
+  })
+  const apply = useBoardMutation(board.board.id)
+  const qc = useQueryClient()
+  const key = boardKey(board.board.id)
+  const snapshot = useRef<BoardView | null>(null)
+  const [dragging, setDragging] = useState<CardView | null>(null)
+  // Cursor-on-overlay tracker. The live DragOverlay's inner div fires
+  // mouseenter/leave on `overlayHoveredRef`; at onDragEnd we snapshot
+  // it into `postDropHoverMatch`. The matching SortableCard (the one
+  // just dropped) reads `postDropHoverMatch` and force-paints itself
+  // in the source's hovered style (`border-ring/60` + `shadow-md`)
+  // for the duration of postDropHold - so when the overlay unmounts
+  // at the end of the drop animation, the source is ALREADY at the
+  // hovered values and the browser doesn't fire a 150 ms
+  // transition-[box-shadow,border-color] when :hover engages
+  // (cursor-stays case). Cursor-off case lands here as `false` →
+  // no force → source paints defaults → matches the overlay's
+  // CSS-faded neutral border. Both cases buttery, neither snappy.
+  const overlayHoveredRef = useRef(true)
+  const [postDropHoverMatch, setPostDropHoverMatch] = useState(false)
+  // Tracks the auto-clear timeout so a rapid second drag doesn't have
+  // the first drag's leftover timeout clear its postDropHoverMatch
+  // mid-hold. Cleared + replaced on every onDragEnd / onDragCancel,
+  // and on unmount.
+  const dropResetTimeoutRef = useRef<number | null>(null)
+  useEffect(() => {
+    return () => {
+      if (dropResetTimeoutRef.current !== null) {
+        window.clearTimeout(dropResetTimeoutRef.current)
+      }
+    }
+  }, [])
+  const captureHoverForDrop = (): void => {
+    if (dropResetTimeoutRef.current !== null) {
+      window.clearTimeout(dropResetTimeoutRef.current)
+    }
+    setPostDropHoverMatch(overlayHoveredRef.current)
+    dropResetTimeoutRef.current = window.setTimeout(() => {
+      setPostDropHoverMatch(false)
+      dropResetTimeoutRef.current = null
+    }, POST_DROP_HOLD_MS)
+  }
+  // Set while a cross-list drag hovers a list that is at its card
+  // limit (when `blockDrag` is on) - drives the list's shake + red ring.
+  const [blockedListId, setBlockedListId] = useState<string | null>(null)
+  const [openCardId, setOpenCardId] = useState<string | null>(
+    initialOpenCardId ?? null
+  )
+  // ADR-0035 keyboard-shortcut focus. null = nothing focused (no ring,
+  // first arrow press lands on the first visible card). Cleared if the
+  // focused card disappears from the view (deleted / archived / list
+  // closed). The card-detail modal opens via the existing setOpenCardId.
+  const [focusedCardId, setFocusedCardId] = useState<string | null>(null)
+  // Sync if the route changes the requested card after mount (e.g.,
+  // palette → palette → different card on the same board). Tell App to
+  // clear the route's openCardId once consumed so the prop is a true
+  // one-shot - otherwise re-opening the SAME card (its id never changes
+  // on the route) wouldn't re-fire this effect.
+  useEffect(() => {
+    if (initialOpenCardId) {
+      setOpenCardId(initialOpenCardId)
+      onConsumedOpenCard?.()
+    }
+  }, [initialOpenCardId, onConsumedOpenCard])
+  const sensors = useSensors(
+    // Distance constraint so clicking the card buttons still works.
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+  )
+
+  const findCard = (id: string): CardView | undefined =>
+    board.lists.flatMap((l) => l.cards).find((c) => c.id === id)
+
+  // Drop focus when the focused card disappears (deleted, archived,
+  // its list closed, or restored-from-folder under our feet). Without
+  // this the ring would point at nothing and the next arrow press
+  // would still try to navigate "from" the dead id.
+  useEffect(() => {
+    if (focusedCardId && !findCard(focusedCardId)) {
+      setFocusedCardId(null)
+    }
+    // findCard depends only on board.lists - same dep as board itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [board, focusedCardId])
+
+  // ADR-0035 shortcut wiring. Card-scoped actions only - App.tsx owns
+  // nav.search / nav.home / Esc separately. Bindings resolve to the
+  // user's customizations (or registry defaults when nothing set).
+  const [settings] = useSettings()
+  const bindings = useMemo(
+    () => resolveBindings(settings.shortcuts),
+    [settings.shortcuts]
+  )
+
+  // Common preamble for every action handler: stop the browser's
+  // default + bubbling so e.g. Space doesn't scroll the page.
+  const consume = (e: KeyboardEvent): void => {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  // Helpers used by the focus/move actions. Computed from the current
+  // view on each call so they don't go stale.
+  const visibleListsFn = (): BoardView['lists'] =>
+    board.lists.filter((l) => !l.closed)
+
+  const locateCard = (
+    cardId: string
+  ): { listIdx: number; cardIdx: number; list: BoardView['lists'][number] } | null => {
+    const vis = visibleListsFn()
+    for (let i = 0; i < vis.length; i++) {
+      const list = vis[i]!
+      const idx = list.cards.findIndex((c) => c.id === cardId)
+      if (idx >= 0) return { listIdx: i, cardIdx: idx, list }
+    }
+    return null
+  }
+
+  /** First visible card on the board, or null if every list is empty. */
+  const firstAnyCard = (): string | null => {
+    for (const l of visibleListsFn()) {
+      if (l.cards[0]) return l.cards[0].id
+    }
+    return null
+  }
+
+  /** Re-focus a card and scroll it into view (smoothly, but cheap -
+   *  the browser handles the actual scroll). Uses a data attribute so
+   *  the card components don't need to expose refs upward. */
+  const focusCard = useCallback((id: string | null): void => {
+    setFocusedCardId(id)
+    if (!id) return
+    // requestAnimationFrame lets React commit the focused style + any
+    // sibling reorder first, so scrollIntoView lands on the final box.
+    requestAnimationFrame(() => {
+      // Use the browser's CSS.escape via `window` - the imported `CSS`
+      // from @dnd-kit/utilities is a different namespace (transform
+      // helpers only).
+      const node = document.querySelector(
+        `[data-card-id="${window.CSS.escape(id)}"]`
+      )
+      if (node instanceof HTMLElement) {
+        node.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+      }
+    })
+  }, [])
+
+  /** Card-move handler (kept local so it can be reused by the keyboard
+   *  Alt+arrow actions without going through the dnd-kit path). Same
+   *  contract as the drag-end mutation: server mints the fractional
+   *  key, broadcastChange triggers the renderer refetch. */
+  const moveCardTo = useCallback(
+    (cardId: string, toListId: string, beforeId: string | null, afterId: string | null): void => {
+      void ipc
+        .mutate({
+          type: 'card.move',
+          id: cardId,
+          toListId,
+          beforeId,
+          afterId
+        })
+        .catch(() => {})
+        .finally(() => {
+          void qc.invalidateQueries({ queryKey: key })
+        })
+    },
+    [key, qc]
+  )
+
+  const handlers: Partial<Record<ActionId, (e: KeyboardEvent) => void>> = {
+    // --- Focus navigation ---
+    'card.focusNext': (e) => {
+      consume(e)
+      if (!focusedCardId) {
+        focusCard(firstAnyCard())
+        return
+      }
+      const loc = locateCard(focusedCardId)
+      if (!loc) return
+      const next = loc.list.cards[loc.cardIdx + 1]
+      if (next) focusCard(next.id)
+    },
+    'card.focusPrev': (e) => {
+      consume(e)
+      if (!focusedCardId) {
+        focusCard(firstAnyCard())
+        return
+      }
+      const loc = locateCard(focusedCardId)
+      if (!loc) return
+      const prev = loc.list.cards[loc.cardIdx - 1]
+      if (prev) focusCard(prev.id)
+    },
+    'card.focusLeft': (e) => {
+      consume(e)
+      if (!focusedCardId) {
+        focusCard(firstAnyCard())
+        return
+      }
+      const loc = locateCard(focusedCardId)
+      if (!loc) return
+      const vis = visibleListsFn()
+      // Scan past any empty lists so a layout like
+      //   [L1 cards] [L2 empty] [L3 cards]
+      // doesn't trap focus in L1 (the immediate-neighbour bail used to
+      // make L3 keyboard-unreachable from L1).
+      const leftIdx = findNextNonEmptyListIndex(vis, loc.listIdx, -1)
+      if (leftIdx === null) return
+      const leftList = vis[leftIdx]!
+      // Match the row index when possible so vertical-then-horizontal
+      // navigation lands on the same "row" - Trello does this too.
+      const targetIdx = Math.min(loc.cardIdx, leftList.cards.length - 1)
+      focusCard(leftList.cards[targetIdx]!.id)
+    },
+    'card.focusRight': (e) => {
+      consume(e)
+      if (!focusedCardId) {
+        focusCard(firstAnyCard())
+        return
+      }
+      const loc = locateCard(focusedCardId)
+      if (!loc) return
+      const vis = visibleListsFn()
+      const rightIdx = findNextNonEmptyListIndex(vis, loc.listIdx, 1)
+      if (rightIdx === null) return
+      const rightList = vis[rightIdx]!
+      const targetIdx = Math.min(loc.cardIdx, rightList.cards.length - 1)
+      focusCard(rightList.cards[targetIdx]!.id)
+    },
+
+    // --- Card actions ---
+    'card.open': (e) => {
+      if (!focusedCardId) return
+      consume(e)
+      setOpenCardId(focusedCardId)
+    },
+    'card.toggleComplete': (e) => {
+      if (!focusedCardId) return
+      const card = findCard(focusedCardId)
+      if (!card) return
+      consume(e)
+      apply(
+        {
+          type: 'card.update',
+          id: card.id,
+          patch: { completed: !card.completed }
+        },
+        (b) =>
+          mapLists(b, (l) => ({
+            ...l,
+            cards: l.cards.map((c) =>
+              c.id === card.id ? { ...c, completed: !c.completed } : c
+            )
+          }))
+      )
+    },
+    'card.delete': (e) => {
+      if (!focusedCardId) return
+      consume(e)
+      // Pick a neighbour to inherit focus BEFORE firing the delete so
+      // the user can keep deleting / navigating without scrolling
+      // back. Preference order: next card in the same list → previous
+      // card in the same list → first card in an adjacent list →
+      // null. Computed off the current board view (synchronous) so
+      // it's reliable even though the delete + refetch are async.
+      const loc = locateCard(focusedCardId)
+      let nextFocus: string | null = null
+      if (loc) {
+        const siblings = loc.list.cards
+        const below = siblings[loc.cardIdx + 1]
+        const above = siblings[loc.cardIdx - 1]
+        if (below) nextFocus = below.id
+        else if (above) nextFocus = above.id
+        else {
+          // List would become empty - jump to whichever adjacent list
+          // has a card. Try right first, then left.
+          const vis = visibleListsFn()
+          const right = vis[loc.listIdx + 1]?.cards[0]
+          const left = vis[loc.listIdx - 1]?.cards[0]
+          nextFocus = right?.id ?? left?.id ?? null
+        }
+      }
+      // No confirm prompt - the user explicitly invoked the shortcut,
+      // and there's no Undo button anywhere else in the app either.
+      // Fire-and-forget; the next refetch reconciles.
+      void ipc
+        .mutate({ type: 'card.delete', id: focusedCardId })
+        .catch(() => {})
+        .finally(() => {
+          void qc.invalidateQueries({ queryKey: key })
+        })
+      // Hand focus to the neighbour now - focusCard scrolls it into
+      // view too, so spam-delete keeps the cursor anchored where the
+      // user is reading.
+      focusCard(nextFocus)
+    },
+    'card.moveUp': (e) => {
+      if (!focusedCardId) return
+      const loc = locateCard(focusedCardId)
+      if (!loc) return
+      // Sorted lists own ordering server-side - refuse with no-op
+      // rather than a confusing "moves and snaps back."
+      if (loc.list.sortMode != null) return
+      if (loc.cardIdx === 0) return
+      consume(e)
+      const target = loc.list.cards[loc.cardIdx - 1]!
+      const before = loc.list.cards[loc.cardIdx - 2]?.id ?? null
+      moveCardTo(focusedCardId, loc.list.id, before, target.id)
+    },
+    'card.moveDown': (e) => {
+      if (!focusedCardId) return
+      const loc = locateCard(focusedCardId)
+      if (!loc) return
+      if (loc.list.sortMode != null) return
+      if (loc.cardIdx >= loc.list.cards.length - 1) return
+      consume(e)
+      const target = loc.list.cards[loc.cardIdx + 1]!
+      const after = loc.list.cards[loc.cardIdx + 2]?.id ?? null
+      moveCardTo(focusedCardId, loc.list.id, target.id, after)
+    },
+    'card.moveLeft': (e) => {
+      if (!focusedCardId) return
+      const loc = locateCard(focusedCardId)
+      if (!loc) return
+      const vis = visibleListsFn()
+      const leftList = vis[loc.listIdx - 1]
+      if (!leftList) return
+      consume(e)
+      // Drop at the end of the target list so the keyboard move is
+      // predictable (no guessing about which slot to insert into).
+      const lastId = leftList.cards.at(-1)?.id ?? null
+      moveCardTo(focusedCardId, leftList.id, lastId, null)
+    },
+    'card.moveRight': (e) => {
+      if (!focusedCardId) return
+      const loc = locateCard(focusedCardId)
+      if (!loc) return
+      const vis = visibleListsFn()
+      const rightList = vis[loc.listIdx + 1]
+      if (!rightList) return
+      consume(e)
+      const lastId = rightList.cards.at(-1)?.id ?? null
+      moveCardTo(focusedCardId, rightList.id, lastId, null)
+    },
+
+    // --- Creation ---
+    'list.newCard': (e) => {
+      // If a card is focused, target its list; otherwise the first
+      // visible list. AddCard listens for this custom event on its
+      // own list id and focuses the input - keeps the cross-cut
+      // decoupled from a ref chain.
+      const vis = visibleListsFn()
+      let targetListId: string | null = null
+      if (focusedCardId) {
+        const loc = locateCard(focusedCardId)
+        if (loc) targetListId = loc.list.id
+      }
+      if (!targetListId) targetListId = vis[0]?.id ?? null
+      if (!targetListId) return
+      consume(e)
+      document.dispatchEvent(
+        new CustomEvent('kanbini:add-card', { detail: { listId: targetListId } })
+      )
+    },
+    'board.newList': (e) => {
+      consume(e)
+      document.dispatchEvent(new CustomEvent('kanbini:add-list'))
+    }
+  }
+
+  useShortcutDispatch(bindings, handlers)
+
+  function onDragStart(e: DragStartEvent): void {
+    snapshot.current = qc.getQueryData<BoardView | null>(key) ?? null
+    setDragging(findCard(String(e.active.id)) ?? null)
+    // Cursor starts on the source card you just clicked, so the
+    // overlay that mounts at that rect is under the cursor too.
+    // Mouse handlers on the live inner div take over from here.
+    overlayHoveredRef.current = true
+  }
+
+  // Reorder the cache LIVE while dragging so the placeholder is the
+  // final position (consistency) and siblings animate (no drop snap).
+  function onDragOver(e: DragOverEvent): void {
+    const { active, over } = e
+    if (!over) {
+      setBlockedListId(null)
+      return
+    }
+    const activeId = String(active.id)
+    const overId = String(over.id)
+    if (activeId === overId) return
+
+    // ADR-0037 slice 2 swimlane mode: skip live cache reorder. The
+    // priority + position transition during cross-lane drag is
+    // tricky to optimistically reflect (cards live in `list.cards`
+    // ordered by fractional index; lanes are filtered views), so for
+    // v1 we snap on drop and let the broadcastChange refetch settle
+    // the new positions. Same-cell reorder loses the buttery feel -
+    // tradeoff for shipping the feature now; can be revisited.
+    if (board.board.swimlaneMode) return
+
+    // Card-limit drag block: refuse a cross-list move into a list
+    // that's at its limit. Leave the cache untouched so the card never
+    // enters (nothing to snap back) and flag the list so it shakes.
+    if (blockDrag) {
+      const cur = qc.getQueryData<BoardView | null>(key)
+      if (cur) {
+        const blocked = findWipBlock(cur, activeId, overId)
+        if (blocked) {
+          setBlockedListId(blocked)
+          return
+        }
+      }
+    }
+    setBlockedListId(null)
+
+    // ADR-0032: only block *within-list* reorders on sorted lists -
+    // a card's position there is decided by created_at, so dragging
+    // it next to a sibling would visually re-snap on the next read.
+    // Cross-list drops INTO a sorted list are allowed: the card
+    // lands with whatever optimistic slot we pick here and the
+    // server-side ORDER BY puts it in its created_at position on
+    // refetch (~10–50 ms - a brief settle, no permanent oddness).
+    {
+      const cur = qc.getQueryData<BoardView | null>(key)
+      if (cur && isSortedListReorder(cur, activeId, overId)) return
+    }
+
+    // Resolve drop direction from the rect math here, then hand off
+    // to the pure reducer in lib/board-dnd. The rect comparison is
+    // dnd-kit-state and can't live in a pure function.
+    const aRect = active.rect.current.translated
+    const oRect = over.rect
+    const below = !!aRect && aRect.top > oRect.top + oRect.height / 2
+    const position: 'before' | 'after' = below ? 'after' : 'before'
+    qc.setQueryData<BoardView | null>(key, (prev) =>
+      prev ? reduceCardMove(prev, activeId, overId, position) : prev
+    )
+  }
+
+  function onDragEnd(e: DragEndEvent): void {
+    setDragging(null)
+    setBlockedListId(null)
+    // Snapshot cursor-on-overlay at the moment of release into the
+    // React state that the dropped SortableCard reads via prop.
+    // captureHoverForDrop clears any prior timeout first - second
+    // drag mid-cooldown would otherwise have the first drag's
+    // pending reset flip its hover-match off too early.
+    captureHoverForDrop()
+    const snap = snapshot.current
+    snapshot.current = null
+    const activeId = String(e.active.id)
+
+    if (!e.over) {
+      // Dropped outside any droppable: revert. flushSync makes the
+      // DOM reflect the snapshot BEFORE dnd-kit measures the source
+      // for its drop animation, so the overlay glides to the
+      // original slot (buttery) instead of snapping.
+      if (snap) flushSync(() => qc.setQueryData(key, snap))
+      // Belt-and-braces: if `snap` was somehow missed, a refetch from
+      // the DB (which still has the truth) corrects the cache.
+      void qc.invalidateQueries({ queryKey: key })
+      return
+    }
+    // ADR-0037 slice 2: swimlane mode has its own drag-end path
+    // because onDragOver did NOT pre-place the card in the new cell
+    // (no live cache reorder). Determine the target from `over.id`
+    // and persist via card.move + (if lane changed) card.update.
+    const mode = board.board.swimlaneMode
+    if (mode) {
+      onSwimlaneDragEnd(e, mode)
+      return
+    }
+    const b = qc.getQueryData<BoardView | null>(key)
+    if (!b) return
+    const target = computeMoveTarget(b, activeId)
+    if (!target) return
+    const { toListId: toId, beforeId, afterId } = target
+
+    // Unchanged vs the pre-drag snapshot → restore & skip the write.
+    if (isUnchangedMove(snap, b, activeId)) {
+      if (snap) qc.setQueryData(key, snap)
+      return
+    }
+
+    // dnd-kit's drop animation runs `scrollIntoView` on the source
+    // card when it landed fully off-screen - which happens on a fast
+    // flick the viewport couldn't autoscroll fast enough to follow.
+    // Untouched, that reveal is an instant 200px+ yank. Flip the
+    // scroll container to `scroll-behavior: smooth` for the drop
+    // window so it glides instead, then clear it so the NEXT drag's
+    // autoscroll stays instant (smooth autoscroll feels laggy).
+    const scroller = document.querySelector('main')
+    if (scroller instanceof HTMLElement) {
+      scroller.style.scrollBehavior = 'smooth'
+      setTimeout(() => {
+        scroller.style.scrollBehavior = ''
+      }, 500)
+    }
+    void ipc
+      .mutate({
+        type: 'card.move',
+        id: activeId,
+        toListId: toId,
+        beforeId,
+        afterId
+      })
+      .catch(() => {
+        if (snap) qc.setQueryData(key, snap)
+      })
+      .finally(() => {
+        void qc.invalidateQueries({ queryKey: key })
+      })
+  }
+
+  /** Swimlane-mode drag end (ADR-0037 slice 2). Snap-on-drop: the
+   *  cache wasn't pre-reordered in `onDragOver`, so the target list /
+   *  lane / position all come from the live drop event. May fire TWO
+   *  mutations - `card.move` for list+position, `card.update` for
+   *  the new priority - sequential, both recorded on the undo stack
+   *  (each step is independently undoable). The renderer's broadcast-
+   *  change subscription invalidates and the lanes re-render. */
+  function onSwimlaneDragEnd(e: DragEndEvent, mode: SwimlaneMode): void {
+    const b = qc.getQueryData<BoardView | null>(key)
+    if (!b || !e.over) return
+    const activeId = String(e.active.id)
+    const overId = String(e.over.id)
+    const aRect = e.active.rect.current.translated
+    const oRect = e.over.rect
+    const below = !!aRect && aRect.top > oRect.top + oRect.height / 2
+    const position: 'before' | 'after' = below ? 'after' : 'before'
+    const plan = planSwimlaneDrop(b, activeId, overId, mode, position, blockDrag)
+    if (plan.kind === 'noop') return
+    if (plan.kind === 'blocked') {
+      void qc.invalidateQueries({ queryKey: key })
+      return
+    }
+    void ipc
+      .mutate({
+        type: 'card.move',
+        id: activeId,
+        toListId: plan.toListId,
+        beforeId: plan.beforeId,
+        afterId: plan.afterId
+      })
+      .then(() => {
+        if (plan.kind === 'move-and-update') {
+          return ipc.mutate({
+            type: 'card.update',
+            id: activeId,
+            patch: { priority: plan.newPriority }
+          })
+        }
+      })
+      .catch(() => {
+        /* let the invalidate snap state back to truth */
+      })
+      .finally(() => {
+        void qc.invalidateQueries({ queryKey: key })
+      })
+  }
+
+  function onDragCancel(): void {
+    setDragging(null)
+    setBlockedListId(null)
+    // Cancel still runs dnd-kit's drop animation (overlay glides back
+    // to the source position), so the same handoff problem applies -
+    // capture cursor-on-overlay state for the cancelled card too.
+    captureHoverForDrop()
+    const snap = snapshot.current
+    snapshot.current = null
+    if (snap) flushSync(() => qc.setQueryData(key, snap))
+    void qc.invalidateQueries({ queryKey: key })
+  }
+
+  return (
+    <>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCorners}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragEnd={onDragEnd}
+      onDragCancel={onDragCancel}
+    >
+      {/* Click anywhere on the board surface that *isn't* a card
+          clears the keyboard-nav focus ring. Without this, focusing
+          a card then clicking elsewhere (the list header, empty list
+          space, the AddCard input) leaves the orphan ring in place
+          until you press Esc or arrow-key to a new card. Scoped to
+          the board's children only so popovers / modals / the header
+          aren't affected; uses event delegation on a single wrapper
+          rather than per-element bubbling listeners. */}
+      <div
+        onClick={(e) => {
+          if (!(e.target as HTMLElement).closest('[data-card-id]')) {
+            focusCard(null)
+          }
+        }}
+      >
+      {(() => {
+        const visibleLists = board.lists.filter((list) => !list.closed)
+        const addList = (name: string): void => {
+          apply(
+            { type: 'list.create', boardId: board.board.id, name },
+            (b) => ({
+              ...b,
+              lists: [
+                ...b.lists,
+                {
+                  id: `tmp-${crypto.randomUUID()}`,
+                  name,
+                  color: null,
+                  closed: false,
+                  position: 'zzzz',
+                  wipLimit: null,
+                  sortMode: null,
+                  onEnter: null,
+                  cards: []
+                }
+              ]
+            })
+          )
+        }
+        // Fresh boards (zero non-closed lists) get a centered welcome
+        // panel instead of just the small "+ Add a list" stub - a
+        // brand-new user shouldn't have to hunt for the affordance.
+        // Once any list exists, the regular kanban row + the small
+        // stub are back so adding more lists works the way it always
+        // has.
+        if (visibleLists.length === 0) {
+          return <BoardEmptyState onAdd={addList} />
+        }
+        // ADR-0037 slice 2 swimlane layout - when the board carries a
+        // non-null `swimlaneMode` we re-flow into lane rows. The
+        // parent's <DndContext> is unchanged; per-(list, lane) cells
+        // register their own droppables under `lane:<key>:list:<id>`.
+        if (board.board.swimlaneMode) {
+          return (
+            <SwimlaneBoard
+              board={board}
+              mode={board.board.swimlaneMode}
+              addList={addList}
+              apply={apply}
+              blockCreate={blockCreate}
+              renderCards={(_list, _laneKey, cards) =>
+                cards.map((card) => (
+                  <SortableCard
+                    key={card.id}
+                    card={card}
+                    labels={board.labels}
+                    apply={apply}
+                    onOpen={setOpenCardId}
+                    showChecklist={showChecklist}
+                    labelsExpanded={labelsExpanded}
+                    onToggleLabelsExpanded={onToggleLabelsExpanded}
+                    anyDragging={dragging != null}
+                    focused={focusedCardId === card.id}
+                    onFocus={focusCard}
+                    postDropHoverMatch={postDropHoverMatch}
+                  />
+                ))
+              }
+            />
+          )
+        }
+        return (
+          <div className="flex items-start gap-4">
+            {visibleLists.map((list) => (
+              <ListColumn
+                key={list.id}
+                list={list}
+                labels={board.labels}
+                apply={apply}
+                onOpenCard={setOpenCardId}
+                blockCreate={blockCreate}
+                blocked={blockedListId === list.id}
+                showChecklist={showChecklist}
+                labelsExpanded={labelsExpanded}
+                onToggleLabelsExpanded={onToggleLabelsExpanded}
+                anyDragging={dragging != null}
+                focusedCardId={focusedCardId}
+                onFocusCard={focusCard}
+                postDropHoverMatch={postDropHoverMatch}
+              />
+            ))}
+            <AddList onAdd={addList} boardId={board.board.id} />
+          </div>
+        )
+      })()}
+      </div>
+
+      <DragOverlay
+        dropAnimation={DROP_ANIMATION}
+        // LIFT_SHADOW lives HERE on the overlay wrapper (not on
+        // CardFace's inline style) so DROP_ANIMATION's keyframes -
+        // which `.animate()` runs against this wrapper element -
+        // are the only thing painting the visible big shadow. With
+        // the shadow also on CardFace it summed with the animated
+        // one and the animation was invisible to the eye. The
+        // `rounded-md` border-radius matches CardFace so the
+        // shadow follows the card's rounded corners cleanly.
+        style={{ boxShadow: LIFT_SHADOW, borderRadius: '0.375rem' }}
+      >
+        {dragging && (
+          // No explicit width: dnd-kit sets the overlay container to
+          // the source element's exact dimensions, so the CardFace
+          // inside renders at the same width as the resting card and
+          // the title wraps identically. Setting `w-68` here used to
+          // make the overlay ~2 px wider, enough to shift a wrap.
+          // `zoom` mirrors the App.tsx wrapper so the dragged card's
+          // text/padding scale matches the source - see the prop's
+          // docstring above. Omitted at 1× so the resulting style
+          // attribute stays empty.
+          //
+          // `group/dragoverlay` + `h-full w-full` make this div a
+          // CSS-:hover group whose hit area matches the visible card.
+          // CardFace below uses `group-hover/dragoverlay:border-ring/60`
+          // so the blue hover border is purely CSS-cascade driven -
+          // no React state, no prop, no useEffect. That's load-bearing
+          // because dnd-kit clones the LAST render of these children
+          // for the drop animation (a frozen snapshot); any
+          // React state we tried to thread through `hovered={…}`
+          // wouldn't reach the snapshot. CSS :hover responds to the
+          // cursor directly on the live DOM node regardless.
+          //
+          // mouseenter/leave separately update a REF - read at
+          // onDragEnd to decide whether the dropped SortableCard
+          // should force-paint hover styles during postDropHold. This
+          // is the live render (pre-clone), so handlers do fire here;
+          // the value they write is what we snapshot to make the
+          // cursor-stays vs cursor-off branches resolve correctly.
+          <div
+            className="group/dragoverlay h-full w-full cursor-grabbing"
+            style={
+              boardZoom !== 1
+                ? ({ zoom: boardZoom } as CSSProperties)
+                : undefined
+            }
+            onMouseEnter={() => {
+              overlayHoveredRef.current = true
+            }}
+            onMouseLeave={() => {
+              overlayHoveredRef.current = false
+            }}
+          >
+            <CardFace
+              card={dragging}
+              labels={board.labels}
+              dragging
+              focused={focusedCardId === dragging.id}
+              showChecklist={showChecklist}
+              labelsExpanded={labelsExpanded}
+            />
+          </div>
+        )}
+      </DragOverlay>
+    </DndContext>
+    <CardDetail
+      boardId={board.board.id}
+      cardId={openCardId}
+      onClose={() => setOpenCardId(null)}
+    />
+    </>
+  )
+}
+
+/** The list's coloured header strip - name + sort chip + WIP count +
+ *  pencil → ListEditor context menu. Extracted from `ListColumn` so
+ *  the swimlane layout (ADR-0037 slice 2) can render a single row of
+ *  list headers at the top of the board instead of repeating one in
+ *  each lane cell. Width-flexible: caller controls the surrounding
+ *  container (`w-72` in both kanban layouts today). */
+export function ListHeader({
+  list,
+  apply
+}: {
+  list: BoardView['lists'][number]
+  apply: (m: Mutation, o: Optimistic) => void
+}) {
+  const atLimit =
+    list.wipLimit != null && list.cards.length >= list.wipLimit
+  const sorted = list.sortMode != null
+  const [saveTplOpen, setSaveTplOpen] = useState(false)
+  return (
+    <>
+    <ContextMenu
+      width={224}
+      menu={(close) => (
+        <ListEditor
+          list={list}
+          apply={apply}
+          close={close}
+          onSaveAsTemplate={() => setSaveTplOpen(true)}
+        />
+      )}
+    >
+      {(open) => (
+        <h2
+          onContextMenu={open}
+          style={
+            list.color
+              ? { backgroundColor: tint(list.color, 45, 'var(--color-background)') }
+              : undefined
+          }
+          className="flex items-center gap-2 px-3 py-2 text-sm font-medium"
+        >
+          <span className="flex-1 truncate">{list.name}</span>
+          {sorted && (
+            <span
+              aria-label={
+                list.sortMode === 'created-desc'
+                  ? 'Sorted newest first'
+                  : 'Sorted oldest first'
+              }
+              title={
+                list.sortMode === 'created-desc'
+                  ? 'Sorted newest first'
+                  : 'Sorted oldest first'
+              }
+              className="inline-flex items-center gap-0.5 rounded bg-muted px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+            >
+              {list.sortMode === 'created-desc' ? (
+                <ArrowDown className="size-3" />
+              ) : (
+                <ArrowUp className="size-3" />
+              )}
+              {list.sortMode === 'created-desc' ? 'New' : 'Old'}
+            </span>
+          )}
+          <span
+            className={`text-xs ${
+              atLimit ? 'text-red-400' : 'text-muted-foreground'
+            }`}
+          >
+            {list.wipLimit != null
+              ? `${list.cards.length} / ${list.wipLimit}`
+              : list.cards.length}
+          </span>
+          <button
+            aria-label="Edit list"
+            onClick={open}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <Pencil className="size-3.5" />
+          </button>
+        </h2>
+      )}
+    </ContextMenu>
+    <SaveTemplateDialog
+      open={saveTplOpen}
+      kind="list"
+      sourceId={list.id}
+      defaultName={list.name}
+      onClose={() => setSaveTplOpen(false)}
+    />
+    </>
+  )
+}
+
+const ListColumn = memo(function ListColumn({
+  list,
+  labels,
+  apply,
+  onOpenCard,
+  blockCreate,
+  blocked,
+  showChecklist,
+  labelsExpanded,
+  onToggleLabelsExpanded,
+  anyDragging,
+  focusedCardId,
+  onFocusCard,
+  postDropHoverMatch
+}: {
+  list: BoardView['lists'][number]
+  labels: LabelView[]
+  apply: (m: Mutation, o: Optimistic) => void
+  onOpenCard: (id: string) => void
+  blockCreate: boolean
+  blocked: boolean
+  showChecklist: boolean
+  /** Trello-style label display + its board-wide toggle, threaded down
+   *  to each SortableCard. See Board's props for the full story. */
+  labelsExpanded?: boolean
+  onToggleLabelsExpanded?: () => void
+  /** True while ANY card on the board is being dragged. Forwarded to
+   *  each SortableCard so the hover height tween is suspended for the
+   *  whole gesture (see `useSmoothHeight`). */
+  anyDragging: boolean
+  /** ADR-0035 keyboard focus - the one focused card on the board, or
+   *  null when nothing is focused. Drives the focus ring on the
+   *  matching `<SortableCard>`. */
+  focusedCardId: string | null
+  /** Click-to-focus so mouse + keyboard stay in sync (click a card →
+   *  the keyboard focus moves there, the next arrow key navigates
+   *  from there). */
+  onFocusCard: (id: string | null) => void
+  /** True when a drop just landed AND the cursor was on the overlay at
+   *  release time. The matching SortableCard force-paints itself in
+   *  the source's hovered styles so the unmount-handoff doesn't fire
+   *  a 150 ms :hover transition. See Board's postDropHoverMatch
+   *  comment for the full rationale. */
+  postDropHoverMatch: boolean
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: `list:${list.id}` })
+  // At/over the card limit: the badge tints, and (when the setting is
+  // on) the add-card box is blocked.
+  const atLimit =
+    list.wipLimit != null && list.cards.length >= list.wipLimit
+  // `blocked` = a card from another list is being dragged onto this
+  // full list right now. The red ring holds while it hovers; the list
+  // also shakes once each time a block STARTS (a false→true edge).
+  // The shake alternates two identical animation classes so the CSS
+  // animation reliably restarts - re-applying the same class would
+  // not replay it, which left fast / back-to-back drags with no shake.
+  const [shakeTick, setShakeTick] = useState(0)
+  const wasBlocked = useRef(false)
+  useEffect(() => {
+    if (blocked && !wasBlocked.current) setShakeTick((t) => t + 1)
+    wasBlocked.current = blocked
+  }, [blocked])
+  const shakeClass =
+    shakeTick === 0 ? '' : shakeTick % 2 === 1 ? 'shake-a' : 'shake-b'
+  return (
+    <section
+      ref={setNodeRef}
+      style={list.color ? { borderColor: list.color } : undefined}
+      className={`flex w-72 shrink-0 flex-col overflow-hidden rounded-lg border pb-1 transition-colors ${
+        list.color ? '' : 'border-border'
+      } ${isOver ? 'bg-muted' : 'bg-muted/60'} ${
+        blocked ? 'ring-2 ring-red-400/70' : ''
+      } ${shakeClass}`}
+    >
+      <ListHeader list={list} apply={apply} />
+
+      <SortableContext
+        items={list.cards.map((c) => c.id)}
+        strategy={verticalListSortingStrategy}
+      >
+        <ul className="flex min-h-2 flex-col gap-2 px-2 pt-2">
+          {list.cards.map((card) => (
+            <SortableCard
+              key={card.id}
+              card={card}
+              labels={labels}
+              apply={apply}
+              onOpen={onOpenCard}
+              showChecklist={showChecklist}
+              labelsExpanded={labelsExpanded}
+              onToggleLabelsExpanded={onToggleLabelsExpanded}
+              anyDragging={anyDragging}
+              focused={focusedCardId === card.id}
+              onFocus={onFocusCard}
+              postDropHoverMatch={postDropHoverMatch}
+            />
+          ))}
+        </ul>
+      </SortableContext>
+
+      <AddCard
+        listId={list.id}
+        full={atLimit && blockCreate}
+        onAdd={(title) =>
+          apply({ type: 'card.create', listId: list.id, title }, (b) =>
+            mapLists(b, (l) =>
+              l.id === list.id
+                ? {
+                    ...l,
+                    cards: [
+                      ...l.cards,
+                      {
+                        id: `tmp-${crypto.randomUUID()}`,
+                        title,
+                        description: null,
+                        position: 'zzzz',
+                        completed: false,
+                        dueAt: null,
+                        priority: null,
+                        labelIds: [],
+                        checklists: [],
+                        comments: [],
+                        attachments: [],
+                        coverAttachmentId: null,
+                        activities: []
+                      }
+                    ]
+                  }
+                : l
+            )
+          )
+        }
+      />
+    </section>
+  )
+})
+
+const SortableCard = memo(function SortableCard({
+  card,
+  labels,
+  apply,
+  onOpen,
+  showChecklist,
+  labelsExpanded,
+  onToggleLabelsExpanded,
+  anyDragging,
+  focused,
+  onFocus,
+  postDropHoverMatch
+}: {
+  card: CardView
+  labels: LabelView[]
+  apply: (m: Mutation, o: Optimistic) => void
+  onOpen: (id: string) => void
+  showChecklist: boolean
+  /** Trello-style label display + the board-wide toggle. Forwarded to
+   *  the in-list `<CardLabels>` so a bar-click reveals names everywhere. */
+  labelsExpanded?: boolean
+  onToggleLabelsExpanded?: () => void
+  /** True while any card on the board is being dragged - suspends this
+   *  card's hover height tween for the whole gesture. */
+  anyDragging: boolean
+  /** ADR-0035 - true when the keyboard-focus indicator should ring
+   *  this card. Mouse clicks bring focus here too (see `onFocus`)
+   *  so kbd + mouse stay in sync. */
+  focused: boolean
+  onFocus: (id: string | null) => void
+  /** Board-level snapshot from onDragEnd: true when the cursor was on
+   *  the overlay at release. The just-dropped card combines this with
+   *  its own `postDropHold` to decide whether to force-paint the
+   *  source's hovered styles. See Board's state declaration. */
+  postDropHoverMatch: boolean
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({
+      id: card.id,
+      // FLIP-animate layout changes ONLY while a drag is in progress.
+      // With the live cache-reorder pattern (onDragOver mutates the
+      // cache), displaced siblings move because `SortableContext.items`
+      // changes - and dnd-kit's internal `useDerivedTransform` FLIP is
+      // what glides them. That FLIP is gated by `animateLayoutChanges`,
+      // so it must be ON during the drag or siblings snap instead of
+      // sliding. It must be OFF once the drag ends: otherwise the
+      // just-dropped card FLIP-slides from its old slot to its new one
+      // on top of the DragOverlay's drop animation (the M-review snap
+      // bug). `isSorting` is the exact discriminator - true for the
+      // whole drag, false the instant the drop completes.
+      animateLayoutChanges: ({ isSorting }) => isSorting,
+      // Match the drop animation's duration + easing so sibling shifts
+      // and the released card feel like one consistent motion. Pulling
+      // from the shared constant keeps them in lockstep automatically
+      // if someone re-tunes the drop later.
+      transition: {
+        duration: DROP_ANIMATION_DURATION_MS,
+        easing: 'cubic-bezier(0.22, 1, 0.36, 1)'
+      }
+    })
+  // Lifted state - the ContextMenu unmounts its panel on close, so the
+  // modal needs to live above it (a sibling of <ContextMenu>) to
+  // survive the menu closing as it opens.
+  const [urlCoverOpen, setUrlCoverOpen] = useState(false)
+
+  // Layout-hold across the drop animation. dnd-kit clears `isDragging`
+  // the instant `onDragEnd` fires - BEFORE the 200 ms drop animation
+  // runs. The drag-revealed checkbox column has a 200 ms width
+  // transition, so without this it'd collapse to w-0 well before the
+  // overlay unmounts, and the visible card snap-shrinks at handoff.
+  // 220 ms = drop duration + a 20 ms buffer so the hold survives any
+  // animation-frame jitter between WAAPI's end callback and React's
+  // next render. Once the hold releases, the existing 200 ms width
+  // transition takes over for a graceful slide-closed if the cursor
+  // isn't on the dropped card.
+  const [postDropHold, setPostDropHold] = useState(false)
+  const wasDraggingRef = useRef(false)
+  useEffect(() => {
+    if (wasDraggingRef.current && !isDragging) {
+      setPostDropHold(true)
+      const t = window.setTimeout(
+        () => setPostDropHold(false),
+        POST_DROP_HOLD_MS
+      )
+      wasDraggingRef.current = isDragging
+      return () => window.clearTimeout(t)
+    }
+    wasDraggingRef.current = isDragging
+  }, [isDragging])
+
+  const toggleComplete = (): void =>
+    apply(
+      {
+        type: 'card.update',
+        id: card.id,
+        patch: { completed: !card.completed }
+      },
+      (b) =>
+        mapLists(b, (l) => ({
+          ...l,
+          cards: l.cards.map((c) =>
+            c.id === card.id ? { ...c, completed: !c.completed } : c
+          )
+        }))
+    )
+
+  // Fire the card-completed celebration on every incomplete→complete
+  // edge, including flips driven from the card-detail modal or from
+  // an MCP write - the underlying card preview stays mounted, so the
+  // hook sees the `card.completed` prop transition either way.
+  // Returns 'a' / 'b' (alternating) while the animation is playing,
+  // null otherwise - the alternation is what lets a rapid second
+  // flip restart the CSS animation cleanly.
+  const completePhase = useJustCompleted(card.completed)
+
+  // Tween the card's height when hover-revealing the checkbox column
+  // wraps the title to an extra line (or any other content reflow), so
+  // it grows/shrinks smoothly instead of snapping. dnd-kit owns the
+  // `<li>` via `setNodeRef`; we tee off our own ref to the same node to
+  // observe it. Disabled during the drag + the post-drop hold so a
+  // mid-flight height animation can't corrupt the bounding-rect dnd-kit
+  // measures for the drag overlay.
+  const cardElRef = useRef<HTMLLIElement | null>(null)
+  const setCardRef = useCallback(
+    (node: HTMLLIElement | null): void => {
+      setNodeRef(node)
+      cardElRef.current = node
+    },
+    [setNodeRef]
+  )
+  // Suspend the height tween for the entire drag gesture (any card),
+  // not just while THIS card is the one being dragged - a sibling
+  // reflow mid-drag shouldn't animate, and it keeps the observers quiet
+  // while dnd-kit is measuring rects.
+  useSmoothHeight(cardElRef, !anyDragging && !postDropHold)
+
+  return (
+    <>
+    <ContextMenu
+      width={236}
+      menu={(close) => (
+        <CardMenu
+          card={card}
+          labels={labels}
+          apply={apply}
+          close={close}
+          onRequestCoverFromUrl={() => setUrlCoverOpen(true)}
+        />
+      )}
+    >
+      {(open) => (
+        // Drag listeners on the whole <li> so the entire card surface
+        // is a drag handle. The PointerSensor's 6 px activation
+        // constraint keeps clicks from starting drags. Interactive
+        // children (checkbox, pencil, title-click) stop pointerdown
+        // propagation so dnd-kit never starts tracking from them -
+        // belt-and-braces against any future sensor tweaks.
+        <li
+          ref={setCardRef}
+          {...attributes}
+          {...listeners}
+          data-card-id={card.id}
+          style={{ transform: CSS.Transform.toString(transform), transition }}
+          onContextMenu={open}
+          // Click-to-focus on mouseup, NOT pointerdown - pressing the
+          // button shouldn't visibly select the card before you know
+          // whether the gesture was a click or a drag. `onClick` only
+          // fires when pointerdown+pointerup land on the same element
+          // without enough motion to trip dnd-kit's 6 px activation
+          // distance; if a drag actually starts, no click event fires
+          // and focus stays where it was. Title click bubbles to here
+          // too, which means opening a card detail also focuses it -
+          // intentional.
+          onClick={() => onFocus(card.id)}
+          className={cn(
+            // `focus:outline-none` only - we deliberately DO NOT add
+            // `focus-visible:ring-*` here. dnd-kit's a11y layer calls
+            // `.focus()` on the source element after a drop, which
+            // would paint a focus-visible ring competing with the
+            // `focused` state ring (double-highlight bug seen when
+            // arrow-keying after a drag). The `focused` state IS the
+            // single source of truth for the keyboard-nav indicator.
+            'group/card relative flex flex-col gap-1 overflow-hidden rounded-md border bg-card px-3 py-2 text-sm transition-[border-color,box-shadow] cursor-grab active:cursor-grabbing focus:outline-none',
+            // Default vs `cursor-was-on-overlay-at-drop-end` styling.
+            // The post-drop force matches what the DragOverlay's last
+            // frame is painting (border-ring/60 + shadow-md), so when
+            // the overlay unmounts the source is ALREADY at those
+            // values and no transition fires. When postDropHold
+            // expires (220 ms after drop), the class flips to defaults
+            // - if the cursor IS still on the card, :hover-prefixed
+            // utilities keep the same values (no transition); if it
+            // isn't, the existing `transition-[border-color,box-shadow]`
+            // 150 ms ease softens the settle.
+            postDropHold && postDropHoverMatch
+              ? 'border-ring/60 shadow-md'
+              : 'border-border shadow-sm hover:border-ring/60 hover:shadow-md',
+            // ADR-0035 keyboard focus ring - slightly thicker than the
+            // hover one so it reads as the persistent indicator, not a
+            // transient hover state.
+            focused && 'ring-2 ring-ring ring-offset-1 ring-offset-background',
+            isDragging
+              ? 'opacity-0'
+              : card.completed
+                ? 'opacity-70 hover:opacity-100'
+                : '',
+            completePhase && `complete-celebrate-${completePhase}`
+          )}
+        >
+          <CardCoverThumb card={card} onClick={() => onOpen(card.id)} />
+          <CardLabels
+            labelIds={card.labelIds}
+            labels={labels}
+            expanded={labelsExpanded}
+            onToggleExpand={onToggleLabelsExpanded}
+          />
+          {/* Complete-checkbox hidden until card hover (or focus, or
+              already-completed). The wrapper transitions width 0→6 so
+              the checkbox is revealed by clipping and the title slides
+              right with the flex layout - Trello-style. A completed
+              card keeps the box visible so its state is obvious without
+              a hover. */}
+          <div className="flex items-start">
+            <div
+              className={cn(
+                'shrink-0 overflow-hidden transition-[width] duration-200 ease-out',
+                // `isDragging` keeps the column open for the duration of
+                // the drag itself; `postDropHold` keeps it open for the
+                // additional ~420 ms the drop animation needs to land.
+                // Together they bridge the entire drag→drop window so
+                // the source layout matches the overlay's captured
+                // dimensions when it unmounts (no snap-shrink at
+                // handoff). After the hold releases, the existing
+                // 200 ms width transition reads as a graceful settle
+                // if the cursor isn't already over the dropped card.
+                card.completed || isDragging || postDropHold
+                  ? 'w-6'
+                  : 'w-0 group-hover/card:w-6 group-focus-within/card:w-6'
+              )}
+            >
+              <button
+                aria-label={
+                  card.completed ? 'Mark incomplete' : 'Mark complete'
+                }
+                title={card.completed ? 'Mark incomplete' : 'Mark complete'}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  toggleComplete()
+                  // Drop focus immediately - Chrome focuses buttons on
+                  // mouse click, which would otherwise leave the
+                  // wrapper's group-focus-within state "on" and the
+                  // checkbox stuck visible after a click (especially
+                  // noticeable on cards with covers). Keyboard Tab
+                  // navigation still triggers focus-within naturally.
+                  ;(e.currentTarget as HTMLButtonElement).blur()
+                }}
+                className={cn(
+                  'mt-0.5 mr-2 flex size-4 shrink-0 cursor-pointer items-center justify-center rounded border',
+                  card.completed
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-border',
+                  completePhase && `complete-pop-${completePhase}`
+                )}
+              >
+                {card.completed && (
+                  <Check
+                    className={cn(
+                      'size-3',
+                      completePhase && `complete-check-pop-in-${completePhase}`
+                    )}
+                  />
+                )}
+              </button>
+            </div>
+            {/* Title is part of the drag surface (don't stop
+                propagation here - the 6 px activation distance lets
+                a click open the card and a drag-move start the drag).
+                Keeping stopPropagation only on the small icon buttons
+                (checkbox, pencil) where losing drag is fine. */}
+            <span
+              onClick={() => onOpen(card.id)}
+              className={cn(
+                'min-w-0 flex-1 wrap-anywhere pr-5',
+                card.completed && 'text-muted-foreground line-through'
+              )}
+            >
+              {card.title}
+            </span>
+          </div>
+          <TitleUrlChip title={card.title} />
+          <div className="flex flex-wrap items-center gap-1.5">
+            <PriorityBadge card={card} />
+            <DueBadge card={card} />
+          </div>
+          {showChecklist && (
+            // Slide the preview a touch on card hover so the
+            // card-complete checkbox clears its own column on the
+            // left. Smaller shift than the title's full w-6 reveal -
+            // matching the title exactly felt too indented.
+            <div
+              className={cn(
+                'transition-[margin-left] duration-200 ease-out',
+                card.completed
+                  ? 'ml-1'
+                  : 'ml-0 group-hover/card:ml-4 group-focus-within/card:ml-4'
+              )}
+            >
+              <CardChecklistPreview card={card} apply={apply} />
+            </div>
+          )}
+
+          {/* Hover edit affordance - same menu as right-click. */}
+          <button
+            aria-label="Edit card"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={open}
+            className="absolute right-1.5 top-1.5 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover/card:opacity-100"
+          >
+            <Pencil className="size-3.5" />
+          </button>
+        </li>
+      )}
+    </ContextMenu>
+    <UrlCoverModal
+      card={card}
+      open={urlCoverOpen}
+      onClose={() => setUrlCoverOpen(false)}
+    />
+    </>
+  )
+})
+
+// Exported so the swimlane layout can render an AddCard per (list,
+// lane) cell that presets the new card's priority - see
+// SwimlaneBoard's onAdd wiring.
+export function AddCard({
+  listId,
+  onAdd,
+  full
+}: {
+  listId: string
+  onAdd: (title: string) => void
+  full?: boolean
+}) {
+  const [value, setValue] = useState('')
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const submit = (): void => {
+    const t = value.trim()
+    if (!t) return
+    onAdd(t)
+    setValue('')
+  }
+  // ADR-0035 - focus this list's input when the shortcut handler
+  // dispatches `kanbini:add-card`. Filtered by listId so only the
+  // targeted list's box pops, no matter how many lists are rendered.
+  useEffect(() => {
+    if (full) return
+    const onAddRequest = (e: Event): void => {
+      const detail = (e as CustomEvent<{ listId: string }>).detail
+      if (detail?.listId === listId) inputRef.current?.focus()
+    }
+    document.addEventListener('kanbini:add-card', onAddRequest)
+    return () => document.removeEventListener('kanbini:add-card', onAddRequest)
+  }, [listId, full])
+  // List is at its card limit - show why instead of the add-card input.
+  if (full) {
+    return (
+      <div className="m-2 px-3 py-2 text-sm text-muted-foreground">
+        Card limit reached
+      </div>
+    )
+  }
+  return (
+    <input
+      ref={inputRef}
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onKeyDown={(e) => e.key === 'Enter' && submit()}
+      onBlur={submit}
+      placeholder="+ Add a card"
+      className="m-2 rounded-md border border-transparent bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground hover:border-border focus:border-ring focus:outline-none"
+    />
+  )
+}
+
+// Exported so the swimlane layout (which renders its own board chrome
+// instead of the regular kanban row) can reuse the same inline input
+// + kanbini:add-list shortcut wiring instead of duplicating the
+// behaviour or falling back to window.prompt (which Electron disables
+// in the renderer).
+export function AddList({
+  onAdd,
+  boardId
+}: {
+  onAdd: (name: string) => void
+  // Passed through to the template picker so an instantiated list
+  // lands on this board. Optional - when omitted, the "From template"
+  // affordance is hidden (no host to add the list to).
+  boardId?: string
+}) {
+  const [value, setValue] = useState('')
+  const [tplOpen, setTplOpen] = useState(false)
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const qc = useQueryClient()
+  const submit = (): void => {
+    const t = value.trim()
+    if (!t) return
+    onAdd(t)
+    setValue('')
+  }
+  // ADR-0035 - focus on `kanbini:add-list` (e.g. user pressed the
+  // "new list" shortcut). Mounted once per board, no filter needed.
+  useEffect(() => {
+    const onAddRequest = (): void => inputRef.current?.focus()
+    document.addEventListener('kanbini:add-list', onAddRequest)
+    return () => document.removeEventListener('kanbini:add-list', onAddRequest)
+  }, [])
+  return (
+    <div className="flex w-72 shrink-0 flex-col gap-1">
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && submit()}
+        onBlur={submit}
+        placeholder="+ Add a list"
+        className="rounded-lg border border-dashed border-border bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus:border-ring focus:outline-none"
+      />
+      {boardId && (
+        <button
+          type="button"
+          onClick={() => setTplOpen(true)}
+          className="rounded-md border border-dashed border-transparent px-3 py-1.5 text-left text-xs text-muted-foreground hover:border-border hover:text-foreground"
+        >
+          + From template
+        </button>
+      )}
+      {boardId && (
+        <TemplatePickerDialog
+          open={tplOpen}
+          kind="list"
+          targetBoardId={boardId}
+          onClose={() => setTplOpen(false)}
+          onCreated={({ boardId: bId }: { boardId: string }) => {
+            // The new list lives in the cached board view - invalidate
+            // so it renders without a manual refetch.
+            void qc.invalidateQueries({ queryKey: ['board', bId] })
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// Centered welcome panel shown when a board has no non-closed lists
+// (brand-new board, or every list has been closed). One input + a
+// primary submit button - same flow as the inline AddList stub but
+// bigger and easier to find. The button is wired to the same submit
+// path so users can either press Enter or click.
+function BoardEmptyState({ onAdd }: { onAdd: (name: string) => void }) {
+  const [value, setValue] = useState('')
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const submit = (): void => {
+    const t = value.trim()
+    if (!t) {
+      inputRef.current?.focus()
+      return
+    }
+    onAdd(t)
+    setValue('')
+  }
+  return (
+    <div className="mx-auto flex w-full max-w-md flex-col items-center gap-4 rounded-lg border border-dashed border-border bg-card/40 p-10 text-center">
+      <div
+        className="size-28 text-muted-foreground [&>svg]:h-full [&>svg]:w-full"
+        dangerouslySetInnerHTML={{ __html: emptyBoardSvg }}
+      />
+      <div className="flex flex-col gap-1">
+        <h3 className="text-base font-semibold text-foreground">
+          This board is empty
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          Lists are the columns on your board. Call them anything (To
+          do, In progress, Done). Add your first one to start.
+        </p>
+      </div>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          submit()
+        }}
+        className="flex w-full flex-col gap-2"
+      >
+        <input
+          ref={inputRef}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="List name"
+          autoFocus
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        />
+        <button
+          type="submit"
+          disabled={value.trim() === ''}
+          className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <ListPlus className="size-4" />
+          Create first list
+        </button>
+      </form>
+    </div>
+  )
+}

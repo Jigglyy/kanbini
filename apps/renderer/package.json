@@ -1,0 +1,48 @@
+{
+  "name": "@kanbini/renderer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
+  },
+  "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "@kanbini/shared": "workspace:*",
+    "@radix-ui/react-slot": "^1.2.4",
+    "@tanstack/react-query": "^5.100.10",
+    "@tiptap/extension-code-block-lowlight": "^3.23.4",
+    "@tiptap/extension-link": "^3.23.4",
+    "@tiptap/extension-placeholder": "^3.23.4",
+    "@tiptap/extension-task-item": "^3.23.4",
+    "@tiptap/extension-task-list": "^3.23.4",
+    "@tiptap/extension-typography": "^3.23.4",
+    "@tiptap/pm": "^3.23.4",
+    "@tiptap/react": "^3.23.4",
+    "@tiptap/starter-kit": "^3.23.4",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "highlight.js": "^11.11.1",
+    "lowlight": "^3.3.0",
+    "lucide-react": "^1.16.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "tailwind-merge": "^3.6.0",
+    "tiptap-markdown": "^0.9.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/jest-dom": "^6.6.4",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "jsdom": "^26.1.0",
+    "vitest": "^3.2.4"
+  }
+}

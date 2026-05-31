@@ -1,0 +1,64 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+out/
+build/
+release/
+*.tsbuildinfo
+# Electron-builder's `buildResources: build` dir (NSIS scripts, app
+# icons) is INPUT not output — keep it tracked. The generic `build/`
+# rule above is for bundler output trees that happen to share the
+# name.
+!apps/desktop/build/
+!apps/desktop/build/**
+
+# Electron / packaging
+.electron-builder/
+app/dist/
+
+# Local data / runtime (never commit user data or local DBs)
+*.sqlite
+*.sqlite-*
+*.db
+data/
+userData/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Local-only AI tooling config (leaks $USER paths + per-machine perms)
+.claude/
+.mcp.json
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Playwright E2E artifacts (per-run traces, screenshots, videos)
+apps/desktop-e2e/test-results/
+apps/desktop-e2e/playwright-report/
+
+# Maintainer-local working docs, kept on the maintainer's machine and
+# not part of the public repo. Everything at the repo root and under
+# docs/ is ignored except the published set allow-listed below, so local
+# working notes never get committed by accident. (Generated inventories
+# such as the third-party-license file are rebuilt before packaging.)
+/*.md
+!/README.md
+/docs/*.md
+!/docs/DESIGN.md
+!/docs/MCP.md
+!/docs/PACKAGING.md

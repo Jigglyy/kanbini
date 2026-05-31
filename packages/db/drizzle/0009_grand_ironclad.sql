@@ -1,0 +1,1 @@
+ALTER TABLE `list` ADD `on_enter` text;
