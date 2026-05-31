@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { applyLabelOrder, loadLabelOrder, moveLabelInOrder } from '../label-order'
+import {
+  applyLabelOrder,
+  loadLabelOrder,
+  moveLabelInOrder,
+  projectReorder,
+  reorderLabels
+} from '../label-order'
 
 // Per-board manual label order (localStorage). Default = creation order
 // (the DB returns labels that way), with an optional user reorder on top.
@@ -52,5 +58,61 @@ describe('moveLabelInOrder', () => {
   it('is a no-op for an id not in the list', () => {
     const ids = ['a', 'b']
     expect(moveLabelInOrder('b1', ids, 'zzz', 1)).toBe(ids)
+  })
+})
+
+describe('projectReorder', () => {
+  it('moves an id forward to the target slot (arrayMove semantics)', () => {
+    expect(projectReorder(['a', 'b', 'c', 'd'], 'a', 'c')).toEqual([
+      'b',
+      'c',
+      'a',
+      'd'
+    ])
+  })
+
+  it('moves an id backward to the target slot', () => {
+    expect(projectReorder(['a', 'b', 'c', 'd'], 'd', 'b')).toEqual([
+      'a',
+      'd',
+      'b',
+      'c'
+    ])
+  })
+
+  it('swaps two adjacent ids', () => {
+    expect(projectReorder(['a', 'b', 'c'], 'b', 'a')).toEqual(['b', 'a', 'c'])
+  })
+
+  it('returns the SAME ref when active === over', () => {
+    const ids = ['a', 'b', 'c']
+    expect(projectReorder(ids, 'b', 'b')).toBe(ids)
+  })
+
+  it('returns the SAME ref when either id is missing', () => {
+    const ids = ['a', 'b', 'c']
+    expect(projectReorder(ids, 'zzz', 'b')).toBe(ids)
+    expect(projectReorder(ids, 'a', 'zzz')).toBe(ids)
+  })
+})
+
+describe('reorderLabels', () => {
+  it('persists the projected order and returns it', () => {
+    const out = reorderLabels('b1', ['a', 'b', 'c'], 'a', 'c')
+    expect(out).toEqual(['b', 'c', 'a'])
+    expect(loadLabelOrder('b1')).toEqual(['b', 'c', 'a'])
+  })
+
+  it('materializes the full creation order on the first drag', () => {
+    // No saved order yet; dropping 'a' onto 'b' must persist every id so
+    // the new order survives a reload (not just the moved pair).
+    reorderLabels('b1', ['a', 'b', 'c', 'd'], 'a', 'b')
+    expect(loadLabelOrder('b1')).toEqual(['b', 'a', 'c', 'd'])
+  })
+
+  it('is a no-op (writes nothing) when nothing moves', () => {
+    const ids = ['a', 'b', 'c']
+    expect(reorderLabels('b1', ids, 'b', 'b')).toBe(ids)
+    expect(localStorage.getItem(KEY)).toBeNull()
   })
 })

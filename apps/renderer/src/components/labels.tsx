@@ -1,5 +1,19 @@
 import { useState } from 'react'
 import { Tag } from 'lucide-react'
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  rectSortingStrategy,
+  useSortable
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import type { BoardView, CardView, LabelView, Mutation } from '@kanbini/shared'
 import type { Optimistic } from '../hooks/useBoardMutation'
 import { ACCENTS, accentText, swatchOptions } from '../lib/palette'
@@ -62,14 +76,17 @@ export const withLabelDelete = (b: BoardView, id: string): BoardView => ({
 })
 
 /** Header bar: toggle labels as filters + create new ones. The chips
- *  render in `labels` order (the caller layers the manual order in);
- *  `onMove` reorders within the right-click editor. */
+ *  render in `labels` order (the caller layers the manual order in).
+ *  Reorder by dragging a chip (`onReorder`, drop active->over); the
+ *  right-click editor's `onMove` left/right stays as the keyboard /
+ *  no-pointer fallback. */
 export function LabelBar({
   boardId,
   labels,
   active,
   onToggle,
   onMove,
+  onReorder,
   apply
 }: {
   boardId: string
@@ -78,52 +95,51 @@ export function LabelBar({
   onToggle: (id: string) => void
   /** Move a label one slot left (-1) / right (+1) in the bar. */
   onMove?: (id: string, dir: -1 | 1) => void
+  /** Drag reorder: drop the dragged chip (`activeId`) onto `overId`. */
+  onReorder?: (activeId: string, overId: string) => void
   apply: Apply
 }) {
+  // Distance constraint so a plain click still toggles the filter and a
+  // right-click still opens the editor - only a deliberate drag past
+  // 6px starts a reorder (mirrors the card SortableContext, ADR-0035).
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+  )
+  const handleDragEnd = (e: DragEndEvent): void => {
+    const { active: a, over } = e
+    if (over && a.id !== over.id) onReorder?.(String(a.id), String(over.id))
+  }
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {labels.map((l, i) => {
-        const on = active.has(l.id)
-        return (
-          <ContextMenu
-            key={l.id}
-            width={224}
-            menu={(close) => (
-              <LabelEditor
-                label={l}
-                apply={apply}
-                close={close}
-                onMoveLeft={
-                  onMove && i > 0 ? () => onMove(l.id, -1) : undefined
-                }
-                onMoveRight={
-                  onMove && i < labels.length - 1
-                    ? () => onMove(l.id, 1)
-                    : undefined
-                }
-              />
-            )}
-          >
-            {(open) => (
-              <button
-                onClick={() => onToggle(l.id)}
-                onContextMenu={open}
-                title={
-                  on
-                    ? 'Filtering by this label (right-click to edit)'
-                    : 'Filter by this label (right-click to edit)'
-                }
-                className={`flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs ${
-                  on ? 'ring-2 ring-ring' : 'opacity-80 hover:opacity-100'
-                }`}
-                style={{ backgroundColor: l.color, color: accentText(l.color) }}
-              >
-                {l.name}
-              </button>
-            )}
-          </ContextMenu>
-        )
-      })}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={handleDragEnd}
+      >
+        <SortableContext
+          items={labels.map((l) => l.id)}
+          // rectSortingStrategy (not horizontal/vertical) because the bar
+          // is flex-wrap with variable-width chips - the list strategies
+          // assume a single non-wrapping row of equal-size items.
+          strategy={rectSortingStrategy}
+        >
+          {labels.map((l, i) => (
+            <SortableLabelChip
+              key={l.id}
+              label={l}
+              on={active.has(l.id)}
+              onToggle={onToggle}
+              apply={apply}
+              onMoveLeft={onMove && i > 0 ? () => onMove(l.id, -1) : undefined}
+              onMoveRight={
+                onMove && i < labels.length - 1
+                  ? () => onMove(l.id, 1)
+                  : undefined
+              }
+            />
+          ))}
+        </SortableContext>
+      </DndContext>
 
       <Popover
         width={224}
@@ -139,6 +155,75 @@ export function LabelBar({
         {(close) => <CreateLabel boardId={boardId} apply={apply} close={close} />}
       </Popover>
     </div>
+  )
+}
+
+/** One draggable filter chip. The whole chip is the drag handle (like a
+ *  card `<li>`); the 6px activation distance disambiguates a click
+ *  (toggle filter) and a right-click (open editor) from a drag. */
+function SortableLabelChip({
+  label,
+  on,
+  onToggle,
+  apply,
+  onMoveLeft,
+  onMoveRight
+}: {
+  label: LabelView
+  on: boolean
+  onToggle: (id: string) => void
+  apply: Apply
+  onMoveLeft?: () => void
+  onMoveRight?: () => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: label.id })
+  const style: React.CSSProperties = {
+    transform: CSS.Translate.toString(transform),
+    transition,
+    backgroundColor: label.color,
+    color: accentText(label.color),
+    // No DragOverlay here, so the SAME chip follows the cursor - keep it
+    // solid + lifted above its neighbours (shadow-lg in the className)
+    // while the others slide aside, rather than dimming the thing the
+    // user is dragging.
+    zIndex: isDragging ? 20 : undefined,
+    touchAction: 'none'
+  }
+  return (
+    <ContextMenu
+      width={224}
+      menu={(close) => (
+        <LabelEditor
+          label={label}
+          apply={apply}
+          close={close}
+          onMoveLeft={onMoveLeft}
+          onMoveRight={onMoveRight}
+        />
+      )}
+    >
+      {(open) => (
+        <button
+          ref={setNodeRef}
+          style={style}
+          {...attributes}
+          {...listeners}
+          onClick={() => onToggle(label.id)}
+          onContextMenu={open}
+          title={
+            on
+              ? 'Filtering by this label (drag to reorder, right-click to edit)'
+              : 'Filter by this label (drag to reorder, right-click to edit)'
+          }
+          className={`flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs ${
+            isDragging ? 'cursor-grabbing shadow-lg' : 'cursor-grab'
+          } ${on ? 'ring-2 ring-ring' : 'opacity-80 hover:opacity-100'}`}
+        >
+          {label.name}
+        </button>
+      )}
+    </ContextMenu>
   )
 }
 

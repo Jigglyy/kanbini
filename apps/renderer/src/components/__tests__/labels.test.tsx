@@ -279,6 +279,45 @@ describe('<LabelBar>', () => {
   })
 })
 
+describe('<LabelBar> drag reorder', () => {
+  it('renders chips as sortable drag handles but still toggles on a plain click', async () => {
+    const user = userEvent.setup()
+    const onToggle = vi.fn()
+    render(
+      <LabelBar
+        boardId="b1"
+        labels={labels}
+        active={new Set()}
+        onToggle={onToggle}
+        onReorder={vi.fn()}
+        apply={vi.fn()}
+      />
+    )
+    const bug = screen.getByRole('button', { name: 'Bug' })
+    // The chip is the drag handle (cursor-grab) + dnd-kit tags it for AT.
+    expect(bug.className).toContain('cursor-grab')
+    expect(bug).toHaveAttribute('aria-roledescription', 'sortable')
+    // A click with no movement must NOT be swallowed by the drag sensor.
+    await user.click(bug)
+    expect(onToggle).toHaveBeenCalledWith('l1')
+  })
+
+  it('right-click still opens the editor when reorder is enabled', () => {
+    render(
+      <LabelBar
+        boardId="b1"
+        labels={labels}
+        active={new Set()}
+        onToggle={vi.fn()}
+        onReorder={vi.fn()}
+        apply={vi.fn()}
+      />
+    )
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Bug' }))
+    expect(screen.getByText('Rename label')).toBeInTheDocument()
+  })
+})
+
 describe('<LabelBar> right-click editor', () => {
   function renderBar(apply = vi.fn<(m: Mutation, o: unknown) => void>()) {
     render(

@@ -28,7 +28,7 @@ import { Tooltip } from './components/ui/tooltip'
 import { useSettings } from './lib/settings'
 import { recordOpened } from './lib/last-opened'
 import { filterByLabels, pruneLabelFilter } from './lib/label-filter'
-import { applyLabelOrder, moveLabelInOrder } from './lib/label-order'
+import { applyLabelOrder, moveLabelInOrder, reorderLabels } from './lib/label-order'
 import { backgroundCss, tint } from './lib/palette'
 import {
   resolveBindings,
@@ -326,6 +326,16 @@ export function App() {
     )
     setLabelOrderTick((t) => t + 1)
   }
+  const reorderLabel = (activeId: string, overId: string): void => {
+    if (!data) return
+    reorderLabels(
+      data.board.id,
+      orderedLabels.map((l) => l.id),
+      activeId,
+      overId
+    )
+    setLabelOrderTick((t) => t + 1)
+  }
 
   // Tint the board-view header to echo the board's accent (M4-G+).
   // Subtle background mix toward the page bg, full-strength bottom
@@ -465,6 +475,7 @@ export function App() {
               active={activeLabels}
               onToggle={toggleLabel}
               onMove={moveLabel}
+              onReorder={reorderLabel}
               apply={apply}
             />
           </div>
