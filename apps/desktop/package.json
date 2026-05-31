@@ -1,6 +1,6 @@
 {
   "name": "@kanbini/desktop",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Kanbini desktop shell - Electron main + preload that hosts the renderer over typed IPC and exposes a loopback MCP control channel for AI tooling.",
   "author": "Kanbini",
