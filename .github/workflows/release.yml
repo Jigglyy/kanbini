@@ -1,0 +1,125 @@
+name: Release
+
+# Cut a release by pushing a version tag:
+#
+#   git tag v1.0.0
+#   git push origin v1.0.0
+#
+# This builds the Windows installers and publishes a GitHub Release with
+# them attached. The tag MUST start with `v` (e.g. v1.0.0); the version
+# after the `v` is written into apps/desktop/package.json before
+# packaging so the installer filenames and the release tag stay in
+# lockstep (electron-builder reads the version from package.json, not the
+# git tag).
+#
+# Builds are UNSIGNED (ADR-0040): Windows SmartScreen shows a dismissible
+# "unknown publisher" warning on first run. macOS / Linux jobs are
+# intentionally omitted for now (Mac deferred from v1) - see the "Test +
+# build macOS without owning a Mac" backlog item for the wire-in plan; a
+# mac job would slot in alongside `windows` here once icon.icns + signing
+# are sorted.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  # Manual dry-run from the Actions tab: builds + uploads the installers
+  # as run artifacts, but does NOT create a Release (it only fires on a
+  # tag). Use it to validate the pipeline without cutting a release.
+  workflow_dispatch:
+
+# Don't cancel a release build half-way through if another ref lands.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  # Needed for the built-in GITHUB_TOKEN to create the Release + upload
+  # assets. Everything else stays read-only.
+  contents: write
+
+jobs:
+  windows:
+    name: Build Windows installers
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        # Reads the version from the root package.json "packageManager".
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # pnpm 11.x needs Node >= 22.13 (node:sqlite builtin).
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Keep the installer version in lockstep with the tag. electron-
+      # builder reads apps/desktop/package.json, so a tag of v1.2.0 must
+      # set that package's version to 1.2.0 or the .exe would carry a
+      # stale number. Skipped on a manual dispatch run (no tag).
+      - name: Sync version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          export VERSION="${TAG#v}"
+          echo "Releasing version $VERSION"
+          node -e "const f='apps/desktop/package.json';const p=require('./'+f);p.version=process.env.VERSION;require('fs').writeFileSync(f,JSON.stringify(p,null,2)+'\n')"
+
+      # Safety gate: typecheck + unit tests before we cut a build. PR CI
+      # already runs these, but tagging is a separate deliberate act -
+      # this stops a bad tag from shipping a broken installer.
+      - name: Typecheck + unit tests
+        run: |
+          pnpm typecheck
+          pnpm test
+
+      # electron-builder.yml bundles ../../NOTICES.md via extraResources,
+      # and it's gitignored + generated - build it before packaging or
+      # both the copy and the postpackage payload check fail.
+      - name: Generate third-party license notices
+        run: pnpm --filter @kanbini/desktop run build:notices
+
+      # `package` runs package:prepare (MCP bundle + flip better-sqlite3
+      # to the Electron ABI + electron-vite build), then electron-builder
+      # emits the NSIS installer + portable .exe to apps/desktop/release/,
+      # then postpackage validates the required payload sentinels.
+      - name: Package (NSIS installer + portable)
+        env:
+          # Unsigned by design (ADR-0040). Stop electron-builder from
+          # trying to auto-discover a signing certificate (and from
+          # fetching the winCodeSign toolchain it doesn't need).
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: pnpm --filter @kanbini/desktop run package
+
+      # Always keep the installers as run artifacts - the only output of a
+      # manual dispatch dry-run, and a backup on tag runs.
+      - name: Upload installers as run artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kanbini-windows-installers
+          path: apps/desktop/release/*.exe
+          if-no-files-found: error
+
+      # On a tag push, publish the GitHub Release and attach the .exe
+      # files. `gh` is preinstalled on the runner; --generate-notes builds
+      # the changelog from commits/PRs since the previous tag.
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            apps/desktop/release/*.exe \
+            --title "Kanbini $GITHUB_REF_NAME" \
+            --generate-notes \
+            --verify-tag
