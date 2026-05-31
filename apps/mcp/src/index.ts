@@ -87,12 +87,22 @@ class AppOfflineError extends Error {
   }
 }
 
+/** A deterministic response from the control channel (auth failure or an
+ *  application-level error status). Distinct from a connection-level
+ *  failure so `rpc` knows NOT to retry it and NOT to mask it as the app
+ *  being offline - retrying a 401 or a validation error just fails the
+ *  same way, and reporting it as "app offline" would be misleading. */
+class ControlChannelError extends Error {}
+
 async function rpc(method: string, params: unknown): Promise<unknown> {
   const info = await loadDiscovery()
   if (!info) throw new AppOfflineError()
-  let res: Response
-  try {
-    res = await fetch(`http://127.0.0.1:${info.port}/rpc`, {
+
+  // One logical attempt: send the request, check the status, parse the
+  // body. Throws a ControlChannelError for deterministic failures (do
+  // not retry) and a plain connection error otherwise (retryable).
+  const attempt = async (): Promise<unknown> => {
+    const res = await fetch(`http://127.0.0.1:${info.port}/rpc`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -100,22 +110,46 @@ async function rpc(method: string, params: unknown): Promise<unknown> {
       },
       body: JSON.stringify({ method, params })
     })
-  } catch (e) {
-    // ECONNREFUSED → the app quit since mcp.json was written. Treat
-    // the same as a missing discovery file.
-    throw new AppOfflineError()
-  }
-  if (!res.ok) {
-    let detail = `HTTP ${res.status}`
-    try {
-      const body = (await res.json()) as { error?: string }
-      if (body?.error) detail += `: ${body.error}`
-    } catch {
-      /* non-JSON response body */
+    if (res.status === 401) {
+      throw new ControlChannelError(
+        'control channel rejected the bearer token (401). Restart the ' +
+          'Kanbini desktop app to refresh <userData>/mcp.json, then retry.'
+      )
     }
-    throw new Error(`control channel: ${detail}`)
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`
+      try {
+        const body = (await res.json()) as { error?: string }
+        if (body?.error) detail += `: ${body.error}`
+      } catch {
+        /* non-JSON error body */
+      }
+      throw new ControlChannelError(`control channel: ${detail}`)
+    }
+    return res.json()
   }
-  return res.json()
+
+  try {
+    return await attempt()
+  } catch (e) {
+    // Deterministic channel responses surface as-is.
+    if (e instanceof ControlChannelError) throw e
+    // Connection-level failure. The #1 cause is NOT the app being down -
+    // it's a stale keep-alive socket: Node's global fetch pools
+    // connections, and if the control-channel server closed an idle one
+    // a beat before this fetch reused it, the request lands on a dead
+    // socket (ECONNRESET). Retry ONCE on a fresh socket before
+    // concluding the app is offline - this is what fixes the
+    // intermittent "tool use error" right after a successful call.
+    try {
+      return await attempt()
+    } catch (e2) {
+      if (e2 instanceof ControlChannelError) throw e2
+      // Both attempts hit a connection error: the app really is down
+      // (ECONNREFUSED) or otherwise unreachable.
+      throw new AppOfflineError()
+    }
+  }
 }
 
 // ─── headless read-only fallback ─────────────────────────────────

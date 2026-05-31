@@ -211,6 +211,20 @@ export async function startControlChannel(
     })
   })
 
+  // Keep idle keep-alive sockets open well past the MCP client's own
+  // idle timeout. Node's global fetch (undici) pools connections and
+  // recycles an idle one after ~4 s; Node's HTTP server default
+  // keepAliveTimeout is 5 s. With the server's window the SHORTER of the
+  // two, the server could close a socket a beat before the client reuses
+  // it, and the client's next request lands on a dead socket
+  // (ECONNRESET) - which the MCP server used to misread as "app
+  // offline", surfacing a spurious tool error right after a real call.
+  // Making the server outlive the client closes the race: the client
+  // recycles its socket first and reconnects cleanly. headersTimeout
+  // stays above keepAliveTimeout (Node requires the ordering).
+  server.keepAliveTimeout = 60_000
+  server.headersTimeout = 65_000
+
   async function handle(
     req: IncomingMessage,
     res: ServerResponse

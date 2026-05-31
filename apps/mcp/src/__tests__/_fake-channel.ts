@@ -48,6 +48,11 @@ export interface FakeChannel {
   /** Absolute path to the temp `<APP_CODENAME>` dir. Pass via
    *  `KANBINI_USERDATA_OVERRIDE` when spawning the MCP server. */
   userDataDir: string
+  /** Make the server drop (destroy the socket, no response) the next
+   *  `n` incoming requests - simulates the stale keep-alive ECONNRESET
+   *  the MCP client must recover from, so a test can exercise its
+   *  retry. */
+  failNextRequests: (n: number) => void
   /** Stops the HTTP server, closes the DB, removes the temp tree. */
   close: () => Promise<void>
 }
@@ -66,7 +71,17 @@ export async function startFakeChannel(opts?: {
 
   const token = `test-${Math.random().toString(36).slice(2)}`
 
+  // Test hook: when > 0, destroy the next incoming request's socket
+  // without responding (then decrement), so the MCP client's fetch sees
+  // a connection reset - mimicking a stale keep-alive socket.
+  let failNext = 0
+
   const server: Server = createServer((req, res) => {
+    if (failNext > 0) {
+      failNext--
+      req.destroy()
+      return
+    }
     if (req.method !== 'POST' || req.url !== '/rpc') {
       res.statusCode = 404
       res.end()
@@ -175,6 +190,9 @@ export async function startFakeChannel(opts?: {
     port,
     token,
     userDataDir,
+    failNextRequests: (n: number) => {
+      failNext = n
+    },
     close: async () => {
       await new Promise<void>((r) => server.close(() => r()))
       closeDb()
