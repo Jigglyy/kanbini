@@ -504,7 +504,16 @@ export function App() {
           of the document scrolling. Keeps the scrollbar inside the
           app (no reserved gutter strip on short boards) and means
           opening a modal never shifts the page. */}
-      <main style={mainStyle} className="min-h-0 flex-1 overflow-auto p-6">
+      {/* `overflow-anchor:none`: useSmoothHeight manually compensates this
+          container's scrollTop when a card ABOVE the fold changes height
+          (the hover-expand reflow shifts the visible region; native
+          anchoring doesn't catch the WAAPI tween). Disabling native
+          anchoring here keeps that manual compensation the single source
+          of truth so the two don't both adjust scrollTop and fight. */}
+      <main
+        style={mainStyle}
+        className="min-h-0 flex-1 overflow-auto [overflow-anchor:none] p-6"
+      >
         {route.kind === 'settings' ? (
           <AppSettings
             onClose={closeSettings}

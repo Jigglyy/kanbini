@@ -13,6 +13,29 @@ import { useEffect, useRef } from 'react'
 // line during the grow (and the trailing line during a shrink), which
 // is what reads as "buttery."
 //
+// THE OFF-SCREEN SCROLL JUMP (the load-bearing fix): when a card that is
+// scrolled ABOVE the viewport changes height (you scrolled down, then a
+// card up top un-hovers and its title un-wraps, or you re-hover and it
+// wraps), the reflow shifts every following element - i.e. the entire
+// visible region - by the height delta. `scrollTop` does not change, so
+// it isn't a scroll event and native scroll-anchoring doesn't absorb it;
+// the content just visibly jumps and settles. Measured at 20px (one
+// line) and it happens with OR without the tween, so animating isn't the
+// cause. The fix is a manual scroll anchor: when the resizing element is
+// fully above the scroll container's visible top, add the height delta to
+// the container's `scrollTop` in the same frame so nothing visibly moves,
+// and skip the tween (the card is off-screen - its glide is invisible).
+//
+// THE PENDING-FRAME PIN: when the observer fires for a VISIBLE card, the
+// browser has already laid it out at its new `to` height. `el.animate()`
+// is pending for a frame (its start time resolves on the next tick), so
+// without help the element paints at `to` for that one frame before the
+// active phase pulls it to `from`. We set `el.style.height = from`
+// synchronously before animating so the pending frame already shows
+// `from` and the height only eases from -> to. A `fill: 'forwards'`
+// holds `to` at the end; onSettle clears the inline height (back to auto)
+// then cancels the fill, in that order, so the pin is never exposed.
+//
 // CRITICAL: animating `height` is a layout change, so the tween's own
 // per-frame heights fire the ResizeObserver again. Left unguarded that
 // is an infinite feedback loop (observe -> animate -> observe the
@@ -44,6 +67,18 @@ import { useEffect, useRef } from 'react'
  *  and the height grow it causes feel like one motion. */
 const HEIGHT_TWEEN_MS = 200
 
+/** Nearest scrollable ancestor (overflow-y auto/scroll), or null. Used
+ *  for the off-screen scroll-anchor compensation. */
+function findScrollParent(node: HTMLElement | null): HTMLElement | null {
+  let n = node?.parentElement ?? null
+  while (n) {
+    const oy = getComputedStyle(n).overflowY
+    if (oy === 'auto' || oy === 'scroll') return n
+    n = n.parentElement
+  }
+  return null
+}
+
 export function useSmoothHeight(
   ref: React.RefObject<HTMLElement | null>,
   enabled: boolean
@@ -54,12 +89,15 @@ export function useSmoothHeight(
   // finish to detect a content change that the observer ignored.
   const targetHeight = useRef<number | null>(null)
   const selfResizing = useRef(false)
+  // Resolved scroll container: undefined = not looked up yet, null = none.
+  const scrollParent = useRef<HTMLElement | null | undefined>(undefined)
   const enabledRef = useRef(enabled)
   enabledRef.current = enabled
 
   // Drop a running tween without its end handler re-arming anything -
-  // used when superseding a tween and when disabling mid-flight. Only
-  // touches refs, so the (per-render) closure is safe to capture once.
+  // used when superseding a tween and when disabling mid-flight. Also
+  // releases the inline height pin so the element falls back to its true
+  // auto height (a left-behind pin would freeze the card's size).
   const cancelAnim = (): void => {
     const a = anim.current
     if (a) {
@@ -68,6 +106,8 @@ export function useSmoothHeight(
       a.cancel()
       anim.current = null
     }
+    const el = ref.current
+    if (el) el.style.height = ''
     selfResizing.current = false
     targetHeight.current = null
   }
@@ -82,9 +122,15 @@ export function useSmoothHeight(
       cancelAnim()
       selfResizing.current = true
       targetHeight.current = to
+      // Pin the start height synchronously so the just-resolved natural
+      // (`to`) height never paints for the pending frame - see the
+      // PENDING-FRAME PIN note at the top of the file.
+      el!.style.height = `${from}px`
       const a = el!.animate(
         [{ height: `${from}px` }, { height: `${to}px` }],
-        { duration: HEIGHT_TWEEN_MS, easing: 'ease-out' }
+        // `fill: 'forwards'` holds `to` after the active phase so there's
+        // no symmetric snap at the END before onSettle releases the pin.
+        { duration: HEIGHT_TWEEN_MS, easing: 'ease-out', fill: 'forwards' }
       )
       anim.current = a
       a.onfinish = onSettle
@@ -92,10 +138,20 @@ export function useSmoothHeight(
     }
 
     function onSettle(): void {
-      const wasTarget = targetHeight.current
+      const a = anim.current
+      // Null the handlers before cancelling so a.cancel() below doesn't
+      // re-enter onSettle via oncancel.
+      if (a) {
+        a.onfinish = null
+        a.oncancel = null
+      }
       anim.current = null
-      // The animation has released its hold, so offsetHeight is the
-      // element's true (auto) height again.
+      const wasTarget = targetHeight.current
+      // Release the inline pin + the forwards fill so the element resolves
+      // to its true auto height again. Clear the inline height FIRST so
+      // dropping the fill never exposes the pinned `from` for a frame.
+      el!.style.height = ''
+      if (a) a.cancel()
       const natural = el!.offsetHeight
       if (enabledRef.current && wasTarget != null && natural !== wasTarget) {
         // Content changed while we were animating (and the observer
@@ -109,6 +165,31 @@ export function useSmoothHeight(
       prevHeight.current = natural
     }
 
+    /** When the element is scrolled FULLY above the scroll container's
+     *  visible top, its height change is a pure off-screen artifact: the
+     *  reflow shifts the whole visible region by `delta` but none of the
+     *  growth is itself visible. Add `delta` to the container's scrollTop
+     *  in the same frame so visible content stays pinned, and report that
+     *  the tween should be skipped (it's invisible). Returns false for any
+     *  element that is even partly on screen - there the growth is real
+     *  and should tween in place, so we deliberately do NOT touch scroll
+     *  (compensating a straddling card fights its own visible motion).
+     *  Guarded on a real container size so it's inert in JSDOM
+     *  (clientHeight 0, rects all zero). */
+    function compensateAboveFold(delta: number): boolean {
+      if (scrollParent.current === undefined) {
+        scrollParent.current = findScrollParent(el)
+      }
+      const sc = scrollParent.current
+      if (!sc || sc.clientHeight === 0) return false
+      const scTop = sc.getBoundingClientRect().top
+      // Only when the element's BOTTOM is at/above the fold (fully off
+      // screen above) is the change a pure artifact safe to fully cancel.
+      if (el!.getBoundingClientRect().bottom > scTop) return false
+      sc.scrollTop += delta
+      return true
+    }
+
     const ro = new ResizeObserver(() => {
       // Ignore the per-frame heights our own tween produces - reacting
       // to them is the infinite loop described above. A genuine change
@@ -119,6 +200,10 @@ export function useSmoothHeight(
       prevHeight.current = next
       // First measurement (mount): record, don't animate.
       if (last == null || last === next || !enabledRef.current) return
+      // Fully-above-the-fold height change: compensate scroll so the
+      // visible region doesn't jump, and skip the (invisible) tween. Any
+      // on-screen (or straddling) card falls through and tweens in place.
+      if (compensateAboveFold(next - last)) return
       startTween(last, next)
     })
     ro.observe(el)
