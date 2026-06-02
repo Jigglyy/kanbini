@@ -28,7 +28,7 @@ import { Tooltip } from './components/ui/tooltip'
 import { useSettings } from './lib/settings'
 import { recordOpened } from './lib/last-opened'
 import { filterByLabels, pruneLabelFilter } from './lib/label-filter'
-import { applyLabelOrder, moveLabelInOrder, reorderLabels } from './lib/label-order'
+import { applyLabelOrder, commitLabelOrder, moveLabelInOrder } from './lib/label-order'
 import { backgroundCss, tint } from './lib/palette'
 import {
   resolveBindings,
@@ -326,14 +326,9 @@ export function App() {
     )
     setLabelOrderTick((t) => t + 1)
   }
-  const reorderLabel = (activeId: string, overId: string): void => {
+  const reorderLabel = (orderedIds: string[]): void => {
     if (!data) return
-    reorderLabels(
-      data.board.id,
-      orderedLabels.map((l) => l.id),
-      activeId,
-      overId
-    )
+    commitLabelOrder(data.board.id, orderedIds)
     setLabelOrderTick((t) => t + 1)
   }
 

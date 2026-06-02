@@ -103,3 +103,10 @@ export function reorderLabels(
   saveLabelOrder(boardId, next)
   return next
 }
+
+/** Persist an explicit final id order - the result of the LabelBar's
+ *  live drag reorder, which already computed the full left-to-right
+ *  order via projectReorder as the chip crossed each neighbour. */
+export function commitLabelOrder(boardId: string, orderedIds: string[]): void {
+  saveLabelOrder(boardId, orderedIds)
+}

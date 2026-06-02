@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Tag } from 'lucide-react'
 import {
   DndContext,
@@ -6,7 +6,9 @@ import {
   closestCenter,
   useSensor,
   useSensors,
-  type DragEndEvent
+  type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent
 } from '@dnd-kit/core'
 import {
   SortableContext,
@@ -16,6 +18,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import type { BoardView, CardView, LabelView, Mutation } from '@kanbini/shared'
 import type { Optimistic } from '../hooks/useBoardMutation'
+import { projectReorder } from '../lib/label-order'
 import { ACCENTS, accentText, swatchOptions } from '../lib/palette'
 import { Popover } from './ui/popover'
 import { ContextMenu, MenuItem, MenuLabel, MenuSep } from './ui/context-menu'
@@ -34,6 +37,22 @@ export type Apply = (m: Mutation, o: Optimistic) => void
 // need it - their text carries them.
 const BAR_EDGE =
   'inset 0 0 0 1px color-mix(in oklab, var(--color-foreground) 18%, transparent)'
+
+// Filter-chip elevation, built as one box-shadow string (an inline
+// boxShadow would clobber any Tailwind shadow/ring class, and the edge /
+// ring need to be theme-aware). CHIP_EDGE de-emphasises an UNSELECTED
+// chip with a faint inset hairline (echoing BAR_EDGE) instead of fading
+// the whole thing to 80% - which muddied the colour. CHIP_RING marks the
+// active filter with a neutral foreground outline plus a 1px surface gap,
+// so the selected state never fights the chip's own colour the way the
+// old primary-blue ring did. CHIP_LIFT / CHIP_DRAG_LIFT give the pill a
+// little depth (the bigger one replaces the former drag `shadow-lg`).
+const CHIP_EDGE =
+  'inset 0 0 0 1px color-mix(in oklab, var(--color-foreground) 16%, transparent)'
+const CHIP_RING =
+  '0 0 0 1px var(--color-background), 0 0 0 3px var(--color-foreground)'
+const CHIP_LIFT = '0 1px 2px rgba(0, 0, 0, 0.18)'
+const CHIP_DRAG_LIFT = '0 8px 18px rgba(0, 0, 0, 0.35)'
 
 export const withLabels = (
   b: BoardView,
@@ -95,8 +114,8 @@ export function LabelBar({
   onToggle: (id: string) => void
   /** Move a label one slot left (-1) / right (+1) in the bar. */
   onMove?: (id: string, dir: -1 | 1) => void
-  /** Drag reorder: drop the dragged chip (`activeId`) onto `overId`. */
-  onReorder?: (activeId: string, overId: string) => void
+  /** Drag reorder: persist the bar's final left-to-right id order. */
+  onReorder?: (orderedIds: string[]) => void
   apply: Apply
 }) {
   // Distance constraint so a plain click still toggles the filter and a
@@ -105,25 +124,70 @@ export function LabelBar({
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   )
-  const handleDragEnd = (e: DragEndEvent): void => {
+
+  // Live reorder (mirrors the board's onDragOver pattern). While a chip
+  // is being dragged we reorder a LOCAL id list as it crosses each
+  // neighbour, and render the chips in that order, so the browser's
+  // flex-wrap layout positions every chip at its real width. The old
+  // approach left ordering to dnd-kit's rectSortingStrategy, which aligns
+  // each shifted chip's LEFT edge to a slot measured from the original
+  // layout - so a wide chip nudged into a narrow chip's slot overflowed
+  // to the right and overlapped the "New label" button. Letting real
+  // layout do the work sidesteps that and also handles the wrapped case.
+  const [dragOrder, setDragOrder] = useState<string[] | null>(null)
+  const ordered = useMemo(() => {
+    if (!dragOrder) return labels
+    const byId = new Map(labels.map((l) => [l.id, l]))
+    const seen = new Set(dragOrder)
+    // Known ids in the live drag order, then any label created mid-drag.
+    return [
+      ...dragOrder
+        .map((id) => byId.get(id))
+        .filter((l): l is LabelView => l != null),
+      ...labels.filter((l) => !seen.has(l.id))
+    ]
+  }, [dragOrder, labels])
+
+  const handleDragStart = (e: DragStartEvent): void => {
+    // Seed the live order, and pin the just-grabbed chip's order so a
+    // drag that never crosses a neighbour still has a list to commit.
+    void e
+    setDragOrder(labels.map((l) => l.id))
+  }
+  const handleDragOver = (e: DragOverEvent): void => {
     const { active: a, over } = e
-    if (over && a.id !== over.id) onReorder?.(String(a.id), String(over.id))
+    if (!over || a.id === over.id) return
+    setDragOrder((prev) =>
+      projectReorder(prev ?? labels.map((l) => l.id), String(a.id), String(over.id))
+    )
+  }
+  const handleDragEnd = (e: DragEndEvent): void => {
+    void e
+    const original = labels.map((l) => l.id)
+    const final = dragOrder ?? original
+    setDragOrder(null)
+    if (final.some((id, i) => id !== original[i])) onReorder?.(final)
   }
   return (
     <div className="flex flex-wrap items-center gap-2">
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
+        onDragCancel={() => setDragOrder(null)}
       >
         <SortableContext
-          items={labels.map((l) => l.id)}
+          items={ordered.map((l) => l.id)}
           // rectSortingStrategy (not horizontal/vertical) because the bar
           // is flex-wrap with variable-width chips - the list strategies
-          // assume a single non-wrapping row of equal-size items.
+          // assume a single non-wrapping row. With the live reorder above
+          // the chips are already in their final slots, so the strategy
+          // only has to carry the dragged chip under the cursor.
           strategy={rectSortingStrategy}
         >
-          {labels.map((l, i) => (
+          {ordered.map((l, i) => (
             <SortableLabelChip
               key={l.id}
               label={l}
@@ -132,7 +196,7 @@ export function LabelBar({
               apply={apply}
               onMoveLeft={onMove && i > 0 ? () => onMove(l.id, -1) : undefined}
               onMoveRight={
-                onMove && i < labels.length - 1
+                onMove && i < ordered.length - 1
                   ? () => onMove(l.id, 1)
                   : undefined
               }
@@ -183,10 +247,13 @@ function SortableLabelChip({
     transition,
     backgroundColor: label.color,
     color: accentText(label.color),
-    // No DragOverlay here, so the SAME chip follows the cursor - keep it
-    // solid + lifted above its neighbours (shadow-lg in the className)
-    // while the others slide aside, rather than dimming the thing the
-    // user is dragging.
+    // One composed shadow: the selected ring OR the unselected edge, plus
+    // the lift (bigger while dragging). No DragOverlay here, so the SAME
+    // chip follows the cursor - this keeps it solid + lifted above its
+    // neighbours while they slide aside.
+    boxShadow: `${on ? CHIP_RING : CHIP_EDGE}, ${
+      isDragging ? CHIP_DRAG_LIFT : CHIP_LIFT
+    }`,
     zIndex: isDragging ? 20 : undefined,
     touchAction: 'none'
   }
@@ -209,6 +276,10 @@ function SortableLabelChip({
           style={style}
           {...attributes}
           {...listeners}
+          // Toggle button: announce the filter on/off state (also the
+          // stable hook for the selected-state ring, which is an inline
+          // theme-aware box-shadow rather than a class).
+          aria-pressed={on}
           onClick={() => onToggle(label.id)}
           onContextMenu={open}
           title={
@@ -216,9 +287,9 @@ function SortableLabelChip({
               ? 'Filtering by this label (drag to reorder, right-click to edit)'
               : 'Filter by this label (drag to reorder, right-click to edit)'
           }
-          className={`flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs ${
-            isDragging ? 'cursor-grabbing shadow-lg' : 'cursor-grab'
-          } ${on ? 'ring-2 ring-ring' : 'opacity-80 hover:opacity-100'}`}
+          className={`flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium transition-[filter] duration-150 ${
+            isDragging ? 'cursor-grabbing' : 'cursor-grab hover:brightness-110'
+          }`}
         >
           {label.name}
         </button>

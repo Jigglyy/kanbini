@@ -216,7 +216,7 @@ describe('<LabelBar>', () => {
     expect(onToggle).toHaveBeenCalledWith('l1')
   })
 
-  it('active chips get the ring class', () => {
+  it('marks the active filter chip as pressed (selected state)', () => {
     const { container } = render(
       <LabelBar
         boardId="b1"
@@ -231,7 +231,12 @@ describe('<LabelBar>', () => {
     ) as HTMLElement
     expect(bugChip).not.toBeNull()
     expect(bugChip.textContent).toBe('Bug')
-    expect(bugChip.className).toContain('ring-2')
+    expect(bugChip).toHaveAttribute('aria-pressed', 'true')
+    // an un-filtered chip is not pressed
+    const scriptingChip = container.querySelector(
+      'button[title^="Filter by this label"]'
+    ) as HTMLElement
+    expect(scriptingChip).toHaveAttribute('aria-pressed', 'false')
   })
 
   it('"New label" popover opens + creates a label.create mutation', async () => {

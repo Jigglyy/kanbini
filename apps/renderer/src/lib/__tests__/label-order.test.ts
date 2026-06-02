@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   applyLabelOrder,
+  commitLabelOrder,
   loadLabelOrder,
   moveLabelInOrder,
   projectReorder,
@@ -114,5 +115,16 @@ describe('reorderLabels', () => {
     const ids = ['a', 'b', 'c']
     expect(reorderLabels('b1', ids, 'b', 'b')).toBe(ids)
     expect(localStorage.getItem(KEY)).toBeNull()
+  })
+})
+
+describe('commitLabelOrder', () => {
+  it('persists an explicit final order verbatim (the live-drag result)', () => {
+    commitLabelOrder('b1', ['c', 'a', 'b'])
+    expect(loadLabelOrder('b1')).toEqual(['c', 'a', 'b'])
+    // and it round-trips through applyLabelOrder on the next render
+    expect(
+      applyLabelOrder([L('a'), L('b'), L('c')], 'b1').map((l) => l.id)
+    ).toEqual(['c', 'a', 'b'])
   })
 })
