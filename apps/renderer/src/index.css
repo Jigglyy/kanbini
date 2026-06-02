@@ -59,13 +59,19 @@ body {
   margin: 0;
 }
 
-/* Scrollbars - themed to the dark UI. Electron is Chromium-only, so
-   the ::-webkit-scrollbar pseudo-elements are safe to rely on. The
-   thumb is a muted pill (a transparent border + padding-box clip
-   insets it so it reads as thin with breathing room) that brightens
-   on hover; the track stays invisible so it never frames the board. */
+/* Scrollbars - themed to read on ANY board background. Electron is
+   Chromium-only, so the ::-webkit-scrollbar pseudo-elements drive the
+   look (`scrollbar-color` is kept in sync as a fallback). The old thumb
+   used `--color-border`, a desaturated mid-grey that vanished over a
+   vivid wallpaper; it is now a translucent pill built from
+   `--color-foreground` so it adapts to the light/dark theme and keeps a
+   consistent contrast against gradients and images. A transparent border
+   + padding-box clip still insets it so it reads thin with breathing
+   room, and it brightens on hover/active. The track stays invisible so
+   it never frames the board. */
 * {
-  scrollbar-color: var(--color-border) transparent;
+  scrollbar-color: color-mix(in oklab, var(--color-foreground) 45%, transparent)
+    transparent;
 }
 ::-webkit-scrollbar {
   width: 12px;
@@ -76,16 +82,16 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background-color: var(--color-border);
+  background-color: color-mix(in oklab, var(--color-foreground) 40%, transparent);
   border: 3px solid transparent;
   border-radius: 9999px;
   background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background-color: var(--color-muted-foreground);
+  background-color: color-mix(in oklab, var(--color-foreground) 60%, transparent);
 }
 ::-webkit-scrollbar-thumb:active {
-  background-color: var(--color-muted-foreground);
+  background-color: color-mix(in oklab, var(--color-foreground) 78%, transparent);
 }
 
 /* TipTap content typography. Kept minimal here instead of pulling
