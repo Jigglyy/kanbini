@@ -43,6 +43,7 @@ export type ActionId =
   | 'card.focusRight'
   // Card actions (operate on the focused card)
   | 'card.open'
+  | 'card.toggleSelect'
   | 'card.toggleComplete'
   | 'card.delete'
   | 'card.moveUp'
@@ -109,6 +110,12 @@ export const ACTION_REGISTRY: readonly ActionDef[] = [
     label: 'Open focused card',
     group: 'Card',
     defaults: [k('Enter'), k('o')]
+  },
+  {
+    id: 'card.toggleSelect',
+    label: 'Select / deselect focused card (multi-select)',
+    group: 'Card',
+    defaults: [k('x')]
   },
   {
     id: 'card.toggleComplete',

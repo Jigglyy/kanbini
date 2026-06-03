@@ -146,10 +146,12 @@ the smoke/explore scripts.
 **Included:** boards; lists (active/closed, colour, card limit, on-enter
 automations); cards (title, Markdown description, due date + done state,
 priority, cover); labels + filtering; checklists; comments; local
-attachments; drag-and-drop reorder/move; swimlanes; board/list templates;
-cross-board search + command palette; undo/redo; board backgrounds +
-zoom; plain-text export/import; Trello import; settings; the MCP server.
-Opt-in and off by default: link previews and one-way Obsidian export.
+attachments; drag-and-drop reorder/move; multi-select (Ctrl/Cmd-click,
+Shift-click range) with bulk actions + group drag; swimlanes; board/list
+templates; cross-board search + command palette; undo/redo; board
+backgrounds + zoom; plain-text export/import; Trello import; settings; the
+MCP server. Opt-in and off by default: link previews and one-way Obsidian
+export.
 
 **Possible later:** custom fields; sub-tasks / linked cards; saved
 filters and views; more AI-native helpers; optional encrypted cloud sync

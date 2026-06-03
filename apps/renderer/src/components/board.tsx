@@ -45,6 +45,7 @@ import {
 import emptyBoardSvg from '../assets/empty-board.svg?raw'
 import type {
   BoardView,
+  CardPriority,
   CardView,
   LabelView,
   Mutation,
@@ -63,6 +64,14 @@ import {
   type ActionId
 } from '../lib/shortcuts'
 import { detectFirstUrl, domainOf } from '../lib/url'
+import {
+  bulkCompleteTarget,
+  bulkLabelAction,
+  clickIntent,
+  planMultiCardMove,
+  rangeWithinList,
+  toggleSelection
+} from '../lib/card-selection'
 import { cn } from '../lib/utils'
 import { ContextMenu } from './ui/context-menu'
 import { CardLabels } from './labels'
@@ -71,6 +80,12 @@ import { CardChecklistPreview } from './checklists'
 import { DueBadge } from './due-date'
 import { PriorityBadge } from './priority'
 import { CardMenu } from './card-menu'
+import {
+  BulkCardMenu,
+  SelectionBar,
+  type BulkActions,
+  type LabelPresence
+} from './selection'
 import { SwimlaneBoard } from './swimlane-board'
 import { CardCoverThumb } from './attachments'
 import { ListEditor } from './list-menu'
@@ -112,6 +127,10 @@ import {
 const LIFT_SHADOW = '0 14px 30px -8px rgb(0 0 0 / 0.55)'
 const REST_SHADOW =
   '0 4px 6px -1px rgb(0 0 0 / 0.10), 0 2px 4px -2px rgb(0 0 0 / 0.10)'
+
+// Stable empty-selection identity so "no cards selected" never produces a
+// fresh Set each render (which would bust the memoised cards).
+const EMPTY_SELECTION: ReadonlySet<string> = new Set()
 
 const DROP_ANIMATION: DropAnimation = {
   duration: DROP_ANIMATION_DURATION_MS,
@@ -251,6 +270,7 @@ function CardFace({
   labels,
   dragging,
   focused,
+  selected,
   showChecklist,
   labelsExpanded
 }: {
@@ -265,6 +285,10 @@ function CardFace({
   // class) because Tailwind's ring utilities are themselves
   // `box-shadow`, and the inline LIFT_SHADOW would clobber them.
   focused?: boolean
+  /** Mirrors the resting <li>'s multi-select ring so a dragged selected
+   *  card keeps its highlight (same reason as `focused`). Takes
+   *  precedence over the focus ring. */
+  selected?: boolean
   showChecklist?: boolean
   /** Mirror of the source card's label display so the overlay matches
    *  (bars vs names). No toggle here - the overlay is a frozen clone. */
@@ -286,9 +310,11 @@ function CardFace({
   // lives on the DragOverlay's wrapper via its `style` prop (see the
   // DragOverlay below); keeping only the ring here means the
   // wrapper's animated shadow is the only big shadow visible.
-  const ringShadow = focused
-    ? '0 0 0 1px var(--color-background), 0 0 0 3px var(--color-ring)'
-    : ''
+  const ringShadow = selected
+    ? '0 0 0 2px var(--color-background), 0 0 0 4px var(--color-primary)'
+    : focused
+      ? '0 0 0 1px var(--color-background), 0 0 0 3px var(--color-ring)'
+      : ''
   return (
     <div
       style={
@@ -437,6 +463,13 @@ export function Board({
   const key = boardKey(board.board.id)
   const snapshot = useRef<BoardView | null>(null)
   const [dragging, setDragging] = useState<CardView | null>(null)
+  // Multi-card drag: true while dragging a card that's part of a 2+
+  // selection. The lead card follows the cursor (live reorder); the
+  // other selected cards ghost in place and re-cluster at the drop spot
+  // on release. `multiDragBlockRef` holds the selection ids in their
+  // pre-drag order (the block to re-cluster).
+  const [multiDragActive, setMultiDragActive] = useState(false)
+  const multiDragBlockRef = useRef<string[]>([])
   // Cursor-on-overlay tracker. The live DragOverlay's inner div fires
   // mouseenter/leave on `overlayHoveredRef`; at onDragEnd we snapshot
   // it into `postDropHoverMatch`. The matching SortableCard (the one
@@ -484,6 +517,24 @@ export function Board({
   // focused card disappears from the view (deleted / archived / list
   // closed). The card-detail modal opens via the existing setOpenCardId.
   const [focusedCardId, setFocusedCardId] = useState<string | null>(null)
+  // Multi-select (separate from `focusedCardId`, which is keyboard nav):
+  // a set of cards picked with Ctrl/Cmd+click (toggle) or Shift+click
+  // (range within a list), acted on as a group via the floating
+  // SelectionBar + the bulk right-click menu. Refs mirror the latest
+  // board + selection so the click handler and bulk ops stay
+  // referentially stable - the memoised cards depend on that for drag
+  // perf (a new callback each render would re-render every card).
+  const [selectedIds, setSelectedIds] =
+    useState<ReadonlySet<string>>(EMPTY_SELECTION)
+  const selectionAnchorRef = useRef<string | null>(null)
+  const boardRef = useRef(board)
+  boardRef.current = board
+  const selectedIdsRef = useRef(selectedIds)
+  selectedIdsRef.current = selectedIds
+  const clearSelection = useCallback((): void => {
+    setSelectedIds(EMPTY_SELECTION)
+    selectionAnchorRef.current = null
+  }, [])
   // Sync if the route changes the requested card after mount (e.g.,
   // palette → palette → different card on the same board). Tell App to
   // clear the route's openCardId once consumed so the prop is a true
@@ -511,9 +562,41 @@ export function Board({
     if (focusedCardId && !findCard(focusedCardId)) {
       setFocusedCardId(null)
     }
+    // Drop selected ids whose card disappeared (deleted, archived, list
+    // closed) so the bulk bar count + actions never reference a ghost.
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev
+      let changed = false
+      const next = new Set<string>()
+      for (const id of prev) {
+        if (findCard(id)) next.add(id)
+        else changed = true
+      }
+      return changed ? (next.size === 0 ? EMPTY_SELECTION : next) : prev
+    })
     // findCard depends only on board.lists - same dep as board itself.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [board, focusedCardId])
+
+  // Esc clears the selection (when no modal / popover owns Escape). App's
+  // own Escape handler bails while the selection bar is up (it's a
+  // [data-overlay]), so this is the single place that consumes it; a
+  // bar popover (data-overlay="popover") still gets Escape first.
+  useEffect(() => {
+    if (selectedIds.size === 0) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      if (
+        document.querySelector(
+          '[role="dialog"], [data-overlay]:not([data-overlay="selection-bar"])'
+        )
+      )
+        return
+      clearSelection()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [selectedIds.size, clearSelection])
 
   // ADR-0035 shortcut wiring. Card-scoped actions only - App.tsx owns
   // nav.search / nav.home / Esc separately. Bindings resolve to the
@@ -599,6 +682,184 @@ export function Board({
     [key, qc]
   )
 
+  // --- Multi-select click + bulk actions ---------------------------------
+  //
+  // One click handler for the whole card surface (the SortableCard exempts
+  // interactive children before calling this). Plain click opens the card
+  // and exits selection; Ctrl/Cmd toggles it; Shift range-selects within
+  // the card's list. Stable (reads refs) so the memoised cards don't all
+  // re-render each board update.
+  const onCardClick = useCallback(
+    (cardId: string, e: React.MouseEvent): void => {
+      const intent = clickIntent(e)
+      if (intent === 'open') {
+        setSelectedIds(EMPTY_SELECTION)
+        selectionAnchorRef.current = null
+        setOpenCardId(cardId)
+        return
+      }
+      e.preventDefault()
+      if (intent === 'toggle') {
+        setSelectedIds((prev) => toggleSelection(prev, cardId))
+      } else {
+        // range: anchor..cardId within the same list; cross-list or no
+        // anchor falls back to adding just this card.
+        const anchor = selectionAnchorRef.current
+        const list = boardRef.current.lists.find((l) =>
+          l.cards.some((c) => c.id === cardId)
+        )
+        const ids =
+          anchor && list
+            ? rangeWithinList(list.cards.map((c) => c.id), anchor, cardId)
+            : []
+        setSelectedIds((prev) => {
+          const next = new Set(prev)
+          if (ids.length === 0) next.add(cardId)
+          else for (const id of ids) next.add(id)
+          return next
+        })
+      }
+      selectionAnchorRef.current = cardId
+    },
+    []
+  )
+
+  /** Selected cards in board (list-then-position) order, off the latest
+   *  board + selection refs. */
+  const currentSelectedCards = (): CardView[] =>
+    boardRef.current.lists
+      .flatMap((l) => l.cards)
+      .filter((c) => selectedIdsRef.current.has(c.id))
+
+  /** Fire one mutation per card and refetch once they've all landed. The
+   *  per-mutation `broadcastChange` already streams the changes in; the
+   *  final invalidate is a belt-and-braces catch-up. */
+  const runBulk = (ms: Mutation[]): void => {
+    if (ms.length === 0) return
+    void Promise.allSettled(ms.map((m) => ipc.mutate(m))).finally(() => {
+      void qc.invalidateQueries({ queryKey: key })
+    })
+  }
+
+  const bulkToggleComplete = useCallback((): void => {
+    const cards = currentSelectedCards()
+    const completed = bulkCompleteTarget(cards)
+    runBulk(
+      cards
+        .filter((c) => c.completed !== completed)
+        .map((c) => ({ type: 'card.update', id: c.id, patch: { completed } }))
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, qc])
+
+  const bulkSetPriority = useCallback(
+    (priority: CardPriority | null): void => {
+      const cards = currentSelectedCards()
+      runBulk(
+        cards
+          .filter((c) => c.priority !== priority)
+          .map((c) => ({ type: 'card.update', id: c.id, patch: { priority } }))
+      )
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [key, qc]
+  )
+
+  const bulkToggleLabel = useCallback(
+    (labelId: string): void => {
+      const cards = currentSelectedCards()
+      const { add, targets } = bulkLabelAction(cards, labelId)
+      const byId = new Map(cards.map((c) => [c.id, c]))
+      runBulk(
+        targets.map((id) => {
+          const c = byId.get(id)!
+          const labelIds = add
+            ? [...c.labelIds, labelId]
+            : c.labelIds.filter((x) => x !== labelId)
+          return { type: 'card.setLabels', id, labelIds }
+        })
+      )
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [key, qc]
+  )
+
+  // Move appends the selection to the target list in their current order.
+  // Sequential awaits so each card's fractional key lands after the
+  // previous one (the server mints it from `beforeId`).
+  const bulkMoveTo = useCallback(
+    (toListId: string): void => {
+      const cards = currentSelectedCards()
+      const target = boardRef.current.lists.find((l) => l.id === toListId)
+      let lastId = target?.cards[target.cards.length - 1]?.id ?? null
+      void (async () => {
+        for (const c of cards) {
+          if (c.id === lastId) continue
+          await ipc
+            .mutate({
+              type: 'card.move',
+              id: c.id,
+              toListId,
+              beforeId: lastId,
+              afterId: null
+            })
+            .catch(() => {})
+          lastId = c.id
+        }
+        void qc.invalidateQueries({ queryKey: key })
+      })()
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [key, qc]
+  )
+
+  const bulkDelete = useCallback((): void => {
+    const ids = [...selectedIdsRef.current]
+    clearSelection()
+    runBulk(ids.map((id) => ({ type: 'card.delete', id })))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, qc, clearSelection])
+
+  const labelPresence = useCallback((labelId: string): LabelPresence => {
+    const cards = currentSelectedCards()
+    if (cards.length === 0) return 'none'
+    const have = cards.filter((c) => c.labelIds.includes(labelId)).length
+    return have === 0 ? 'none' : have === cards.length ? 'all' : 'some'
+  }, [])
+
+  const selectedCards = useMemo(
+    () =>
+      board.lists.flatMap((l) => l.cards).filter((c) => selectedIds.has(c.id)),
+    [board, selectedIds]
+  )
+  const bulkActions: BulkActions = {
+    count: selectedIds.size,
+    allComplete:
+      selectedCards.length > 0 && selectedCards.every((c) => c.completed),
+    labels: board.labels,
+    labelPresence,
+    lists: board.lists
+      .filter((l) => !l.closed)
+      .map((l) => ({ id: l.id, name: l.name })),
+    onToggleComplete: bulkToggleComplete,
+    onSetPriority: bulkSetPriority,
+    onToggleLabel: bulkToggleLabel,
+    onMoveTo: bulkMoveTo,
+    onDelete: bulkDelete,
+    onClear: clearSelection
+  }
+  // Ref + stable render fn so a card's `bulkMenu` prop identity never
+  // changes (keeps the memoised cards from re-rendering every update).
+  const bulkActionsRef = useRef(bulkActions)
+  bulkActionsRef.current = bulkActions
+  const multiSelectActive = selectedIds.size > 1
+  const renderBulkMenu = useCallback(
+    (close: () => void) => (
+      <BulkCardMenu actions={bulkActionsRef.current} close={close} />
+    ),
+    []
+  )
+
   const handlers: Partial<Record<ActionId, (e: KeyboardEvent) => void>> = {
     // --- Focus navigation ---
     'card.focusNext': (e) => {
@@ -665,6 +926,16 @@ export function Board({
       if (!focusedCardId) return
       consume(e)
       setOpenCardId(focusedCardId)
+    },
+    // Keyboard equivalent of Ctrl/Cmd+click: toggle the focused card in
+    // the multi-selection. Makes the select feature reachable (and
+    // discoverable in Settings -> Shortcuts) without a pointer.
+    'card.toggleSelect': (e) => {
+      if (!focusedCardId) return
+      consume(e)
+      const id = focusedCardId
+      setSelectedIds((prev) => toggleSelection(prev, id))
+      selectionAnchorRef.current = id
     },
     'card.toggleComplete': (e) => {
       if (!focusedCardId) return
@@ -804,7 +1075,24 @@ export function Board({
 
   function onDragStart(e: DragStartEvent): void {
     snapshot.current = qc.getQueryData<BoardView | null>(key) ?? null
-    setDragging(findCard(String(e.active.id)) ?? null)
+    const activeId = String(e.active.id)
+    setDragging(findCard(activeId) ?? null)
+    // Multi-card drag: grabbing one of 2+ selected cards drags the whole
+    // selection. Capture the block in pre-drag board order (off the
+    // snapshot) so they re-cluster in that order on drop. Swimlane mode
+    // keeps single-card drag for now (its drop math is separate).
+    const sel = selectedIdsRef.current
+    if (!board.board.swimlaneMode && sel.has(activeId) && sel.size > 1) {
+      const snap = snapshot.current
+      multiDragBlockRef.current = (snap ?? board).lists
+        .flatMap((l) => l.cards)
+        .filter((c) => sel.has(c.id))
+        .map((c) => c.id)
+      setMultiDragActive(true)
+    } else {
+      multiDragBlockRef.current = []
+      setMultiDragActive(false)
+    }
     // Cursor starts on the source card you just clicked, so the
     // overlay that mounts at that rect is under the cursor too.
     // Mouse handlers on the live inner div take over from here.
@@ -874,6 +1162,10 @@ export function Board({
   function onDragEnd(e: DragEndEvent): void {
     setDragging(null)
     setBlockedListId(null)
+    const isMulti = multiDragActive
+    const block = multiDragBlockRef.current
+    setMultiDragActive(false)
+    multiDragBlockRef.current = []
     // Snapshot cursor-on-overlay at the moment of release into the
     // React state that the dropped SortableCard reads via prop.
     // captureHoverForDrop clears any prior timeout first - second
@@ -914,6 +1206,42 @@ export function Board({
     if (isUnchangedMove(snap, b, activeId)) {
       if (snap) qc.setQueryData(key, snap)
       return
+    }
+
+    // Multi-card drag: re-cluster the WHOLE selection at the lead's drop
+    // spot instead of moving only the lead. The lead is already placed in
+    // `b` by the live reorder; planMultiCardMove finds the non-selected
+    // neighbours that bound the block, then we move each selected card
+    // there in order, chaining `beforeId` so they land contiguous. Moves
+    // are sequential (awaited) so each fractional key is minted against
+    // the previous card's freshly-written position.
+    if (isMulti && block.length > 1) {
+      const destList = b.lists.find((l) =>
+        l.cards.some((c) => c.id === activeId)
+      )
+      const plan = destList
+        ? planMultiCardMove(destList.cards, activeId, selectedIdsRef.current, block)
+        : null
+      if (destList && plan) {
+        void (async () => {
+          let prev = plan.beforeId
+          for (const id of plan.orderedIds) {
+            await ipc
+              .mutate({
+                type: 'card.move',
+                id,
+                toListId: destList.id,
+                beforeId: prev,
+                afterId: plan.afterId
+              })
+              .catch(() => {})
+            prev = id
+          }
+          void qc.invalidateQueries({ queryKey: key })
+        })()
+        return
+      }
+      // plan failed (lead vanished) → fall through to the single move.
     }
 
     // dnd-kit's drop animation runs `scrollIntoView` on the source
@@ -996,6 +1324,8 @@ export function Board({
   function onDragCancel(): void {
     setDragging(null)
     setBlockedListId(null)
+    setMultiDragActive(false)
+    multiDragBlockRef.current = []
     // Cancel still runs dnd-kit's drop animation (overlay glides back
     // to the source position), so the same handoff problem applies -
     // capture cursor-on-overlay state for the cancelled card too.
@@ -1026,8 +1356,11 @@ export function Board({
           rather than per-element bubbling listeners. */}
       <div
         onClick={(e) => {
+          // A click on the board surface that isn't a card clears both
+          // the keyboard-nav focus ring AND the multi-selection.
           if (!(e.target as HTMLElement).closest('[data-card-id]')) {
             focusCard(null)
+            clearSelection()
           }
         }}
       >
@@ -1083,13 +1416,16 @@ export function Board({
                     card={card}
                     labels={board.labels}
                     apply={apply}
-                    onOpen={setOpenCardId}
                     showChecklist={showChecklist}
                     labelsExpanded={labelsExpanded}
                     onToggleLabelsExpanded={onToggleLabelsExpanded}
                     anyDragging={dragging != null}
                     focused={focusedCardId === card.id}
-                    onFocus={focusCard}
+                    selected={selectedIds.has(card.id)}
+                    multiActive={multiSelectActive}
+                    multiDragActive={multiDragActive}
+                    onCardClick={onCardClick}
+                    bulkMenu={renderBulkMenu}
                     postDropHoverMatch={postDropHoverMatch}
                   />
                 ))
@@ -1105,7 +1441,6 @@ export function Board({
                 list={list}
                 labels={board.labels}
                 apply={apply}
-                onOpenCard={setOpenCardId}
                 blockCreate={blockCreate}
                 blocked={blockedListId === list.id}
                 showChecklist={showChecklist}
@@ -1113,7 +1448,11 @@ export function Board({
                 onToggleLabelsExpanded={onToggleLabelsExpanded}
                 anyDragging={dragging != null}
                 focusedCardId={focusedCardId}
-                onFocusCard={focusCard}
+                selectedIds={selectedIds}
+                multiActive={multiSelectActive}
+                multiDragActive={multiDragActive}
+                onCardClick={onCardClick}
+                bulkMenu={renderBulkMenu}
                 postDropHoverMatch={postDropHoverMatch}
               />
             ))}
@@ -1164,7 +1503,7 @@ export function Board({
           // the value they write is what we snapshot to make the
           // cursor-stays vs cursor-off branches resolve correctly.
           <div
-            className="group/dragoverlay h-full w-full cursor-grabbing"
+            className="group/dragoverlay relative h-full w-full cursor-grabbing"
             style={
               boardZoom !== 1
                 ? ({ zoom: boardZoom } as CSSProperties)
@@ -1182,13 +1521,22 @@ export function Board({
               labels={board.labels}
               dragging
               focused={focusedCardId === dragging.id}
+              selected={selectedIds.has(dragging.id)}
               showChecklist={showChecklist}
               labelsExpanded={labelsExpanded}
             />
+            {/* Multi-card drag: a count badge so it's clear the whole
+                selection is moving, not just the grabbed card. */}
+            {multiDragActive && selectedIds.size > 1 && (
+              <span className="absolute -right-2 -top-2 z-10 flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 py-0.5 text-xs font-semibold text-primary-foreground shadow">
+                {selectedIds.size}
+              </span>
+            )}
           </div>
         )}
       </DragOverlay>
     </DndContext>
+    <SelectionBar actions={bulkActions} />
     <CardDetail
       boardId={board.board.id}
       cardId={openCardId}
@@ -1295,7 +1643,6 @@ const ListColumn = memo(function ListColumn({
   list,
   labels,
   apply,
-  onOpenCard,
   blockCreate,
   blocked,
   showChecklist,
@@ -1303,13 +1650,16 @@ const ListColumn = memo(function ListColumn({
   onToggleLabelsExpanded,
   anyDragging,
   focusedCardId,
-  onFocusCard,
+  selectedIds,
+  multiActive,
+  multiDragActive,
+  onCardClick,
+  bulkMenu,
   postDropHoverMatch
 }: {
   list: BoardView['lists'][number]
   labels: LabelView[]
   apply: (m: Mutation, o: Optimistic) => void
-  onOpenCard: (id: string) => void
   blockCreate: boolean
   blocked: boolean
   showChecklist: boolean
@@ -1325,10 +1675,17 @@ const ListColumn = memo(function ListColumn({
    *  null when nothing is focused. Drives the focus ring on the
    *  matching `<SortableCard>`. */
   focusedCardId: string | null
-  /** Click-to-focus so mouse + keyboard stay in sync (click a card →
-   *  the keyboard focus moves there, the next arrow key navigates
-   *  from there). */
-  onFocusCard: (id: string | null) => void
+  /** Multi-select set + helpers (Board owns them). `selectedIds` drives
+   *  each card's selected ring; `onCardClick` decides open vs
+   *  toggle/range; a right-click on a selected card (when `multiActive`)
+   *  shows the `bulkMenu` instead of the single-card menu. */
+  selectedIds: ReadonlySet<string>
+  multiActive: boolean
+  /** True while a multi-card drag is in flight - non-lead selected cards
+   *  ghost in place until they re-cluster at the drop spot. */
+  multiDragActive: boolean
+  onCardClick: (id: string, e: React.MouseEvent) => void
+  bulkMenu: (close: () => void) => React.ReactNode
   /** True when a drop just landed AND the cursor was on the overlay at
    *  release time. The matching SortableCard force-paints itself in
    *  the source's hovered styles so the unmount-handoff doesn't fire
@@ -1378,13 +1735,16 @@ const ListColumn = memo(function ListColumn({
               card={card}
               labels={labels}
               apply={apply}
-              onOpen={onOpenCard}
               showChecklist={showChecklist}
               labelsExpanded={labelsExpanded}
               onToggleLabelsExpanded={onToggleLabelsExpanded}
               anyDragging={anyDragging}
               focused={focusedCardId === card.id}
-              onFocus={onFocusCard}
+              selected={selectedIds.has(card.id)}
+              multiActive={multiActive}
+              multiDragActive={multiDragActive}
+              onCardClick={onCardClick}
+              bulkMenu={bulkMenu}
               postDropHoverMatch={postDropHoverMatch}
             />
           ))}
@@ -1432,19 +1792,21 @@ const SortableCard = memo(function SortableCard({
   card,
   labels,
   apply,
-  onOpen,
   showChecklist,
   labelsExpanded,
   onToggleLabelsExpanded,
   anyDragging,
   focused,
-  onFocus,
+  selected,
+  multiActive,
+  multiDragActive,
+  onCardClick,
+  bulkMenu,
   postDropHoverMatch
 }: {
   card: CardView
   labels: LabelView[]
   apply: (m: Mutation, o: Optimistic) => void
-  onOpen: (id: string) => void
   showChecklist: boolean
   /** Trello-style label display + the board-wide toggle. Forwarded to
    *  the in-list `<CardLabels>` so a bar-click reveals names everywhere. */
@@ -1453,11 +1815,22 @@ const SortableCard = memo(function SortableCard({
   /** True while any card on the board is being dragged - suspends this
    *  card's hover height tween for the whole gesture. */
   anyDragging: boolean
-  /** ADR-0035 - true when the keyboard-focus indicator should ring
-   *  this card. Mouse clicks bring focus here too (see `onFocus`)
-   *  so kbd + mouse stay in sync. */
+  /** ADR-0035 keyboard-focus ring (j/k nav). Separate from `selected`. */
   focused: boolean
-  onFocus: (id: string | null) => void
+  /** Multi-select: this card is in the selection (gets the primary ring +
+   *  the corner check badge). */
+  selected: boolean
+  /** True when 2+ cards are selected - a right-click on a SELECTED card
+   *  then shows the bulk menu instead of the single-card one. */
+  multiActive: boolean
+  /** True while a multi-card drag is happening. A selected card that
+   *  isn't the lead ghosts in place (it re-clusters at the drop spot). */
+  multiDragActive: boolean
+  /** Whole-card click: open (plain) / toggle (Ctrl/Cmd) / range (Shift).
+   *  Called only for clicks that didn't land on an interactive child. */
+  onCardClick: (id: string, e: React.MouseEvent) => void
+  /** Renders the bulk action menu for the current selection. */
+  bulkMenu: (close: () => void) => React.ReactNode
   /** Board-level snapshot from onDragEnd: true when the cursor was on
    *  the overlay at release. The just-dropped card combines this with
    *  its own `postDropHold` to decide whether to force-paint the
@@ -1568,15 +1941,21 @@ const SortableCard = memo(function SortableCard({
     <>
     <ContextMenu
       width={236}
-      menu={(close) => (
-        <CardMenu
-          card={card}
-          labels={labels}
-          apply={apply}
-          close={close}
-          onRequestCoverFromUrl={() => setUrlCoverOpen(true)}
-        />
-      )}
+      menu={(close) =>
+        // Right-clicking a card that's part of a multi-selection acts on
+        // the whole selection; otherwise it's the normal single-card menu.
+        selected && multiActive ? (
+          bulkMenu(close)
+        ) : (
+          <CardMenu
+            card={card}
+            labels={labels}
+            apply={apply}
+            close={close}
+            onRequestCoverFromUrl={() => setUrlCoverOpen(true)}
+          />
+        )
+      }
     >
       {(open) => (
         // Drag listeners on the whole <li> so the entire card surface
@@ -1592,16 +1971,18 @@ const SortableCard = memo(function SortableCard({
           data-card-id={card.id}
           style={{ transform: CSS.Transform.toString(transform), transition }}
           onContextMenu={open}
-          // Click-to-focus on mouseup, NOT pointerdown - pressing the
-          // button shouldn't visibly select the card before you know
-          // whether the gesture was a click or a drag. `onClick` only
-          // fires when pointerdown+pointerup land on the same element
-          // without enough motion to trip dnd-kit's 6 px activation
-          // distance; if a drag actually starts, no click event fires
-          // and focus stays where it was. Title click bubbles to here
-          // too, which means opening a card detail also focuses it -
-          // intentional.
-          onClick={() => onFocus(card.id)}
+          // Whole-card click: open (plain), toggle-select (Ctrl/Cmd), or
+          // range-select (Shift). `onClick` only fires when pointer
+          // down+up land without enough motion to trip dnd-kit's 6 px
+          // activation, so a real drag never triggers this. The click
+          // bubbles up from every non-interactive child (title, cover,
+          // body); we bail when it originated on an interactive control
+          // (the checkbox, pencil, checklist toggles, label chips, links)
+          // so those keep their own behaviour and never open/select.
+          onClick={(e) => {
+            if ((e.target as HTMLElement).closest('button, a, input')) return
+            onCardClick(card.id, e)
+          }}
           className={cn(
             // `focus:outline-none` only - we deliberately DO NOT add
             // `focus-visible:ring-*` here. dnd-kit's a11y layer calls
@@ -1624,19 +2005,30 @@ const SortableCard = memo(function SortableCard({
             postDropHold && postDropHoverMatch
               ? 'border-ring/60 shadow-md'
               : 'border-border shadow-sm hover:border-ring/60 hover:shadow-md',
-            // ADR-0035 keyboard focus ring - slightly thicker than the
-            // hover one so it reads as the persistent indicator, not a
-            // transient hover state.
-            focused && 'ring-2 ring-ring ring-offset-1 ring-offset-background',
+            // Multi-select ring (primary, slightly wider offset) takes
+            // precedence over the ADR-0035 keyboard focus ring (a card can
+            // be both focused and selected; the selection wins visually +
+            // the corner badge below removes any ambiguity).
+            selected
+              ? 'ring-2 ring-primary ring-offset-2 ring-offset-background'
+              : focused
+                ? 'ring-2 ring-ring ring-offset-1 ring-offset-background'
+                : '',
             isDragging
               ? 'opacity-0'
-              : card.completed
-                ? 'opacity-70 hover:opacity-100'
-                : '',
+              : multiDragActive && selected
+                ? // ghost the other selected cards - they're "coming along"
+                  // and re-cluster at the drop spot
+                  'opacity-40'
+                : card.completed
+                  ? 'opacity-70 hover:opacity-100'
+                  : '',
             completePhase && `complete-celebrate-${completePhase}`
           )}
         >
-          <CardCoverThumb card={card} onClick={() => onOpen(card.id)} />
+          {/* No onClick: the cover is part of the card surface, so a
+              click bubbles to the <li> handler (open / select). */}
+          <CardCoverThumb card={card} />
           <CardLabels
             labelIds={card.labelIds}
             labels={labels}
@@ -1701,13 +2093,12 @@ const SortableCard = memo(function SortableCard({
                 )}
               </button>
             </div>
-            {/* Title is part of the drag surface (don't stop
-                propagation here - the 6 px activation distance lets
-                a click open the card and a drag-move start the drag).
-                Keeping stopPropagation only on the small icon buttons
-                (checkbox, pencil) where losing drag is fine. */}
+            {/* Title is part of the drag surface and carries no onClick:
+                a click bubbles to the <li> handler (open / select), and
+                the 6 px activation distance lets a drag-move start the
+                drag. The span isn't a button, so the <li>'s interactive-
+                child bail doesn't skip it. */}
             <span
-              onClick={() => onOpen(card.id)}
               className={cn(
                 'min-w-0 flex-1 wrap-anywhere pr-5',
                 card.completed && 'text-muted-foreground line-through'
@@ -1738,15 +2129,30 @@ const SortableCard = memo(function SortableCard({
             </div>
           )}
 
-          {/* Hover edit affordance - same menu as right-click. */}
-          <button
-            aria-label="Edit card"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={open}
-            className="absolute right-1.5 top-1.5 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover/card:opacity-100"
-          >
-            <Pencil className="size-3.5" />
-          </button>
+          {/* Multi-select badge - a filled check in the top-right corner
+              (where the pencil sits), so the selection reads at a glance
+              even on a card with a cover. */}
+          {selected && (
+            <span
+              aria-hidden
+              className="absolute right-1.5 top-1.5 z-10 flex size-4 items-center justify-center rounded-full bg-primary text-primary-foreground shadow"
+            >
+              <Check className="size-3" />
+            </span>
+          )}
+
+          {/* Hover edit affordance - same menu as right-click. Hidden
+              while selected so it doesn't collide with the badge. */}
+          {!selected && (
+            <button
+              aria-label="Edit card"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={open}
+              className="absolute right-1.5 top-1.5 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover/card:opacity-100"
+            >
+              <Pencil className="size-3.5" />
+            </button>
+          )}
         </li>
       )}
     </ContextMenu>

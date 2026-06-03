@@ -40,6 +40,10 @@ that never closes: a board that's yours, local, and always on.
   by priority).
 - **Card depth** - WYSIWYG description (saved as Markdown), checklists,
   comments, local attachments, cover images, and a per-card activity log.
+- **Multi-select** - Ctrl/Cmd-click cards (or Shift-click for a range) to
+  pick several at once, then complete, set priority, re-label, move, or
+  delete them in bulk from a floating action bar (or a right-click menu) -
+  and drag the whole group between lists.
 - **Local MCP server** - a token-gated 127.0.0.1 control channel + stdio
   server (`@kanbini/mcp`) with read/write tools (get / create / update /
   move / delete / label / comment / checklist / search). Edits stream

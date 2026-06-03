@@ -32,6 +32,11 @@ import {
 import { cn } from '../lib/utils'
 import { TemplatesManager } from './templates'
 
+// Show the platform-correct modifier in the mouse-controls help (Cmd on
+// macOS, Ctrl elsewhere) - same check App.tsx uses for the search chip.
+const IS_MAC =
+  typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent)
+
 // M4-F settings screen. Replaces the M4-G+ modal - the surface grew
 // large enough (Appearance / Startup / Cards / Data / Link previews /
 // MCP / About) that a left-sidebar layout works better than a single
@@ -439,6 +444,24 @@ function ShortcutsSection({
         Add multiple shortcuts per action. Click Add to record one,
         × to remove one, Reset for the defaults.
       </p>
+      <Section title="Mouse">
+        <div className="flex items-center justify-between gap-3 px-1 py-1.5 text-sm">
+          <span>Open a card</span>
+          <span className="text-muted-foreground">Click</span>
+        </div>
+        <div className="flex items-center justify-between gap-3 px-1 py-1.5 text-sm">
+          <span>Select / deselect a card (multi-select)</span>
+          <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 text-xs">
+            {IS_MAC ? 'Cmd' : 'Ctrl'} + Click
+          </kbd>
+        </div>
+        <div className="flex items-center justify-between gap-3 px-1 py-1.5 text-sm">
+          <span>Select a range of cards in a list</span>
+          <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 text-xs">
+            Shift + Click
+          </kbd>
+        </div>
+      </Section>
       {groups.map((ids) => {
         const groupLabel = ACTION_REGISTRY.find((a) => a.id === ids[0]!)
           ?.group
