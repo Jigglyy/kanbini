@@ -235,7 +235,7 @@ function LabelRows({
         return (
           <RowButton key={l.id} onClick={() => onToggle(l.id)}>
             <span
-              className="flex max-w-[8rem] items-center truncate rounded-full px-2 py-0.5 text-[11px] font-medium"
+              className="flex max-w-32 items-center truncate rounded-full px-2 py-0.5 text-[11px] font-medium"
               style={{ backgroundColor: l.color, color: accentText(l.color) }}
             >
               {l.name}
@@ -343,7 +343,7 @@ export function BulkCardMenu({
               >
                 <span className="flex w-full items-center justify-between gap-2">
                   <span
-                    className="max-w-[9rem] truncate rounded-full px-2 py-0.5 text-[11px] font-medium"
+                    className="max-w-36 truncate rounded-full px-2 py-0.5 text-[11px] font-medium"
                     style={{
                       backgroundColor: l.color,
                       color: accentText(l.color)
