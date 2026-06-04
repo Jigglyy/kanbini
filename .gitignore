@@ -58,6 +58,7 @@ apps/desktop-e2e/playwright-report/
 # such as the third-party-license file are rebuilt before packaging.)
 /*.md
 !/README.md
+!/CHANGELOG.md
 /docs/*.md
 !/docs/DESIGN.md
 !/docs/MCP.md
