@@ -51,6 +51,11 @@ pnpm-debug.log*
 apps/desktop-e2e/test-results/
 apps/desktop-e2e/playwright-report/
 
+# Local-only Remotion video-production toolchain (source-available tool,
+# never shipped). The whole tree - source, captured footage, renders -
+# stays on the maintainer's machine and out of the public repo.
+/video/
+
 # Maintainer-local working docs, kept on the maintainer's machine and
 # not part of the public repo. Everything at the repo root and under
 # docs/ is ignored except the published set allow-listed below, so local
