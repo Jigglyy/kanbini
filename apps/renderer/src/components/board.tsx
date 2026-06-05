@@ -1566,7 +1566,7 @@ export function ListHeader({
   return (
     <>
     <ContextMenu
-      width={224}
+      width={256}
       menu={(close) => (
         <ListEditor
           list={list}

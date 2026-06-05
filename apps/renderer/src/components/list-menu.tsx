@@ -121,7 +121,7 @@ export function ListEditor({
       </div>
       <MenuSep />
       <MenuLabel>Sort cards</MenuLabel>
-      <div className="flex gap-1 px-2 py-1">
+      <div className="grid grid-cols-3 gap-1 px-2 py-1">
         {(
           [
             ['Manual', null],
@@ -149,7 +149,7 @@ export function ListEditor({
                 close()
               }}
               className={cn(
-                'flex-1 rounded px-2 py-1 text-xs',
+                'rounded px-2 py-1 text-xs',
                 active
                   ? 'bg-accent text-foreground'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -162,7 +162,7 @@ export function ListEditor({
       </div>
       <MenuSep />
       <MenuLabel>On card enter</MenuLabel>
-      <div className="flex gap-1 px-2 py-1">
+      <div className="grid grid-cols-3 gap-1 px-2 py-1">
         {(
           [
             ['None', null],
@@ -191,7 +191,7 @@ export function ListEditor({
                 close()
               }}
               className={cn(
-                'flex-1 rounded px-2 py-1 text-xs',
+                'rounded px-2 py-1 text-xs',
                 active
                   ? 'bg-accent text-foreground'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -217,14 +217,14 @@ export function ListEditor({
             }
           }}
           placeholder="None"
-          className="w-16 rounded border border-border bg-background px-2 py-1 text-sm focus:border-ring focus:outline-none"
+          className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-1 text-sm focus:border-ring focus:outline-none"
         />
         <button
           onClick={() => {
             commitWip()
             close()
           }}
-          className="rounded bg-muted px-2.5 py-1 text-sm hover:bg-accent hover:text-accent-foreground"
+          className="shrink-0 rounded bg-muted px-2.5 py-1 text-sm hover:bg-accent hover:text-accent-foreground"
         >
           Set
         </button>
