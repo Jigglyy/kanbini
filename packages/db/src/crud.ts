@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import {
   type Mutation,
   type MutationResult,
@@ -13,6 +13,7 @@ import type { Db } from './client'
 // import is fine since undo.ts only depends on applyMutation INSIDE
 // applyMutationRecorded.
 import { applyRestore, type RestorePayload } from './undo'
+import { cardOrdering, parseListSortMode } from './data'
 import {
   activity,
   attachment,
@@ -304,10 +305,12 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
     case 'list.update': {
       const boardId = listBoardId(db, m.id)
       // ADR-0032 sortMode snapshot: when a sorted list goes back to
-      // manual, the cards on screen are in created-at order - write
-      // those positions as fresh fractional keys so the manual order
-      // matches what the user just saw. Atomic with the column
-      // update so a crash mid-flip can't desync them.
+      // manual, the cards on screen are in the previous mode's computed
+      // order - write those positions as fresh fractional keys so the
+      // manual order matches what the user just saw. Uses the same
+      // cardOrdering as the read side, so freezing works for every mode
+      // (priority, due, title, ...), not just created. Atomic with the
+      // column update so a crash mid-flip can't desync them.
       if ('sortMode' in m.patch && m.patch.sortMode === null) {
         const prev = db
           .select({ sortMode: list.sortMode })
@@ -316,12 +319,11 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
           .get()
         if (prev && prev.sortMode != null) {
           db.transaction((tx) => {
-            const direction = prev.sortMode === 'created-desc' ? desc : asc
             const ordered = tx
               .select({ id: card.id })
               .from(card)
               .where(eq(card.listId, m.id))
-              .orderBy(direction(card.createdAt), direction(card.id))
+              .orderBy(...cardOrdering(parseListSortMode(prev.sortMode)))
               .all()
             const keys = orderKeysBetween(null, null, ordered.length)
             ordered.forEach((c, i) => {
@@ -467,6 +469,11 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
           .get()
         const sourceListId = before?.listId ?? null
         const wasCompleted = before?.completed ?? false
+        // A genuine cross-list arrival (an in-list reorder doesn't count
+        // as "entering" the list). Drives both the listAddedAt stamp and
+        // the ADR-0041 on-enter rule below.
+        const crossedList =
+          sourceListId !== null && sourceListId !== m.toListId
 
         const keyOf = (cardId: string | null | undefined): string | null =>
           cardId
@@ -478,7 +485,17 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
             : null
         const position = orderKeyBetween(keyOf(m.beforeId), keyOf(m.afterId))
         tx.update(card)
-          .set({ listId: m.toListId, position, updatedAt: now() })
+          .set({
+            listId: m.toListId,
+            position,
+            // Stamp "added to this list" only on a real cross-list move.
+            // undo passes the prior value (m.listAddedAt) to restore it;
+            // a normal move omits it and stamps now().
+            ...(crossedList
+              ? { listAddedAt: m.listAddedAt ?? now() }
+              : {}),
+            updatedAt: now()
+          })
           .where(eq(card.id, m.id))
           .run()
         const boardId = listBoardId(tx as unknown as Db, m.toListId)
@@ -506,8 +523,6 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
         // is JSON-mode (drizzle already parsed) - soft-narrow the
         // shape here so unknown kinds (older builds, future shapes)
         // silently skip the rule rather than throw.
-        const crossedList =
-          sourceListId !== null && sourceListId !== m.toListId
         if (crossedList && toListRow?.onEnter) {
           const raw = toListRow.onEnter as { kind?: unknown }
           const kind =

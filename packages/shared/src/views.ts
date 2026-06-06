@@ -179,10 +179,27 @@ export const zCardView = z.object({
 })
 export type CardView = z.infer<typeof zCardView>
 
-/** Per-list sort override (ADR-0032). null = manual (fractional-
- *  index, today's default). Non-null = cards rendered in created-at
- *  order; renderer freezes DnD on that list. */
-export const zListSortMode = z.enum(['created-asc', 'created-desc'])
+/** Per-list sort override (ADR-0032). null = manual (fractional-index,
+ *  today's default). Any non-null mode renders cards in a computed
+ *  order and the renderer freezes DnD on that list.
+ *   - created-*  : by the card's global creation time
+ *   - added-*    : by when the card entered THIS list (card.listAddedAt)
+ *   - due-asc    : soonest due first, cards with no due date last
+ *   - title-*    : alphabetical by title (case-insensitive)
+ *   - priority-desc : urgent -> high -> medium -> low -> unprioritised
+ *  The read side (data.ts) + the headless reader soft-narrow an
+ *  unrecognised value to null, so a mode written by a newer build
+ *  degrades to manual on an older one instead of throwing. */
+export const zListSortMode = z.enum([
+  'created-asc',
+  'created-desc',
+  'added-asc',
+  'added-desc',
+  'due-asc',
+  'title-asc',
+  'title-desc',
+  'priority-desc'
+])
 export type ListSortMode = z.infer<typeof zListSortMode>
 
 /** ADR-0041 · per-list automation that fires when a card enters the

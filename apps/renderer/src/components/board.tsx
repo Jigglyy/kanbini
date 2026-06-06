@@ -30,8 +30,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import {
-  ArrowDown,
-  ArrowUp,
+  ArrowDownUp,
   Check,
   Globe,
   ListPlus,
@@ -48,6 +47,7 @@ import type {
   CardPriority,
   CardView,
   LabelView,
+  ListSortMode,
   Mutation,
   SwimlaneMode
 } from '@kanbini/shared'
@@ -1546,6 +1546,20 @@ export function Board({
   )
 }
 
+/** Short label + full description for the list-header "sorted" chip, one
+ *  per non-manual sort mode. The chip is a tiny uppercase pill, so the
+ *  short text stays terse; the full string is the aria-label + tooltip. */
+const SORT_CHIP: Record<ListSortMode, { short: string; full: string }> = {
+  'created-desc': { short: 'New', full: 'Sorted by newest created' },
+  'created-asc': { short: 'Old', full: 'Sorted by oldest created' },
+  'added-desc': { short: 'Recent', full: 'Sorted by recently added to list' },
+  'added-asc': { short: 'First', full: 'Sorted by first added to list' },
+  'due-asc': { short: 'Due', full: 'Sorted by due date' },
+  'title-asc': { short: 'A-Z', full: 'Sorted A to Z' },
+  'title-desc': { short: 'Z-A', full: 'Sorted Z to A' },
+  'priority-desc': { short: 'Priority', full: 'Sorted by priority' }
+}
+
 /** The list's coloured header strip - name + sort chip + WIP count +
  *  pencil → ListEditor context menu. Extracted from `ListColumn` so
  *  the swimlane layout (ADR-0037 slice 2) can render a single row of
@@ -1561,7 +1575,6 @@ export function ListHeader({
 }) {
   const atLimit =
     list.wipLimit != null && list.cards.length >= list.wipLimit
-  const sorted = list.sortMode != null
   const [saveTplOpen, setSaveTplOpen] = useState(false)
   return (
     <>
@@ -1587,26 +1600,14 @@ export function ListHeader({
           className="flex items-center gap-2 px-3 py-2 text-sm font-medium"
         >
           <span className="flex-1 truncate">{list.name}</span>
-          {sorted && (
+          {list.sortMode && (
             <span
-              aria-label={
-                list.sortMode === 'created-desc'
-                  ? 'Sorted newest first'
-                  : 'Sorted oldest first'
-              }
-              title={
-                list.sortMode === 'created-desc'
-                  ? 'Sorted newest first'
-                  : 'Sorted oldest first'
-              }
+              aria-label={SORT_CHIP[list.sortMode].full}
+              title={SORT_CHIP[list.sortMode].full}
               className="inline-flex items-center gap-0.5 rounded bg-muted px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
             >
-              {list.sortMode === 'created-desc' ? (
-                <ArrowDown className="size-3" />
-              ) : (
-                <ArrowUp className="size-3" />
-              )}
-              {list.sortMode === 'created-desc' ? 'New' : 'Old'}
+              <ArrowDownUp className="size-3" />
+              {SORT_CHIP[list.sortMode].short}
             </span>
           )}
           <span

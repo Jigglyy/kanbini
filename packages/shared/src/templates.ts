@@ -1,5 +1,10 @@
 import { z } from 'zod'
-import { zBoardBackground, zCardPriority, zSwimlaneMode } from './views'
+import {
+  zBoardBackground,
+  zCardPriority,
+  zListSortMode,
+  zSwimlaneMode
+} from './views'
 
 // Board / list templates (ADR-0038). One row in `template` per saved
 // template; `kind` discriminates board vs list, `data` carries the
@@ -54,7 +59,7 @@ const zTplList = z.object({
   color: z.string().nullable(),
   position: z.string(),
   wipLimit: z.number().int().positive().nullable(),
-  sortMode: z.enum(['created-asc', 'created-desc']).nullable(),
+  sortMode: zListSortMode.nullable(),
   cards: z.array(zTplCard)
 })
 
@@ -90,7 +95,7 @@ export const zTemplateListData = z.object({
     name: z.string().min(1).max(200),
     color: z.string().nullable(),
     wipLimit: z.number().int().positive().nullable(),
-    sortMode: z.enum(['created-asc', 'created-desc']).nullable()
+    sortMode: zListSortMode.nullable()
   }),
   cards: z.array(
     // List-template cards omit labelTmplIds (labels are board-scoped

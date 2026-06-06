@@ -9,7 +9,8 @@ import { ListEditor } from '../list-menu'
 // click context menu. Covers the surfaces three ADRs converge on:
 //   - rename via input
 //   - color pick (ACCENTS swatches + "None")
-//   - sort cards: Manual / Newest / Oldest (ADR-0032)
+//   - sort cards: Manual + created / added / due / title / priority
+//     modes (ADR-0032 + follow-up)
 //   - card limit (wip limit) with positive-integer validation (ADR-0026)
 //   - on-card-enter automation (ADR-0041): None / Complete / Uncomplete
 //   - "Save as template" (only renders when onSaveAsTemplate is supplied)
@@ -122,16 +123,42 @@ describe('<ListEditor>', () => {
     })
   })
 
-  it('sort cards: clicking Newest fires list.update with created-desc', async () => {
+  it('sort cards: clicking "Newest created" fires list.update with created-desc', async () => {
     const user = userEvent.setup()
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
     render(<ListEditor list={makeList()} apply={apply} close={vi.fn()} />)
-    await user.click(screen.getByRole('button', { name: 'Newest' }))
+    await user.click(screen.getByRole('button', { name: 'Newest created' }))
     expect(apply.mock.calls[0]![0]).toEqual({
       type: 'list.update',
       id: 'list-1',
       patch: { sortMode: 'created-desc' }
     })
+  })
+
+  it('sort cards: "Recently added" fires the added-desc mode', async () => {
+    const user = userEvent.setup()
+    const apply = vi.fn<(m: Mutation, o: unknown) => void>()
+    render(<ListEditor list={makeList()} apply={apply} close={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'Recently added' }))
+    expect(apply.mock.calls[0]![0]).toEqual({
+      type: 'list.update',
+      id: 'list-1',
+      patch: { sortMode: 'added-desc' }
+    })
+  })
+
+  it('sort cards: "Due date" / "Priority" / "A to Z" wire their modes', async () => {
+    const user = userEvent.setup()
+    const apply = vi.fn<(m: Mutation, o: unknown) => void>()
+    render(<ListEditor list={makeList()} apply={apply} close={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'Due date' }))
+    await user.click(screen.getByRole('button', { name: 'Priority' }))
+    await user.click(screen.getByRole('button', { name: 'A to Z' }))
+    expect(apply.mock.calls.map((c) => c[0])).toEqual([
+      { type: 'list.update', id: 'list-1', patch: { sortMode: 'due-asc' } },
+      { type: 'list.update', id: 'list-1', patch: { sortMode: 'priority-desc' } },
+      { type: 'list.update', id: 'list-1', patch: { sortMode: 'title-asc' } }
+    ])
   })
 
   it('sort cards: clicking the already-active mode is a no-op (close only)', async () => {
@@ -145,7 +172,7 @@ describe('<ListEditor>', () => {
         close={close}
       />
     )
-    await user.click(screen.getByRole('button', { name: 'Newest' }))
+    await user.click(screen.getByRole('button', { name: 'Newest created' }))
     expect(apply).not.toHaveBeenCalled()
     expect(close).toHaveBeenCalledTimes(1)
   })

@@ -87,6 +87,7 @@ interface ExportDump {
     dueAt: number | null
     priority: string | null
     coverAttachmentId: string | null
+    listAddedAt: number
     createdAt: number
     updatedAt: number
   }>
@@ -235,7 +236,19 @@ function parsePriority(p: string | null): CardPriority | null {
 }
 
 function parseSortMode(s: string | null): ListSortMode | null {
-  return s === 'created-asc' || s === 'created-desc' ? s : null
+  switch (s) {
+    case 'created-asc':
+    case 'created-desc':
+    case 'added-asc':
+    case 'added-desc':
+    case 'due-asc':
+    case 'title-asc':
+    case 'title-desc':
+    case 'priority-desc':
+      return s
+    default:
+      return null
+  }
 }
 
 function parseSwimlaneMode(s: string | null): SwimlaneMode | null {
@@ -279,6 +292,86 @@ function parseOnEnter(v: unknown): ListOnEnterRule | null {
 // time when compared as strings.
 function strcmp(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0
+}
+
+// Priority severity rank for the priority-desc sort - mirrors the SQL
+// CASE in data.ts `cardOrdering`. urgent first, unprioritised last.
+function priorityRank(p: string | null): number {
+  return p === 'urgent'
+    ? 0
+    : p === 'high'
+      ? 1
+      : p === 'medium'
+        ? 2
+        : p === 'low'
+          ? 3
+          : 4
+}
+
+/** The JS twin of data.ts `cardOrdering`: orders a list's cards by its
+ *  sort mode. Both MUST produce the same order or the headless drift
+ *  test fails. `toLowerCase()` matches SQLite's ASCII-only `lower()` for
+ *  ASCII titles (what the suite uses); non-ASCII titles could order
+ *  slightly differently in this offline fallback, an accepted edge. */
+function compareCards(
+  mode: ListSortMode | null,
+  a: SortableCard,
+  b: SortableCard
+): number {
+  switch (mode) {
+    case 'created-desc':
+      return a.createdAt !== b.createdAt
+        ? b.createdAt - a.createdAt
+        : strcmp(b.id, a.id)
+    case 'created-asc':
+      return a.createdAt !== b.createdAt
+        ? a.createdAt - b.createdAt
+        : strcmp(a.id, b.id)
+    case 'added-desc':
+      return a.listAddedAt !== b.listAddedAt
+        ? b.listAddedAt - a.listAddedAt
+        : strcmp(b.id, a.id)
+    case 'added-asc':
+      return a.listAddedAt !== b.listAddedAt
+        ? a.listAddedAt - b.listAddedAt
+        : strcmp(a.id, b.id)
+    case 'due-asc': {
+      // Soonest first; null (no due date) sinks to the bottom. The
+      // null check narrows both operands to number for the subtraction.
+      if (a.dueAt == null || b.dueAt == null) {
+        if (a.dueAt === b.dueAt) return strcmp(a.id, b.id) // both null
+        return a.dueAt == null ? 1 : -1
+      }
+      if (a.dueAt !== b.dueAt) return a.dueAt - b.dueAt
+      return strcmp(a.id, b.id)
+    }
+    case 'title-asc': {
+      const c = strcmp(a.title.toLowerCase(), b.title.toLowerCase())
+      return c !== 0 ? c : strcmp(a.id, b.id)
+    }
+    case 'title-desc': {
+      const c = strcmp(b.title.toLowerCase(), a.title.toLowerCase())
+      return c !== 0 ? c : strcmp(b.id, a.id)
+    }
+    case 'priority-desc': {
+      const r = priorityRank(a.priority) - priorityRank(b.priority)
+      return r !== 0 ? r : strcmp(a.position, b.position)
+    }
+    default:
+      return strcmp(a.position, b.position)
+  }
+}
+
+/** The card fields `compareCards` reads (a structural subset of the
+ *  dump card row). */
+type SortableCard = {
+  id: string
+  title: string
+  position: string
+  dueAt: number | null
+  priority: string | null
+  createdAt: number
+  listAddedAt: number
 }
 
 // ─── indexing helpers ─────────────────────────────────────────────
@@ -386,17 +479,9 @@ export function headlessBoardView(
   const lists: ListView[] = listsForBoard.map((l) => {
     const sortMode = parseSortMode(l.sortMode)
     const cardRows = cardsByList.get(l.id) ?? []
-    const orderedCards = [...cardRows].sort((a, b) => {
-      if (sortMode === 'created-desc') {
-        if (a.createdAt !== b.createdAt) return b.createdAt - a.createdAt
-        return strcmp(b.id, a.id)
-      }
-      if (sortMode === 'created-asc') {
-        if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt
-        return strcmp(a.id, b.id)
-      }
-      return strcmp(a.position, b.position)
-    })
+    const orderedCards = [...cardRows].sort((a, b) =>
+      compareCards(sortMode, a, b)
+    )
 
     const cards: CardView[] = orderedCards.map((c) =>
       buildCardView(c, snap, {

@@ -3,6 +3,7 @@ import {
   zBoardBackground,
   zCardPriority,
   zListOnEnterRule,
+  zListSortMode,
   zSwimlaneMode
 } from './views'
 
@@ -116,11 +117,9 @@ export const zMutation = z.discriminatedUnion('type', [
       // ADR-0032 per-list sort override; null = back to manual. The
       // service snapshots the displayed order to fresh fractional
       // positions when this flips non-null → null, atomic with the
-      // column update.
-      sortMode: z
-        .enum(['created-asc', 'created-desc'])
-        .nullable()
-        .optional(),
+      // column update. Full mode set lives in zListSortMode (created /
+      // added / due / title / priority).
+      sortMode: zListSortMode.nullable().optional(),
       // ADR-0041 on-card-enter automation. null = clear the rule.
       // The DB layer fires the matching rule INSIDE the `card.move`
       // transaction so move + rule effect land atomically and log
@@ -248,7 +247,12 @@ export const zMutation = z.discriminatedUnion('type', [
     id: z.string(),
     toListId: z.string(),
     beforeId: z.string().nullable().optional(),
-    afterId: z.string().nullable().optional()
+    afterId: z.string().nullable().optional(),
+    // Internal (undo only): the card's prior "added to list" time. A
+    // normal cross-list move omits it and stamps now(); the undo of a
+    // move passes the captured value so an undone move restores the
+    // original list-entry time instead of re-stamping it to now.
+    listAddedAt: z.number().int().optional()
   }),
 
   // ADR-0036 · internal restore mutation used by the undo/redo flow.

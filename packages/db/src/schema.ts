@@ -136,6 +136,19 @@ export const card = sqliteTable(
     // as plain text so future values (e.g. 'critical') can ride in
     // without a schema migration.
     priority: text('priority'),
+    // ADR-0032 follow-up: epoch-ms of when the card was added to its
+    // CURRENT list. Stamped on create and on every cross-list move
+    // (an in-list reorder leaves it alone); powers the "added to list"
+    // sort modes. `$defaultFn` injects Date.now() from the ORM on any
+    // insert that omits it, so every create path (card.create,
+    // templates, Trello import, the sample-board seed) gets the right
+    // value without each call site having to set it. The migration that
+    // adds this column uses a constant default + a one-shot back-fill to
+    // created_at (SQLite forbids a function default on ADD COLUMN), so
+    // cards that predate the column sort as if added when created.
+    listAddedAt: integer('list_added_at')
+      .notNull()
+      .$defaultFn(() => Date.now()),
     ...timestamps
   },
   (t) => [

@@ -144,7 +144,8 @@ the smoke/explore scripts.
 ## 8. Feature scope
 
 **Included:** boards; lists (active/closed, colour, card limit, on-enter
-automations); cards (title, Markdown description, due date + done state,
+automations, per-list sort: manual / created / added-to-list / due /
+title / priority); cards (title, Markdown description, due date + done state,
 priority, cover); labels + filtering; checklists; comments; local
 attachments; drag-and-drop reorder/move; multi-select (Ctrl/Cmd-click,
 Shift-click range) with bulk actions + group drag; swimlanes; board/list

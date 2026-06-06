@@ -9,6 +9,23 @@ Releases are cut by pushing a `v*` tag, which builds the Windows
 installers and publishes a GitHub Release (see
 [`.github/workflows/release.yml`](.github/workflows/release.yml)).
 
+## [Unreleased]
+
+### Added
+
+- **More ways to sort a list.** The list menu's "Sort cards" now offers,
+  besides Manual and the existing created-date order: **Added to list**
+  (newest or oldest first, by when a card entered that list), **Due date**
+  (soonest first), **Priority** (highest first), and **Alphabetical**
+  (A to Z / Z to A). The list header shows a small chip for the active
+  sort.
+
+### Fixed
+
+- **List menu layout.** The "Sort cards" and "On card enter" rows line up
+  evenly, and the card-limit field is now full width with room only for
+  the Set button.
+
 ## [0.2.0] - 2026-06-04
 
 ### Added

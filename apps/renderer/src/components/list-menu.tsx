@@ -25,6 +25,52 @@ const patchList = (
   lists: b.lists.map((l) => (l.id === id ? { ...l, ...patch } : l))
 })
 
+// Sort modes offered in the "Sort cards" picker (ADR-0032 + follow-up).
+// `mode` maps to list.sortMode (null = Manual, the fractional-index
+// default). `full` spans both columns (Manual sits on its own row). The
+// hint distinguishes "created" (when the card was made) from "added to
+// list" (when it entered THIS list) - the two read similarly otherwise.
+const SORT_OPTIONS: ReadonlyArray<{
+  label: string
+  mode: ListSortMode | null
+  hint: string
+  full?: boolean
+}> = [
+  { label: 'Manual', mode: null, hint: 'Drag cards to arrange them yourself', full: true },
+  {
+    label: 'Newest created',
+    mode: 'created-desc',
+    hint: 'By when the card was created, newest first'
+  },
+  {
+    label: 'Oldest created',
+    mode: 'created-asc',
+    hint: 'By when the card was created, oldest first'
+  },
+  {
+    label: 'Recently added',
+    mode: 'added-desc',
+    hint: 'By when the card was added to this list, newest first'
+  },
+  {
+    label: 'First added',
+    mode: 'added-asc',
+    hint: 'By when the card was added to this list, oldest first'
+  },
+  {
+    label: 'Due date',
+    mode: 'due-asc',
+    hint: 'Soonest due first; cards with no due date last'
+  },
+  {
+    label: 'Priority',
+    mode: 'priority-desc',
+    hint: 'Urgent first, unprioritised last'
+  },
+  { label: 'A to Z', mode: 'title-asc', hint: 'By title, A to Z' },
+  { label: 'Z to A', mode: 'title-desc', hint: 'By title, Z to A' }
+]
+
 export function ListEditor({
   list,
   apply,
@@ -121,18 +167,13 @@ export function ListEditor({
       </div>
       <MenuSep />
       <MenuLabel>Sort cards</MenuLabel>
-      <div className="grid grid-cols-3 gap-1 px-2 py-1">
-        {(
-          [
-            ['Manual', null],
-            ['Newest', 'created-desc'],
-            ['Oldest', 'created-asc']
-          ] as Array<[string, ListSortMode | null]>
-        ).map(([label, mode]) => {
+      <div className="grid grid-cols-2 gap-1 px-2 py-1">
+        {SORT_OPTIONS.map(({ label, mode, hint, full }) => {
           const active = (list.sortMode ?? null) === mode
           return (
             <button
               key={label}
+              title={hint}
               onClick={() => {
                 if (active) {
                   close()
@@ -150,6 +191,7 @@ export function ListEditor({
               }}
               className={cn(
                 'rounded px-2 py-1 text-xs',
+                full && 'col-span-2',
                 active
                   ? 'bg-accent text-foreground'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'

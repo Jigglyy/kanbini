@@ -8,6 +8,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { APP_CODENAME, type Mutation } from '@kanbini/shared'
 import {
+  applyMutation,
   applyMutationRecorded,
   exportToFolder,
   getBoardView,
@@ -121,6 +122,47 @@ describe('headless readers vs live @kanbini/db', () => {
   it('headlessBoardView returns null for an unknown id', async () => {
     const snap = await loadHeadlessSnapshot(exportDir)
     expect(headlessBoardView(snap!, 'does-not-exist')).toBeNull()
+  })
+
+  it('every list sort mode orders cards identically in both readers', async () => {
+    // Throwaway DB + export dir so the shared snapshot the other tests
+    // diff against stays untouched. The assertion is parity, not a
+    // specific order: data.ts `cardOrdering` and headless `compareCards`
+    // must agree for each mode or this fails.
+    const { db: db2, close } = openDatabase({
+      filePath: ':memory:',
+      migrationsFolder: MIGRATIONS
+    })
+    try {
+      seedSampleData(db2)
+      const listId = getBoardView(db2)!.lists[0]!.id
+      const root = join(tmpRoot, 'sort-parity')
+      const exDir = join(root, 'export')
+      const modes = [
+        'created-desc',
+        'created-asc',
+        'added-desc',
+        'added-asc',
+        'due-asc',
+        'title-asc',
+        'title-desc',
+        'priority-desc'
+      ] as const
+      for (const mode of modes) {
+        applyMutation(db2, {
+          type: 'list.update',
+          id: listId,
+          patch: { sortMode: mode }
+        })
+        await exportToFolder(db2, root, exDir)
+        const snap = await loadHeadlessSnapshot(exDir)
+        expect(headlessBoardView(snap!), `sort mode ${mode}`).toEqual(
+          getBoardView(db2)
+        )
+      }
+    } finally {
+      close()
+    }
   })
 
   it('headlessCardView matches getCardView for every seeded card', async () => {

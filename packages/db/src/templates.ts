@@ -15,6 +15,7 @@ import {
 } from '@kanbini/shared'
 import type { Db } from './client'
 import { ensureDefaultProjectId } from './crud'
+import { parseListSortMode } from './data'
 import {
   board,
   card,
@@ -73,12 +74,7 @@ export function saveBoardTemplate(
       color: l.color,
       position: l.position,
       wipLimit: l.wipLimit,
-      sortMode:
-        l.sortMode === 'created-asc'
-          ? ('created-asc' as const)
-          : l.sortMode === 'created-desc'
-            ? ('created-desc' as const)
-            : null,
+      sortMode: parseListSortMode(l.sortMode),
       cards: snapshotCards(tx, l.id, tmplLabelIdByReal)
     }))
 
@@ -136,10 +132,7 @@ export function saveListTemplate(
         name: l.name,
         color: l.color,
         wipLimit: l.wipLimit,
-        sortMode:
-          l.sortMode === 'created-asc' || l.sortMode === 'created-desc'
-            ? l.sortMode
-            : null
+        sortMode: parseListSortMode(l.sortMode)
       },
       cards
     }

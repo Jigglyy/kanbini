@@ -188,6 +188,8 @@ export interface CardSnapshot {
   archived: boolean
   /** ADR-0037 card priority; null = unprioritised. */
   priority: string | null
+  /** ADR-0032 follow-up: when the card was added to its list. */
+  listAddedAt: number
   createdAt: number
   updatedAt: number
   labelIds: string[]
@@ -490,6 +492,7 @@ export function snapshotCard(db: Db, id: string): CardSnapshot | null {
     coverAttachmentId: r.coverAttachmentId,
     archived: r.archived,
     priority: r.priority,
+    listAddedAt: r.listAddedAt,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
     labelIds,
@@ -580,6 +583,7 @@ function restoreCard(db: Db, s: CardSnapshot): void {
       coverAttachmentId: s.coverAttachmentId,
       archived: s.archived,
       priority: s.priority,
+      listAddedAt: s.listAddedAt,
       createdAt: s.createdAt,
       updatedAt: s.updatedAt
     })
@@ -1013,7 +1017,7 @@ export function inverseBefore(db: Db, m: Mutation): Mutation | null {
     // -- Moves: capture old position --
     case 'card.move': {
       const old = db
-        .select({ listId: card.listId })
+        .select({ listId: card.listId, listAddedAt: card.listAddedAt })
         .from(card)
         .where(eq(card.id, m.id))
         .get()
@@ -1034,7 +1038,10 @@ export function inverseBefore(db: Db, m: Mutation): Mutation | null {
         id: m.id,
         toListId: old.listId,
         beforeId,
-        afterId
+        afterId,
+        // Restore the prior list-entry time so an undone cross-list move
+        // doesn't re-stamp "added to list" to the moment of the undo.
+        listAddedAt: old.listAddedAt
       }
     }
     case 'board.move': {

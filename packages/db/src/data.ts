@@ -1,10 +1,11 @@
-import { asc, desc, eq, sql } from 'drizzle-orm'
+import { asc, desc, eq, sql, type SQL } from 'drizzle-orm'
 import {
   type BoardBackground,
   type BoardSummary,
   type BoardView,
   type CardPriority,
   type ListOnEnterRule,
+  type ListSortMode,
   type SwimlaneMode,
   firstOrderKey,
   newId,
@@ -12,6 +13,7 @@ import {
   zBoardBackground,
   zCardPriority,
   zListOnEnterRule,
+  zListSortMode,
   zSwimlaneMode
 } from '@kanbini/shared'
 import type { Db } from './client'
@@ -241,6 +243,53 @@ export function listBoards(db: Db): BoardSummary[] {
 }
 
 /** Nested view of a board (first board if no id). null if none. */
+/** Soft-narrow a stored list.sort_mode to a known mode (null = manual).
+ *  An unrecognised value (an older row, or a mode shipped by a newer
+ *  build) degrades to manual rather than throwing. Exported so the
+ *  write side (crud.ts flip-to-manual snapshot) freezes cards in the
+ *  exact order they were displayed under the previous mode. */
+export function parseListSortMode(s: string | null): ListSortMode | null {
+  const r = zListSortMode.safeParse(s)
+  return r.success ? r.data : null
+}
+
+/** ORDER BY clause for a list's cards under the given sort mode. Manual
+ *  (null) keeps the fractional-index order; every computed mode ends in
+ *  a stable tiebreaker so equal keys never reorder between reads. The
+ *  headless MCP reader (apps/mcp/src/headless.ts `compareCards`) mirrors
+ *  this exactly - keep the two in lockstep or the drift test fails.
+ *  Exported for the crud.ts flip-to-manual snapshot (same ordering). */
+export function cardOrdering(mode: ListSortMode | null): SQL[] {
+  switch (mode) {
+    case 'created-desc':
+      return [desc(card.createdAt), desc(card.id)]
+    case 'created-asc':
+      return [asc(card.createdAt), asc(card.id)]
+    case 'added-desc':
+      return [desc(card.listAddedAt), desc(card.id)]
+    case 'added-asc':
+      return [asc(card.listAddedAt), asc(card.id)]
+    case 'due-asc':
+      // Soonest due first; cards with no due date sink to the bottom.
+      return [asc(sql`${card.dueAt} is null`), asc(card.dueAt), asc(card.id)]
+    case 'title-asc':
+      return [asc(sql`lower(${card.title})`), asc(card.id)]
+    case 'title-desc':
+      return [desc(sql`lower(${card.title})`), desc(card.id)]
+    case 'priority-desc':
+      // urgent -> high -> medium -> low -> unprioritised; ties keep the
+      // manual order within each priority bucket.
+      return [
+        asc(
+          sql`case ${card.priority} when 'urgent' then 0 when 'high' then 1 when 'medium' then 2 when 'low' then 3 else 4 end`
+        ),
+        asc(card.position)
+      ]
+    default:
+      return [asc(card.position)]
+  }
+}
+
 export function getBoardView(db: Db, boardId?: string): BoardView | null {
   const b = boardId
     ? db.select().from(board).where(eq(board.id, boardId)).get()
@@ -362,19 +411,11 @@ export function getBoardView(db: Db, boardId?: string): BoardView | null {
     },
     labels: labels.map((l) => ({ id: l.id, name: l.name, color: l.color })),
     lists: lists.map((l) => {
-      // ADR-0032 per-list sort: manual = fractional-index (today's
-      // default); non-manual = created-at order, with id as a stable
-      // tiebreaker for cards minted in the same millisecond.
-      const sortMode =
-        l.sortMode === 'created-asc' || l.sortMode === 'created-desc'
-          ? l.sortMode
-          : null
-      const ordering =
-        sortMode === 'created-desc'
-          ? [desc(card.createdAt), desc(card.id)]
-          : sortMode === 'created-asc'
-            ? [asc(card.createdAt), asc(card.id)]
-            : [asc(card.position)]
+      // ADR-0032 per-list sort. Manual (null) keeps fractional-index
+      // order; every other mode computes the order via cardOrdering
+      // (mirrored by the headless reader for the MCP fallback).
+      const sortMode = parseListSortMode(l.sortMode)
+      const ordering = cardOrdering(sortMode)
       return {
       id: l.id,
       name: l.name,
