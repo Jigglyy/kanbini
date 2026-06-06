@@ -9,7 +9,7 @@ Releases are cut by pushing a `v*` tag, which builds the Windows
 installers and publishes a GitHub Release (see
 [`.github/workflows/release.yml`](.github/workflows/release.yml)).
 
-## [Unreleased]
+## [0.3.0] - 2026-06-06
 
 ### Added
 
@@ -78,5 +78,6 @@ single-user desktop kanban app with a local MCP server.
   push to an Obsidian vault.
 - **Windows packaging:** NSIS installer and portable `.exe` (unsigned).
 
+[0.3.0]: https://github.com/Jigglyy/kanbini/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Jigglyy/kanbini/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Jigglyy/kanbini/releases/tag/v0.1.0
