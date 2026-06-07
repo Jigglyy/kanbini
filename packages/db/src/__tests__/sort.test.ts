@@ -201,3 +201,134 @@ describe('listAddedAt stamping (ADR-0032 follow-up)', () => {
     expect(addedAt(a.id)).toBe(22222)
   })
 })
+
+describe('cross-list move into a sorted list (reverse-key drop)', () => {
+  it('a middle drop into an added-desc list succeeds instead of throwing', () => {
+    const projectId = ensureDefaultProjectId(db)
+    const board = applyMutation(db, { type: 'board.create', projectId, name: 'B' })
+    const src = applyMutation(db, {
+      type: 'list.create',
+      boardId: board.id,
+      name: 'Src'
+    })
+    const dst = applyMutation(db, {
+      type: 'list.create',
+      boardId: board.id,
+      name: 'Dst'
+    })
+
+    // Dst's cards have fractional positions that ASCEND with creation
+    // (k0<k1<k2<k3), but their listAddedAt also ascends, so the
+    // added-desc display is the REVERSE (d4, d3, d2, d1). Any two
+    // displayed-middle neighbours then have keys in reverse fractional
+    // order - the exact input that made orderKeyBetween throw and the
+    // renderer snap the drag back.
+    const keys = orderKeysBetween(null, null, 4)
+    const rows = [
+      ['d1', 100],
+      ['d2', 200],
+      ['d3', 300],
+      ['d4', 400]
+    ] as const
+    const id: Record<string, string> = {}
+    rows.forEach(([title, added], i) => {
+      const cid = newId()
+      id[title] = cid
+      db.insert(card)
+        .values({
+          id: cid,
+          listId: dst.id,
+          title,
+          position: keys[i]!,
+          listAddedAt: added,
+          createdAt: added,
+          updatedAt: added
+        })
+        .run()
+    })
+    applyMutation(db, {
+      type: 'list.update',
+      id: dst.id,
+      patch: { sortMode: 'added-desc' }
+    })
+
+    const dstTitles = (): string[] =>
+      getBoardView(db, board.id)!
+        .lists.find((l) => l.id === dst.id)!
+        .cards.map((c) => c.title)
+    // Display is the reverse of the fractional order.
+    expect(dstTitles()).toEqual(['d4', 'd3', 'd2', 'd1'])
+
+    const x = applyMutation(db, {
+      type: 'card.create',
+      listId: src.id,
+      title: 'X'
+    })
+
+    // Drop X between d3 and d2 in the display: their fractional keys are
+    // k2 and k1 (reverse). Pre-fix this threw; now card.move appends for
+    // a sorted target and the ORDER BY resolves the slot.
+    expect(() =>
+      applyMutation(db, {
+        type: 'card.move',
+        id: x.id,
+        toListId: dst.id,
+        beforeId: id['d3'],
+        afterId: id['d2']
+      })
+    ).not.toThrow()
+
+    // X left Src and joined Dst, sorting to the top (freshest listAddedAt
+    // under added-desc).
+    expect(
+      getBoardView(db, board.id)!.lists.find((l) => l.id === src.id)!.cards
+    ).toEqual([])
+    expect(dstTitles()).toEqual(['X', 'd4', 'd3', 'd2', 'd1'])
+  })
+
+  it('a middle drop into a MANUAL list still lands between the neighbours', () => {
+    const projectId = ensureDefaultProjectId(db)
+    const board = applyMutation(db, { type: 'board.create', projectId, name: 'B' })
+    const src = applyMutation(db, {
+      type: 'list.create',
+      boardId: board.id,
+      name: 'Src'
+    })
+    const dst = applyMutation(db, {
+      type: 'list.create',
+      boardId: board.id,
+      name: 'Dst'
+    })
+    const m1 = applyMutation(db, {
+      type: 'card.create',
+      listId: dst.id,
+      title: 'm1'
+    })
+    const m2 = applyMutation(db, {
+      type: 'card.create',
+      listId: dst.id,
+      title: 'm2'
+    })
+    applyMutation(db, { type: 'card.create', listId: dst.id, title: 'm3' })
+    const x = applyMutation(db, {
+      type: 'card.create',
+      listId: src.id,
+      title: 'X'
+    })
+
+    // Manual list: the requested neighbours ARE honoured (this is the
+    // path the sorted-list fix must not disturb).
+    applyMutation(db, {
+      type: 'card.move',
+      id: x.id,
+      toListId: dst.id,
+      beforeId: m1.id,
+      afterId: m2.id
+    })
+    expect(
+      getBoardView(db, board.id)!
+        .lists.find((l) => l.id === dst.id)!
+        .cards.map((c) => c.title)
+    ).toEqual(['m1', 'X', 'm2', 'm3'])
+  })
+})

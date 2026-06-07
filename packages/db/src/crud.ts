@@ -475,6 +475,25 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
         const crossedList =
           sourceListId !== null && sourceListId !== m.toListId
 
+        // Target-list metadata, read up front: a sorted list (ADR-0032)
+        // ignores manual order - the read view re-sorts by sort_mode, and
+        // its stored fractional keys are in a DIFFERENT order than what's
+        // shown. So the dropped before/after (taken from the visible
+        // order) can be two keys in reverse fractional order, which makes
+        // orderKeyBetween throw - exactly the "drop into the middle of a
+        // sorted list does nothing" bug (the renderer's card.move rejects
+        // and snaps the card back). For a sorted target we append a valid
+        // key and let the ORDER BY resolve the real slot on the next read;
+        // only a manual list honours the requested neighbours.
+        const toListRow = tx
+          .select({
+            name: list.name,
+            onEnter: list.onEnter,
+            sortMode: list.sortMode
+          })
+          .from(list)
+          .where(eq(list.id, m.toListId))
+          .get()
         const keyOf = (cardId: string | null | undefined): string | null =>
           cardId
             ? (tx
@@ -483,7 +502,9 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
                 .where(and(eq(card.id, cardId), eq(card.listId, m.toListId)))
                 .get()?.p ?? null)
             : null
-        const position = orderKeyBetween(keyOf(m.beforeId), keyOf(m.afterId))
+        const position = toListRow?.sortMode
+          ? appendCardKey(tx as unknown as Db, m.toListId)
+          : orderKeyBetween(keyOf(m.beforeId), keyOf(m.afterId))
         tx.update(card)
           .set({
             listId: m.toListId,
@@ -499,11 +520,6 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
           .where(eq(card.id, m.id))
           .run()
         const boardId = listBoardId(tx as unknown as Db, m.toListId)
-        const toListRow = tx
-          .select({ name: list.name, onEnter: list.onEnter })
-          .from(list)
-          .where(eq(list.id, m.toListId))
-          .get()
         logActivity(tx as unknown as Db, {
           boardId,
           cardId: m.id,

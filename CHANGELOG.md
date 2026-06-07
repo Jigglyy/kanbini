@@ -9,6 +9,17 @@ Releases are cut by pushing a `v*` tag, which builds the Windows
 installers and publishes a GitHub Release (see
 [`.github/workflows/release.yml`](.github/workflows/release.yml)).
 
+## [Unreleased]
+
+### Fixed
+
+- **Dragging a card into the middle of a sorted list** no longer snaps
+  back instead of moving. Moving a card into a list with an active sort
+  now appends a valid position rather than trying to order it between the
+  two displayed neighbours, whose stored keys can be in reverse order (a
+  sorted list shows cards in a different order than they are stored),
+  which made the move fail server-side.
+
 ## [0.3.0] - 2026-06-06
 
 ### Added
