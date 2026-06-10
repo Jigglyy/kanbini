@@ -830,6 +830,10 @@ function attachDevTools(wc: WebContents): void {
   })
 }
 
+// The primary window, for the second-instance focus handler. Cleared
+// on close so a stale reference never gets focus() called on it.
+let mainWindow: BrowserWindow | null = null
+
 function createWindow(): void {
   // Dev-only window icon (ADR-0051). In a packaged build the .exe
   // (Windows) / .app bundle (macOS) / .desktop entry (Linux) carry
@@ -880,6 +884,11 @@ function createWindow(): void {
       webSecurity: true,
       spellcheck: false
     }
+  })
+
+  mainWindow = win
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null
   })
 
   win.once('ready-to-show', () => {
@@ -946,7 +955,34 @@ const LAUNCH_SMOKE_MODE =
   process.argv.includes('--launch-smoke') ||
   process.env.KANBINI_LAUNCH_SMOKE === '1'
 
+// Single-instance lock. Two mains on the same userData would share the
+// SQLite file with NO cross-process change events (the single-writer
+// architecture assumes one main), overwrite each other's mcp.json, and
+// race the auto-export's .staging/.backup swap on quit - two
+// simultaneous quits can destroy each other's export mid-swap. The
+// lock is keyed off the userData path, so E2E launches (each with its
+// own KANBINI_USERDATA_OVERRIDE temp dir) are unaffected. The headless
+// test modes skip the lock entirely - they use in-memory DBs, never
+// write mcp.json, and a smoke run while the real app is open should
+// still report its own pass/fail rather than silently quitting.
+const isPrimaryInstance =
+  ROUND_TRIP_MODE || LAUNCH_SMOKE_MODE || app.requestSingleInstanceLock()
+if (!isPrimaryInstance) {
+  app.quit()
+} else if (!ROUND_TRIP_MODE && !LAUNCH_SMOKE_MODE) {
+  app.on('second-instance', () => {
+    // Someone launched Kanbini again - surface the existing window.
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+    }
+  })
+}
+
 void app.whenReady().then(async () => {
+  if (!isPrimaryInstance) return
+
   if (ROUND_TRIP_MODE) {
     const code = await runRoundTripTest(migrationsFolder)
     app.exit(code)
