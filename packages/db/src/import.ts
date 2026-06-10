@@ -1,5 +1,5 @@
 import { promises as fsp } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import type { Db } from './client'
 import { EXPORT_FORMAT_VERSION } from './export'
 import {
@@ -80,6 +80,31 @@ interface ParsedDump {
   activities: Array<typeof activity.$inferInsert>
 }
 
+/** True when `relPath` is a safe userData-relative file path rooted at
+ *  `root` ('attachments' or 'board-backgrounds'). The dump is untrusted
+ *  input - an export shared by someone else, or a hand-edited folder -
+ *  and these paths get WRITTEN to during import, so a crafted
+ *  "../../Start Menu/…" entry would otherwise drop files anywhere the
+ *  user can write. Rejects absolute paths, drive letters, `..` (or
+ *  any dot-only) segments, empty segments, and null bytes; requires
+ *  the first segment to be exactly `root`. Exported for tests. */
+export function isSafeUserDataRelPath(
+  relPath: unknown,
+  root: 'attachments' | 'board-backgrounds'
+): relPath is string {
+  if (typeof relPath !== 'string' || relPath.length === 0) return false
+  if (relPath.includes('\0')) return false
+  // Absolute (POSIX or Windows) and drive-letter forms are never ok.
+  if (relPath.startsWith('/') || relPath.startsWith('\\')) return false
+  if (/^[a-zA-Z]:/.test(relPath)) return false
+  const segments = relPath.split(/[/\\]/)
+  if (segments[0] !== root) return false
+  // Need at least root + filename; every segment non-empty + not a
+  // dot-only traversal token.
+  if (segments.length < 2) return false
+  return segments.every((s) => s.length > 0 && s !== '.' && s !== '..')
+}
+
 export async function importFromFolder(
   db: Db,
   userDataDir: string,
@@ -93,6 +118,44 @@ export async function importFromFolder(
     throw new Error(
       `import: format v${dump.formatVersion} but this build understands v${EXPORT_FORMAT_VERSION}`
     )
+  }
+
+  // 1b. Structural sanity + path-safety validation, all BEFORE the
+  //     wipe transaction so a malformed/malicious dump leaves the DB
+  //     untouched. The table arrays must actually be arrays (a truncated
+  //     file otherwise dies mid-import with a confusing TypeError), and
+  //     every relPath the file copies below will write to must stay
+  //     inside its userData root (see isSafeUserDataRelPath).
+  const tableKeys = [
+    'projects', 'boards', 'lists', 'cards', 'labels', 'cardLabels',
+    'checklists', 'checklistItems', 'comments', 'attachments', 'activities'
+  ] as const
+  for (const k of tableKeys) {
+    if (!Array.isArray(dump[k])) {
+      throw new Error(
+        `import: kanbini.json is missing the "${k}" table - the export looks incomplete or corrupted`
+      )
+    }
+  }
+  for (const att of dump.attachments) {
+    if (!isSafeUserDataRelPath(att.relPath, 'attachments')) {
+      throw new Error(
+        `import: refusing unsafe attachment path "${String(att.relPath)}"`
+      )
+    }
+  }
+  for (const b of dump.boards) {
+    const bg = (b as { background?: unknown }).background as
+      | { kind?: string; relPath?: unknown }
+      | null
+      | undefined
+    if (bg && bg.kind === 'image' && bg.relPath != null) {
+      if (!isSafeUserDataRelPath(bg.relPath, 'board-backgrounds')) {
+        throw new Error(
+          `import: refusing unsafe board background path "${String(bg.relPath)}"`
+        )
+      }
+    }
   }
 
   // 2. Stitch descriptions back from cards/<id>.md.
@@ -156,6 +219,10 @@ export async function importFromFolder(
     if (!att.relPath) continue
     const src = join(sourceRoot, att.relPath)
     const dest = join(userDataDir, att.relPath)
+    // Belt + braces on top of the up-front isSafeUserDataRelPath pass:
+    // the resolved destination must stay inside the attachments root.
+    const attachmentsRoot = resolve(userDataDir, 'attachments')
+    if (!resolve(dest).startsWith(attachmentsRoot + sep)) continue
     try {
       await fsp.mkdir(dirname(dest), { recursive: true })
       await fsp.copyFile(src, dest)
@@ -186,6 +253,8 @@ export async function importFromFolder(
     if (!bg || bg.kind !== 'image' || !bg.relPath) continue
     const src = join(sourceRoot, bg.relPath)
     const dest = join(userDataDir, bg.relPath)
+    const backgroundsRoot = resolve(userDataDir, 'board-backgrounds')
+    if (!resolve(dest).startsWith(backgroundsRoot + sep)) continue
     try {
       await fsp.mkdir(dirname(dest), { recursive: true })
       await fsp.copyFile(src, dest)
