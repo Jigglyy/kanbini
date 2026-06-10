@@ -33,17 +33,77 @@ function isPrivateIpv4(ip: [number, number, number, number]): boolean {
   return false
 }
 
-function isPrivateIpv6(h: string): boolean {
-  if (h === '::1') return true // loopback
-  if (h === '::') return true // unspecified
-  if (/^f[cd]/.test(h)) return true // fc00::/7 unique-local
-  if (/^fe[89ab]/.test(h)) return true // fe80::/10 link-local
-  // IPv4-mapped (::ffff:a.b.c.d) - classify the embedded v4 tail.
-  const mapped = /(?:^|:)((?:\d{1,3}\.){3}\d{1,3})$/.exec(h)
-  if (mapped) {
-    const v4 = parseIpv4(mapped[1]!)
-    if (v4) return isPrivateIpv4(v4)
+/** Expand an IPv6 literal into its 8 16-bit groups, or null when the
+ *  string isn't a valid IPv6 address. Handles `::` compression, an
+ *  embedded dotted-quad tail (`::ffff:1.2.3.4`), and strips any `%zone`
+ *  suffix. Needed because the WHATWG URL parser canonicalises IPv6
+ *  hosts to the all-hex compressed form - `[::ffff:127.0.0.1]` arrives
+ *  here as `::ffff:7f00:1`, so prefix string-matching alone misses the
+ *  IPv4-mapped loopback (the bypass fixed in this revision). */
+function parseIpv6Groups(host: string): number[] | null {
+  let h = host
+  const zone = h.indexOf('%')
+  if (zone !== -1) h = h.slice(0, zone)
+  // Convert a dotted-quad tail into its two hex groups so the rest of
+  // the parser only deals with hex.
+  const v4Tail = /^(.*:)((?:\d{1,3}\.){3}\d{1,3})$/.exec(h)
+  if (v4Tail) {
+    const v4 = parseIpv4(v4Tail[2]!)
+    if (!v4) return null
+    const hi = ((v4[0] << 8) | v4[1]).toString(16)
+    const lo = ((v4[2] << 8) | v4[3]).toString(16)
+    h = `${v4Tail[1]}${hi}:${lo}`
   }
+  const halves = h.split('::')
+  if (halves.length > 2) return null
+  const head = halves[0] ? halves[0].split(':') : []
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : []
+  const missing = 8 - head.length - tail.length
+  if (halves.length === 1 && head.length !== 8) return null
+  if (halves.length === 2 && missing < 1) return null
+  const groups: number[] = []
+  for (const part of [
+    ...head,
+    ...Array<string>(Math.max(0, missing)).fill('0'),
+    ...tail
+  ]) {
+    if (!/^[0-9a-fA-F]{1,4}$/.test(part)) return null
+    groups.push(parseInt(part, 16))
+  }
+  return groups.length === 8 ? groups : null
+}
+
+/** The IPv4 address embedded in an IPv4-in-IPv6 transition prefix, or
+ *  null when `g` isn't one. Covers IPv4-mapped (`::ffff:0:0/96` - what
+ *  dual-stack sockets actually route to the v4 loopback/LAN) and NAT64
+ *  (`64:ff9b::/96` - a NAT64 gateway would translate it to the
+ *  embedded v4). */
+function embeddedIpv4(
+  g: number[]
+): [number, number, number, number] | null {
+  const mapped =
+    g[0] === 0 && g[1] === 0 && g[2] === 0 && g[3] === 0 && g[4] === 0 &&
+    g[5] === 0xffff
+  const nat64 =
+    g[0] === 0x64 && g[1] === 0xff9b && g[2] === 0 && g[3] === 0 &&
+    g[4] === 0 && g[5] === 0
+  if (!mapped && !nat64) return null
+  return [g[6]! >> 8, g[6]! & 0xff, g[7]! >> 8, g[7]! & 0xff]
+}
+
+function isPrivateIpv6(h: string): boolean {
+  const g = parseIpv6Groups(h)
+  // Unparseable but colon-bearing host: not a domain name (those never
+  // contain ':'), so it's a malformed IPv6 literal - fail closed.
+  if (!g) return true
+  const v4 = embeddedIpv4(g)
+  if (v4) return isPrivateIpv4(v4)
+  const headZero = g[0] === 0 && g[1] === 0 && g[2] === 0 && g[3] === 0 &&
+    g[4] === 0 && g[5] === 0 && g[6] === 0
+  if (headZero && g[7] === 0) return true // :: unspecified
+  if (headZero && g[7] === 1) return true // ::1 loopback
+  if ((g[0]! & 0xfe00) === 0xfc00) return true // fc00::/7 unique-local
+  if ((g[0]! & 0xffc0) === 0xfe80) return true // fe80::/10 link-local
   return false
 }
 

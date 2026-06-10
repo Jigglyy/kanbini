@@ -49,6 +49,30 @@ describe('isPrivateOrReservedHost', () => {
     expect(isPrivateOrReservedHost('[::ffff:127.0.0.1]')).toBe(true) // mapped loopback
   })
 
+  it('blocks hex-form IPv4-mapped IPv6 (the WHATWG-canonical spelling)', () => {
+    // `new URL('http://[::ffff:127.0.0.1]/').hostname` serialises to the
+    // all-hex compressed form - the dotted spelling never reaches this
+    // check in practice. Missing these was a full SSRF bypass.
+    expect(isPrivateOrReservedHost('::ffff:7f00:1')).toBe(true) // 127.0.0.1
+    expect(isPrivateOrReservedHost('[::ffff:7f00:1]')).toBe(true)
+    expect(isPrivateOrReservedHost('::ffff:a9fe:a9fe')).toBe(true) // 169.254.169.254
+    expect(isPrivateOrReservedHost('::ffff:a00:1')).toBe(true) // 10.0.0.1
+    expect(isPrivateOrReservedHost('::ffff:c0a8:101')).toBe(true) // 192.168.1.1
+    expect(isPrivateOrReservedHost('::ffff:808:808')).toBe(false) // 8.8.8.8 - public
+  })
+
+  it('blocks NAT64 (64:ff9b::/96) embedding a private IPv4', () => {
+    expect(isPrivateOrReservedHost('64:ff9b::7f00:1')).toBe(true) // 127.0.0.1
+    expect(isPrivateOrReservedHost('64:ff9b::a9fe:a9fe')).toBe(true) // metadata
+    expect(isPrivateOrReservedHost('64:ff9b::808:808')).toBe(false) // 8.8.8.8
+  })
+
+  it('fails closed on malformed IPv6 literals and zone suffixes', () => {
+    expect(isPrivateOrReservedHost(':::1')).toBe(true) // malformed
+    expect(isPrivateOrReservedHost('1:2:3:4:5:6:7:8:9')).toBe(true) // 9 groups
+    expect(isPrivateOrReservedHost('fe80::1%eth0')).toBe(true) // zone id
+  })
+
   it('allows public IP literals + ordinary domain names', () => {
     expect(isPrivateOrReservedHost('8.8.8.8')).toBe(false)
     expect(isPrivateOrReservedHost('1.1.1.1')).toBe(false)
