@@ -170,7 +170,7 @@ describe('searchCards', () => {
   // is mild - but pin the behaviour here so we don't ship a silent
   // change. If we ever want exact-substring on these characters,
   // escape them and add `ESCAPE '\\'` to the LIKE clauses in search.ts.
-  it('treats SQL LIKE wildcards in the query as wildcards (known)', () => {
+  it('treats SQL LIKE metacharacters in the query as literals', () => {
     const projectId = ensureDefaultProjectId(db)
     const b = applyMutation(db, {
       type: 'board.create',
@@ -183,13 +183,21 @@ describe('searchCards', () => {
       name: 'L'
     }).id
     applyMutation(db, { type: 'card.create', listId: l, title: 'Done 50ANYTHING' })
-    applyMutation(db, { type: 'card.create', listId: l, title: 'Unrelated' })
-    // `50%` matches both "50ANYTHING" (because % is wildcard) and
-    // anything else starting with "50". The literal-percent card
-    // isn't present, but the wildcard behaviour is observable here.
-    expect(searchCards(db, '50%').map((h) => h.title)).toContain('Done 50ANYTHING')
-    // `_` is the single-char wildcard.
-    expect(searchCards(db, '50_').map((h) => h.title)).toContain('Done 50ANYTHING')
+    applyMutation(db, { type: 'card.create', listId: l, title: 'Progress: 50%' })
+    applyMutation(db, { type: 'card.create', listId: l, title: 'snake_case task' })
+    applyMutation(db, { type: 'card.create', listId: l, title: 'snake-case task' })
+    applyMutation(db, { type: 'card.create', listId: l, title: 'C:\\paths\\too' })
+
+    // `%` is a literal percent sign, not "match anything".
+    expect(searchCards(db, '50%').map((h) => h.title)).toEqual(['Progress: 50%'])
+    // `_` is a literal underscore, not the single-char wildcard.
+    expect(searchCards(db, 'snake_').map((h) => h.title)).toEqual([
+      'snake_case task'
+    ])
+    // The escape character itself round-trips as a literal too.
+    expect(searchCards(db, '\\paths').map((h) => h.title)).toEqual([
+      'C:\\paths\\too'
+    ])
   })
 
   it('match is case-insensitive', () => {

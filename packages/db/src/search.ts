@@ -54,9 +54,13 @@ export function searchCards(
   if (q.length === 0) return []
   const cap = Math.min(Math.max(1, limit), HARD_LIMIT)
   // SQLite LIKE is case-insensitive for ASCII by default; lowercase
-  // both sides so non-ASCII (and labels) match too.
+  // both sides so non-ASCII (and labels) match too. Escape LIKE's
+  // metacharacters so a literal % / _ in the query matches itself
+  // instead of acting as a wildcard ("100%" used to match "100"
+  // followed by anything). Every LIKE below carries ESCAPE '\\'.
   const qLower = q.toLowerCase()
-  const pat = `%${qLower}%`
+  const escaped = qLower.replace(/[\\%_]/g, (ch) => `\\${ch}`)
+  const pat = `%${escaped}%`
 
   const rows = db
     .select({
@@ -68,9 +72,9 @@ export function searchCards(
       boardName: board.name,
       listName: list.name,
       labelName: label.name,
-      titleHit: sql<number>`(lower(${card.title}) LIKE ${pat})`,
-      descHit: sql<number>`(lower(coalesce(${card.description}, '')) LIKE ${pat})`,
-      labelHit: sql<number>`(lower(coalesce(${label.name}, '')) LIKE ${pat})`
+      titleHit: sql<number>`(lower(${card.title}) LIKE ${pat} ESCAPE '\\')`,
+      descHit: sql<number>`(lower(coalesce(${card.description}, '')) LIKE ${pat} ESCAPE '\\')`,
+      labelHit: sql<number>`(lower(coalesce(${label.name}, '')) LIKE ${pat} ESCAPE '\\')`
     })
     .from(card)
     .innerJoin(list, eq(card.listId, list.id))
@@ -82,9 +86,9 @@ export function searchCards(
         eq(card.archived, false),
         eq(list.closed, false),
         or(
-          sql`lower(${card.title}) LIKE ${pat}`,
-          sql`lower(coalesce(${card.description}, '')) LIKE ${pat}`,
-          sql`lower(coalesce(${label.name}, '')) LIKE ${pat}`
+          sql`lower(${card.title}) LIKE ${pat} ESCAPE '\\'`,
+          sql`lower(coalesce(${card.description}, '')) LIKE ${pat} ESCAPE '\\'`,
+          sql`lower(coalesce(${label.name}, '')) LIKE ${pat} ESCAPE '\\'`
         )
       )
     )
