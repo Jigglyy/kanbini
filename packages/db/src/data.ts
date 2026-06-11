@@ -1,4 +1,4 @@
-import { asc, desc, eq, sql, type SQL } from 'drizzle-orm'
+import { asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import {
   type BoardBackground,
   type BoardSummary,
@@ -290,6 +290,20 @@ export function cardOrdering(mode: ListSortMode | null): SQL[] {
   }
 }
 
+/** Group `rows` into a Map keyed by `key(row)`, preserving row order
+ *  within each bucket - so a query's ORDER BY carries through to the
+ *  per-card arrays. */
+function groupBy<T>(rows: T[], key: (row: T) => string): Map<string, T[]> {
+  const out = new Map<string, T[]>()
+  for (const r of rows) {
+    const k = key(r)
+    const arr = out.get(k)
+    if (arr) arr.push(r)
+    else out.set(k, [r])
+  }
+  return out
+}
+
 export function getBoardView(db: Db, boardId?: string): BoardView | null {
   const b = boardId
     ? db.select().from(board).where(eq(board.id, boardId)).get()
@@ -316,89 +330,159 @@ export function getBoardView(db: Db, boardId?: string): BoardView | null {
     .orderBy(asc(list.position))
     .all()
 
-  const labelIdsFor = (cardId: string): string[] =>
-    db
-      .select({ id: cardLabel.labelId })
-      .from(cardLabel)
-      .where(eq(cardLabel.cardId, cardId))
-      .all()
-      .map((r) => r.id)
+  // Child tables are fetched ONCE per board (scoped via card → list
+  // joins) and grouped per card in JS. The previous shape ran five
+  // queries PER CARD, and this view refetches on every `changed`
+  // broadcast - a few hundred cards meant a couple thousand queries
+  // per mutation. Orderings match the old per-card queries (and the
+  // headless reader in apps/mcp/src/headless.ts, which the parity
+  // suite pins): labelIds by (cardId, labelId) - the export's
+  // cardLabels sort; attachments createdAt asc; comments createdAt
+  // desc; checklists/items position asc. Same-ms ties break on the
+  // UUIDv7 id so the order is deterministic, matching the headless
+  // reader's stable sort over the id-sorted dump.
+  const boardCardIds = db
+    .select({ id: card.id })
+    .from(card)
+    .innerJoin(list, eq(card.listId, list.id))
+    .where(eq(list.boardId, b.id))
 
-  const attachmentsFor = (cardId: string) =>
+  const labelIdsByCard = groupBy(
+    db
+      .select({ cardId: cardLabel.cardId, labelId: cardLabel.labelId })
+      .from(cardLabel)
+      .where(inArray(cardLabel.cardId, boardCardIds))
+      .orderBy(asc(cardLabel.cardId), asc(cardLabel.labelId))
+      .all(),
+    (r) => r.cardId
+  )
+
+  const attachmentsByCard = groupBy(
     db
       .select()
       .from(attachment)
-      .where(eq(attachment.cardId, cardId))
-      .orderBy(asc(attachment.createdAt))
-      .all()
-      .map((at) => ({
-        id: at.id,
-        filename: at.filename,
-        relPath: at.relPath,
-        mime: at.mime,
-        size: at.size,
-        sourceUrl: at.sourceUrl,
-        sourceTitle: at.sourceTitle,
-        createdAt: at.createdAt
-      }))
+      .where(inArray(attachment.cardId, boardCardIds))
+      .orderBy(asc(attachment.createdAt), asc(attachment.id))
+      .all(),
+    (r) => r.cardId
+  )
 
-  const commentsFor = (cardId: string) =>
+  const commentsByCard = groupBy(
     db
       .select()
       .from(comment)
-      .where(eq(comment.cardId, cardId))
-      .orderBy(desc(comment.createdAt))
-      .all()
-      .map((cm) => ({
-        id: cm.id,
-        body: cm.body,
-        author: cm.author,
-        createdAt: cm.createdAt,
-        updatedAt: cm.updatedAt
-      }))
+      .where(inArray(comment.cardId, boardCardIds))
+      .orderBy(desc(comment.createdAt), asc(comment.id))
+      .all(),
+    (r) => r.cardId
+  )
 
-  const checklistsFor = (cardId: string) =>
+  const checklistsByCard = groupBy(
     db
       .select()
       .from(checklist)
-      .where(eq(checklist.cardId, cardId))
+      .where(inArray(checklist.cardId, boardCardIds))
       .orderBy(asc(checklist.position))
-      .all()
-      .map((cl) => ({
-        id: cl.id,
-        name: cl.name,
-        position: cl.position,
-        items: db
-          .select()
-          .from(checklistItem)
-          .where(eq(checklistItem.checklistId, cl.id))
-          .orderBy(asc(checklistItem.position))
-          .all()
-          .map((it) => ({
-            id: it.id,
-            text: it.text,
-            completed: it.completed,
-            position: it.position
-          }))
-      }))
+      .all(),
+    (r) => r.cardId
+  )
 
-  // Secondary sort by id (UUIDv7 = time-sorted) so events recorded
-  // within the same millisecond keep a stable order.
-  const activitiesFor = (cardId: string) =>
+  const itemsByChecklist = groupBy(
     db
       .select()
-      .from(activity)
-      .where(eq(activity.cardId, cardId))
-      .orderBy(desc(activity.createdAt), desc(activity.id))
-      .limit(ACTIVITY_FEED_LIMIT)
-      .all()
-      .map((a) => ({
-        id: a.id,
-        cardId: a.cardId,
-        type: a.type,
-        data: a.data,
-        createdAt: a.createdAt
+      .from(checklistItem)
+      .where(
+        inArray(
+          checklistItem.checklistId,
+          db
+            .select({ id: checklist.id })
+            .from(checklist)
+            .innerJoin(card, eq(checklist.cardId, card.id))
+            .innerJoin(list, eq(card.listId, list.id))
+            .where(eq(list.boardId, b.id))
+        )
+      )
+      .orderBy(asc(checklistItem.position))
+      .all(),
+    (r) => r.checklistId
+  )
+
+  // Per-card cap via a window function - fetching ALL activity rows
+  // for a long-lived board would grow without bound (the feed table
+  // is append-only). Secondary sort by id (UUIDv7 = time-sorted) so
+  // events recorded within the same millisecond keep a stable order.
+  const activityRows = db.all<{
+    id: string
+    cardId: string
+    type: string
+    data: string | null
+    createdAt: number
+  }>(sql`
+    SELECT id, card_id AS cardId, type, data, created_at AS createdAt
+    FROM (
+      SELECT a.*, row_number() OVER (
+        PARTITION BY a.card_id
+        ORDER BY a.created_at DESC, a.id DESC
+      ) AS rn
+      FROM activity a
+      INNER JOIN card c ON c.id = a.card_id
+      INNER JOIN list l ON l.id = c.list_id
+      WHERE l.board_id = ${b.id}
+    )
+    WHERE rn <= ${ACTIVITY_FEED_LIMIT}
+    ORDER BY cardId ASC, createdAt DESC, id DESC
+  `)
+  const activitiesByCard = groupBy(
+    activityRows.map((a) => ({
+      id: a.id,
+      cardId: a.cardId,
+      type: a.type,
+      // Raw sql bypasses drizzle's JSON-mode column mapping - parse
+      // here so the view shape matches the mapped reads exactly.
+      data: a.data == null ? null : (JSON.parse(a.data) as unknown),
+      createdAt: a.createdAt
+    })),
+    (r) => r.cardId
+  )
+
+  const labelIdsFor = (cardId: string): string[] =>
+    (labelIdsByCard.get(cardId) ?? []).map((r) => r.labelId)
+
+  const attachmentsFor = (cardId: string) =>
+    (attachmentsByCard.get(cardId) ?? []).map((at) => ({
+      id: at.id,
+      filename: at.filename,
+      relPath: at.relPath,
+      mime: at.mime,
+      size: at.size,
+      sourceUrl: at.sourceUrl,
+      sourceTitle: at.sourceTitle,
+      createdAt: at.createdAt
+    }))
+
+  const commentsFor = (cardId: string) =>
+    (commentsByCard.get(cardId) ?? []).map((cm) => ({
+      id: cm.id,
+      body: cm.body,
+      author: cm.author,
+      createdAt: cm.createdAt,
+      updatedAt: cm.updatedAt
+    }))
+
+  const checklistsFor = (cardId: string) =>
+    (checklistsByCard.get(cardId) ?? []).map((cl) => ({
+      id: cl.id,
+      name: cl.name,
+      position: cl.position,
+      items: (itemsByChecklist.get(cl.id) ?? []).map((it) => ({
+        id: it.id,
+        text: it.text,
+        completed: it.completed,
+        position: it.position
       }))
+    }))
+
+  const activitiesFor = (cardId: string) => activitiesByCard.get(cardId) ?? []
 
   return {
     project: { id: p.id, name: p.name },
