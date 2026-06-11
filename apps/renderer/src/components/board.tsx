@@ -691,6 +691,14 @@ export function Board({
   // re-render each board update.
   const onCardClick = useCallback(
     (cardId: string, e: React.MouseEvent): void => {
+      // Any click on a card moves the keyboard-nav focus there so mouse
+      // + keyboard stay in sync (opening a card also focuses it -
+      // intentional, same as pre-multi-select). The multi-select
+      // refactor dropped this when it replaced the per-card
+      // onClick={() => onFocus(card.id)} with this handler - every
+      // focus-dependent shortcut silently broke until you arrow-keyed
+      // first (caught by keyboard-shortcuts.spec).
+      focusCard(cardId)
       const intent = clickIntent(e)
       if (intent === 'open') {
         setSelectedIds(EMPTY_SELECTION)
@@ -721,7 +729,10 @@ export function Board({
       }
       selectionAnchorRef.current = cardId
     },
-    []
+    // focusCard is a stable useCallback([]) - listed for lint
+    // completeness, never changes identity (the memoised cards
+    // depend on this handler staying stable).
+    [focusCard]
   )
 
   /** Selected cards in board (list-then-position) order, off the latest
