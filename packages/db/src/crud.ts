@@ -467,13 +467,17 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
           .from(card)
           .where(eq(card.id, m.id))
           .get()
-        const sourceListId = before?.listId ?? null
-        const wasCompleted = before?.completed ?? false
+        // No such card (stale MCP id, raced delete): bail before the
+        // activity insert - the UPDATE below would no-op anyway, but
+        // logActivity used to fire regardless, writing a phantom
+        // 'moved' row into the target board's feed.
+        if (!before) return { id: m.id, boardId: null }
+        const sourceListId = before.listId
+        const wasCompleted = before.completed
         // A genuine cross-list arrival (an in-list reorder doesn't count
         // as "entering" the list). Drives both the listAddedAt stamp and
         // the ADR-0041 on-enter rule below.
-        const crossedList =
-          sourceListId !== null && sourceListId !== m.toListId
+        const crossedList = sourceListId !== m.toListId
 
         // Target-list metadata, read up front: a sorted list (ADR-0032)
         // ignores manual order - the read view re-sorts by sort_mode, and

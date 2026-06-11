@@ -903,6 +903,30 @@ describe('activity log', () => {
     expect(types).toContain('renamed')
     expect(types).toContain('completed')
   })
+
+  it('card.move on a nonexistent card logs nothing and returns boardId null', () => {
+    const { listId } = seedBoard()
+    // Raw row count: the phantom 'moved' row carried the TARGET
+    // board's boardId with the bogus cardId, so card-scoped views
+    // never surfaced it - only the table itself shows the leak.
+    const count = (): number =>
+      (
+        sqlite
+          .prepare('SELECT COUNT(*) AS c FROM activity')
+          .get() as { c: number }
+      ).c
+    const before = count()
+    // Stale id (an MCP caller after the card was deleted out-of-band).
+    const result = applyMutation(db, {
+      type: 'card.move',
+      id: 'no-such-card',
+      toListId: listId,
+      beforeId: null,
+      afterId: null
+    })
+    expect(result).toEqual({ id: 'no-such-card', boardId: null })
+    expect(count()).toBe(before)
+  })
 })
 
 // ADR-0041 · per-list on-card-enter automation. Fires inside the
