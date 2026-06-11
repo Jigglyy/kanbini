@@ -1203,6 +1203,10 @@ interface RecordOptions {
   /** When true (set by the undo / redo handler), this `applyMutation`
    *  call is itself the application of an inverse - don't record. */
   silent?: boolean
+  /** Stamp the recorded entry with a bulk-gesture group id so undo /
+   *  redo pop the whole gesture as one step. Set by
+   *  `applyMutationsRecorded` - callers don't pass this directly. */
+  groupId?: string
 }
 
 /** Mutation types whose `id` we want to backfill into the stored
@@ -1271,7 +1275,8 @@ export function applyMutationRecorded(
           boardId: result.boardId,
           description: describeMutation(m),
           forward: storedForward as unknown,
-          inverse: inverse as unknown
+          inverse: inverse as unknown,
+          groupId: opts.groupId ?? null
         })
         .run()
       const entityId = entityIdOf(storedForward) ?? result.id
@@ -1303,6 +1308,27 @@ export function applyMutationRecorded(
   })
 }
 
+/** Apply a bulk gesture - several mutations in ONE transaction, each
+ *  recorded with a shared group id so a single Ctrl+Z unwinds the
+ *  whole gesture (and Ctrl+Y replays it). One mutation = no group
+ *  (identical to a plain applyMutationRecorded call). Atomic: if any
+ *  mutation throws, the entire batch rolls back - a bulk action that
+ *  half-applied would be worse than one that cleanly failed. */
+export function applyMutationsRecorded(
+  db: Db,
+  mutations: Mutation[]
+): MutationResult[] {
+  if (mutations.length === 0) return []
+  if (mutations.length === 1) {
+    return [applyMutationRecorded(db, mutations[0]!)]
+  }
+  const groupId = newId()
+  return db.transaction((tx) => {
+    const txDb = tx as unknown as Db
+    return mutations.map((m) => applyMutationRecorded(txDb, m, { groupId }))
+  })
+}
+
 export interface UndoStatus {
   canUndo: boolean
   canRedo: boolean
@@ -1310,16 +1336,42 @@ export interface UndoStatus {
   redoDescription: string | null
 }
 
+/** Size of the bulk group `groupId` belongs to within `status`, for
+ *  the status tooltips. */
+function groupSize(
+  db: Db,
+  groupId: string,
+  status: 'undoable' | 'undone'
+): number {
+  return db
+    .select({ id: undoLog.id })
+    .from(undoLog)
+    .where(and(eq(undoLog.status, status), eq(undoLog.groupId, groupId)))
+    .all().length
+}
+
+/** Tooltip text for an entry - grouped entries surface how many
+ *  changes one Ctrl+Z / Ctrl+Y will cover. */
+function describeEntry(
+  db: Db,
+  row: { description: string; groupId: string | null },
+  status: 'undoable' | 'undone'
+): string {
+  if (!row.groupId) return row.description
+  const n = groupSize(db, row.groupId, status)
+  return n > 1 ? `${row.description} (${n} changes)` : row.description
+}
+
 export function undoStatus(db: Db): UndoStatus {
   const nextUndo = db
-    .select({ description: undoLog.description })
+    .select({ description: undoLog.description, groupId: undoLog.groupId })
     .from(undoLog)
     .where(eq(undoLog.status, 'undoable'))
     .orderBy(desc(undoLog.createdAt), desc(undoLog.id))
     .limit(1)
     .get()
   const nextRedo = db
-    .select({ description: undoLog.description })
+    .select({ description: undoLog.description, groupId: undoLog.groupId })
     .from(undoLog)
     .where(eq(undoLog.status, 'undone'))
     .orderBy(asc(undoLog.createdAt), asc(undoLog.id))
@@ -1328,8 +1380,8 @@ export function undoStatus(db: Db): UndoStatus {
   return {
     canUndo: !!nextUndo,
     canRedo: !!nextRedo,
-    undoDescription: nextUndo?.description ?? null,
-    redoDescription: nextRedo?.description ?? null
+    undoDescription: nextUndo ? describeEntry(db, nextUndo, 'undoable') : null,
+    redoDescription: nextRedo ? describeEntry(db, nextRedo, 'undone') : null
   }
 }
 
@@ -1382,38 +1434,68 @@ export function undoOne(
     log('undo: nothing to undo')
     return { applied: false, boardId: null }
   }
+  // Expand a bulk-gesture group to its full set (newest-first, so the
+  // inverses replay in reverse application order). Bulk gestures are
+  // single-board today (multi-select lives inside one board), so the
+  // scope filter above can't split a group.
+  const rows = row.groupId
+    ? db
+        .select()
+        .from(undoLog)
+        .where(
+          and(
+            eq(undoLog.status, 'undoable'),
+            eq(undoLog.groupId, row.groupId)
+          )
+        )
+        .orderBy(desc(undoLog.createdAt), desc(undoLog.id))
+        .all()
+    : [row]
   const forwardForLog = row.forward as Mutation
   const inverse = row.inverse as Mutation
   log(
     `undo [${forwardForLog.type} → ${inverse.type}]`,
     row.description,
+    rows.length > 1 ? `· group of ${rows.length}` : '',
     '· entity=' + shortId(entityIdOf(forwardForLog)),
     '· board=' + shortId(row.boardId)
   )
+  // Track which entry blew up so drift cleanup drops THAT one, not
+  // just the group head.
+  let current = row
   try {
     return db.transaction((tx) => {
       const txDb = tx as unknown as Db
-      const result = applyMutationRecorded(txDb, inverse, { silent: true })
-      tx.update(undoLog)
-        .set({ status: 'undone' })
-        .where(eq(undoLog.id, row.id))
-        .run()
-      return { applied: true, boardId: result.boardId ?? row.boardId }
+      let boardId: string | null = null
+      for (const r of rows) {
+        current = r
+        const result = applyMutationRecorded(txDb, r.inverse as Mutation, {
+          silent: true
+        })
+        boardId = result.boardId ?? r.boardId
+        tx.update(undoLog)
+          .set({ status: 'undone' })
+          .where(eq(undoLog.id, r.id))
+          .run()
+      }
+      return { applied: true, boardId }
     })
   } catch (err) {
     // The cleanup HAS to happen outside the failed transaction -
     // any DELETE inside would be rolled back along with the failed
     // mutation, and the next undo would hit the same bad entry
-    // forever (the FK-spam bug reported in dogfooding).
+    // forever (the FK-spam bug reported in dogfooding). For a group,
+    // only the entry that failed is dropped; the survivors stay
+    // undoable and the next Ctrl+Z retries them.
     warn(
       'undo drift - dropping entry',
-      shortId(row.id),
+      shortId(current.id),
       '·',
-      row.description,
+      current.description,
       '·',
       err instanceof Error ? err.message : String(err)
     )
-    db.delete(undoLog).where(eq(undoLog.id, row.id)).run()
+    db.delete(undoLog).where(eq(undoLog.id, current.id)).run()
     return { applied: false, boardId: null }
   }
 }
@@ -1452,33 +1534,54 @@ export function redoOne(
     log('redo: nothing to redo')
     return { applied: false, boardId: null }
   }
+  // Expand a bulk-gesture group (oldest-first - forwards replay in
+  // original application order). Mirrors undoOne.
+  const rows = row.groupId
+    ? db
+        .select()
+        .from(undoLog)
+        .where(
+          and(eq(undoLog.status, 'undone'), eq(undoLog.groupId, row.groupId))
+        )
+        .orderBy(asc(undoLog.createdAt), asc(undoLog.id))
+        .all()
+    : [row]
   const forward = row.forward as Mutation
   log(
     `redo [${forward.type}]`,
     row.description,
+    rows.length > 1 ? `· group of ${rows.length}` : '',
     '· entity=' + shortId(entityIdOf(forward)),
     '· board=' + shortId(row.boardId)
   )
+  let current = row
   try {
     return db.transaction((tx) => {
       const txDb = tx as unknown as Db
-      const result = applyMutationRecorded(txDb, forward, { silent: true })
-      tx.update(undoLog)
-        .set({ status: 'undoable' })
-        .where(eq(undoLog.id, row.id))
-        .run()
-      return { applied: true, boardId: result.boardId ?? row.boardId }
+      let boardId: string | null = null
+      for (const r of rows) {
+        current = r
+        const result = applyMutationRecorded(txDb, r.forward as Mutation, {
+          silent: true
+        })
+        boardId = result.boardId ?? r.boardId
+        tx.update(undoLog)
+          .set({ status: 'undoable' })
+          .where(eq(undoLog.id, r.id))
+          .run()
+      }
+      return { applied: true, boardId }
     })
   } catch (err) {
     warn(
       'redo drift - dropping entry',
-      shortId(row.id),
+      shortId(current.id),
       '·',
-      row.description,
+      current.description,
       '·',
       err instanceof Error ? err.message : String(err)
     )
-    db.delete(undoLog).where(eq(undoLog.id, row.id)).run()
+    db.delete(undoLog).where(eq(undoLog.id, current.id)).run()
     return { applied: false, boardId: null }
   }
 }

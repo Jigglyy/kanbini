@@ -306,7 +306,12 @@ export const undoLog = sqliteTable(
     inverse: text('inverse', { mode: 'json' }).notNull(),
     status: text('status', { enum: ['undoable', 'undone'] })
       .notNull()
-      .default('undoable')
+      .default('undoable'),
+    /** Shared by every entry recorded in one bulk gesture (multi-select
+     *  complete / label / delete, multi-card drag) so undo/redo pop the
+     *  whole group as one step. Null = ungrouped - the normal
+     *  single-mutation path, and every row from before migration 0012. */
+    groupId: text('group_id')
   },
   (t) => [index('idx_undo_log_status_created').on(t.status, t.createdAt)]
 )

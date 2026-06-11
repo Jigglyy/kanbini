@@ -46,6 +46,11 @@ const api = {
     ipcRenderer.invoke(IPC.boardGetView, { boardId }),
   mutate: (mutation: Mutation): Promise<MutationResult> =>
     ipcRenderer.invoke(IPC.mutate, mutation),
+  /** Bulk gesture: several mutations in one transaction, recorded as
+   *  ONE undo-log group so a single Ctrl+Z unwinds the whole thing
+   *  (multi-select complete / label / delete, multi-card drag). */
+  mutateBatch: (mutations: Mutation[]): Promise<MutationResult[]> =>
+    ipcRenderer.invoke(IPC.mutateBatch, mutations),
   attachmentAdd: (cardId: string): Promise<AttachmentView | null> =>
     ipcRenderer.invoke(IPC.attachmentAdd, { cardId }),
   /** M4-H / ADR-0023: opt-in link-preview fetch. Renderer must gate

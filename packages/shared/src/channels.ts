@@ -9,6 +9,11 @@ export const IPC = {
   boardGetView: 'board:getView',
   /** renderer → main: apply a mutation (discriminated union) */
   mutate: 'board:mutate',
+  /** renderer → main: apply several mutations as ONE bulk gesture -
+   *  a single transaction, recorded with a shared undo-log group id
+   *  so one Ctrl+Z unwinds the whole gesture (multi-select complete /
+   *  label / delete, multi-card drag). Returns MutationResult[]. */
+  mutateBatch: 'board:mutateBatch',
   /** renderer → main: open native file dialog, copy file into
    *  userData/attachments, insert row, return the new AttachmentView
    *  (null if the user cancelled). */

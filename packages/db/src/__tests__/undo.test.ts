@@ -5,6 +5,7 @@ import { type Db } from '../client'
 import {
   MAX_UNDO_LOG_SIZE,
   applyMutationRecorded,
+  applyMutationsRecorded,
   clearUndoLog,
   redoOne,
   snapshotBoard,
@@ -439,6 +440,120 @@ describe('undo log basics', () => {
   it('redo on an empty stack is a no-op (not an error)', () => {
     const r = redoOne(db)
     expect(r.applied).toBe(false)
+  })
+})
+
+describe('bulk-gesture grouping (applyMutationsRecorded)', () => {
+  const titles = (): string[] =>
+    getBoardView(db)!.lists[0]!.cards.map((x) => x.title)
+
+  it('one Ctrl+Z unwinds an entire bulk batch, one Ctrl+Y replays it', () => {
+    const { listId } = seedBoard()
+    const results = applyMutationsRecorded(db, [
+      { type: 'card.create', listId, title: 'g-A' },
+      { type: 'card.create', listId, title: 'g-B' },
+      { type: 'card.create', listId, title: 'g-C' }
+    ])
+    expect(results).toHaveLength(3)
+    expect(titles()).toEqual(['T', 'g-A', 'g-B', 'g-C'])
+
+    // The whole gesture is one undo step.
+    const out = undoOne(db)
+    expect(out.applied).toBe(true)
+    expect(titles()).toEqual(['T'])
+
+    // And one redo step - same ids ride back in.
+    redoOne(db)
+    expect(titles()).toEqual(['T', 'g-A', 'g-B', 'g-C'])
+    const ids = getBoardView(db)!.lists[0]!.cards.map((x) => x.id)
+    for (const r of results) expect(ids).toContain(r.id)
+  })
+
+  it('undoStatus surfaces the group size in the description', () => {
+    const { listId } = seedBoard()
+    applyMutationsRecorded(db, [
+      { type: 'card.create', listId, title: 'g-A' },
+      { type: 'card.create', listId, title: 'g-B' }
+    ])
+    expect(undoStatus(db).undoDescription).toContain('(2 changes)')
+    undoOne(db)
+    expect(undoStatus(db).redoDescription).toContain('(2 changes)')
+  })
+
+  it('a single-mutation batch records ungrouped (plain entry)', () => {
+    const { listId } = seedBoard()
+    applyMutationsRecorded(db, [
+      { type: 'card.create', listId, title: 'solo' }
+    ])
+    expect(undoStatus(db).undoDescription).toBe('Create card "solo"')
+    undoOne(db)
+    expect(titles()).toEqual(['T'])
+  })
+
+  it('a grouped batch is atomic - one failing mutation rolls back all', () => {
+    const { listId } = seedBoard()
+    expect(() =>
+      applyMutationsRecorded(db, [
+        { type: 'card.create', listId, title: 'will-roll-back' },
+        // FK violation - no such list.
+        { type: 'card.create', listId: 'no-such-list', title: 'boom' }
+      ])
+    ).toThrow()
+    expect(titles()).toEqual(['T'])
+    // Nothing recorded either - undo has only the seed entries left.
+    const status = undoStatus(db)
+    expect(status.undoDescription).not.toContain('will-roll-back')
+  })
+
+  it('chained bulk moves keep their order through undo/redo', () => {
+    const { boardId, listId } = seedBoard()
+    const l2 = applyMutationRecorded(db, {
+      type: 'list.create',
+      boardId,
+      name: 'L2'
+    })
+    const a = applyMutationRecorded(db, {
+      type: 'card.create',
+      listId,
+      title: 'm-A'
+    })
+    const bCard = applyMutationRecorded(db, {
+      type: 'card.create',
+      listId,
+      title: 'm-B'
+    })
+    // Bulk "move to L2" - beforeId chains exactly like bulkMoveTo.
+    applyMutationsRecorded(db, [
+      {
+        type: 'card.move',
+        id: a.id,
+        toListId: l2.id,
+        beforeId: null,
+        afterId: null
+      },
+      {
+        type: 'card.move',
+        id: bCard.id,
+        toListId: l2.id,
+        beforeId: a.id,
+        afterId: null
+      }
+    ])
+    const inL2 = (): string[] =>
+      getBoardView(db)!
+        .lists.find((l) => l.id === l2.id)!
+        .cards.map((c) => c.title)
+    expect(inL2()).toEqual(['m-A', 'm-B'])
+    expect(titles()).toEqual(['T'])
+
+    // One undo puts BOTH cards back in the source list, in order.
+    undoOne(db)
+    expect(inL2()).toEqual([])
+    expect(titles()).toEqual(['T', 'm-A', 'm-B'])
+
+    // One redo re-runs the gesture.
+    redoOne(db)
+    expect(inL2()).toEqual(['m-A', 'm-B'])
   })
 })
 

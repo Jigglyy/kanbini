@@ -85,6 +85,13 @@
       "when": 1780800000000,
       "tag": "0011_card_list_added_at",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1781136000000,
+      "tag": "0012_undo_log_group_id",
+      "breakpoints": true
     }
   ]
 }

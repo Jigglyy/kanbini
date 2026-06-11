@@ -292,6 +292,16 @@ export const zMutationResult = z.object({
 })
 export type MutationResult = z.infer<typeof zMutationResult>
 
+/** Bulk gesture for IPC.mutateBatch - several mutations applied in one
+ *  transaction and recorded under one undo-log group (one Ctrl+Z).
+ *  Capped well above any realistic selection so a runaway caller can't
+ *  stuff an unbounded payload through the boundary. */
+export const zMutationBatch = z.array(zMutation).min(1).max(500)
+export type MutationBatch = z.infer<typeof zMutationBatch>
+
+export const zMutationResults = z.array(zMutationResult)
+export type MutationResults = z.infer<typeof zMutationResults>
+
 /** Pushed main → renderer after any successful mutation. */
 export const zChangeEvent = z.object({
   boardId: z.string().nullable()

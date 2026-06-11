@@ -42,6 +42,9 @@ export const ipc = {
   getBoardView: (boardId?: string): Promise<BoardView | null> =>
     bridge().getBoardView(boardId),
   mutate: (m: Mutation): Promise<MutationResult> => bridge().mutate(m),
+  /** Bulk gesture - one transaction, one undo-log group (one Ctrl+Z). */
+  mutateBatch: (ms: Mutation[]): Promise<MutationResult[]> =>
+    bridge().mutateBatch(ms),
   attachmentAdd: (cardId: string): Promise<AttachmentView | null> =>
     bridge().attachmentAdd(cardId),
   linkPreviewCreate: (req: LinkPreviewRequest): Promise<LinkPreviewResult> =>

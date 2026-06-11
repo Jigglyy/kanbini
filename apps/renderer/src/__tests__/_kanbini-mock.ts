@@ -69,6 +69,10 @@ function makeBridge() {
     mutate: vi.fn(
       async (_m: Mutation): Promise<MutationResult> => NOOP_MUTATION_RESULT
     ),
+    mutateBatch: vi.fn(
+      async (ms: Mutation[]): Promise<MutationResult[]> =>
+        ms.map(() => NOOP_MUTATION_RESULT)
+    ),
     attachmentAdd: vi.fn(
       async (_cardId: string): Promise<AttachmentView | null> => null
     ),

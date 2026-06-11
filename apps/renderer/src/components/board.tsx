@@ -731,14 +731,19 @@ export function Board({
       .flatMap((l) => l.cards)
       .filter((c) => selectedIdsRef.current.has(c.id))
 
-  /** Fire one mutation per card and refetch once they've all landed. The
-   *  per-mutation `broadcastChange` already streams the changes in; the
-   *  final invalidate is a belt-and-braces catch-up. */
+  /** Apply the whole gesture as ONE batch: a single transaction
+   *  server-side, recorded as one undo-log group - so a single Ctrl+Z
+   *  unwinds the entire bulk action instead of one card at a time.
+   *  The batch's broadcastChange streams the result in; the final
+   *  invalidate is a belt-and-braces catch-up. */
   const runBulk = (ms: Mutation[]): void => {
     if (ms.length === 0) return
-    void Promise.allSettled(ms.map((m) => ipc.mutate(m))).finally(() => {
-      void qc.invalidateQueries({ queryKey: key })
-    })
+    void ipc
+      .mutateBatch(ms)
+      .catch(() => {})
+      .finally(() => {
+        void qc.invalidateQueries({ queryKey: key })
+      })
   }
 
   const bulkToggleComplete = useCallback((): void => {
@@ -785,29 +790,27 @@ export function Board({
   )
 
   // Move appends the selection to the target list in their current order.
-  // Sequential awaits so each card's fractional key lands after the
-  // previous one (the server mints it from `beforeId`).
+  // The moves chain `beforeId` through the batch - the server applies
+  // them sequentially inside one transaction, so each card's fractional
+  // key still lands after the previous one.
   const bulkMoveTo = useCallback(
     (toListId: string): void => {
       const cards = currentSelectedCards()
       const target = boardRef.current.lists.find((l) => l.id === toListId)
       let lastId = target?.cards[target.cards.length - 1]?.id ?? null
-      void (async () => {
-        for (const c of cards) {
-          if (c.id === lastId) continue
-          await ipc
-            .mutate({
-              type: 'card.move',
-              id: c.id,
-              toListId,
-              beforeId: lastId,
-              afterId: null
-            })
-            .catch(() => {})
-          lastId = c.id
-        }
-        void qc.invalidateQueries({ queryKey: key })
-      })()
+      const moves: Mutation[] = []
+      for (const c of cards) {
+        if (c.id === lastId) continue
+        moves.push({
+          type: 'card.move',
+          id: c.id,
+          toListId,
+          beforeId: lastId,
+          afterId: null
+        })
+        lastId = c.id
+      }
+      runBulk(moves)
       // eslint-disable-next-line react-hooks/exhaustive-deps
     },
     [key, qc]
@@ -1212,9 +1215,11 @@ export function Board({
     // spot instead of moving only the lead. The lead is already placed in
     // `b` by the live reorder; planMultiCardMove finds the non-selected
     // neighbours that bound the block, then we move each selected card
-    // there in order, chaining `beforeId` so they land contiguous. Moves
-    // are sequential (awaited) so each fractional key is minted against
-    // the previous card's freshly-written position.
+    // there in order, chaining `beforeId` so they land contiguous. The
+    // whole gesture ships as ONE mutateBatch - applied sequentially in
+    // one transaction server-side (each fractional key minted against
+    // the previous card's freshly-written position) and recorded as a
+    // single undo-log group, so one Ctrl+Z puts the entire block back.
     if (isMulti && block.length > 1) {
       const destList = b.lists.find((l) =>
         l.cards.some((c) => c.id === activeId)
@@ -1223,22 +1228,24 @@ export function Board({
         ? planMultiCardMove(destList.cards, activeId, selectedIdsRef.current, block)
         : null
       if (destList && plan) {
-        void (async () => {
-          let prev = plan.beforeId
-          for (const id of plan.orderedIds) {
-            await ipc
-              .mutate({
-                type: 'card.move',
-                id,
-                toListId: destList.id,
-                beforeId: prev,
-                afterId: plan.afterId
-              })
-              .catch(() => {})
-            prev = id
+        let prev = plan.beforeId
+        const moves: Mutation[] = plan.orderedIds.map((id) => {
+          const m: Mutation = {
+            type: 'card.move',
+            id,
+            toListId: destList.id,
+            beforeId: prev,
+            afterId: plan.afterId
           }
-          void qc.invalidateQueries({ queryKey: key })
-        })()
+          prev = id
+          return m
+        })
+        void ipc
+          .mutateBatch(moves)
+          .catch(() => {})
+          .finally(() => {
+            void qc.invalidateQueries({ queryKey: key })
+          })
         return
       }
       // plan failed (lead vanished) → fall through to the single move.

@@ -41,6 +41,7 @@ declare global {
       listBoards: () => Promise<BoardsListView>
       getBoardView: (boardId?: string) => Promise<BoardView | null>
       mutate: (m: Mutation) => Promise<MutationResult>
+      mutateBatch: (ms: Mutation[]) => Promise<MutationResult[]>
       attachmentAdd: (cardId: string) => Promise<AttachmentView | null>
       linkPreviewCreate: (
         req: LinkPreviewRequest

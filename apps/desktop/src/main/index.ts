@@ -32,7 +32,9 @@ import {
   zLinkPreviewResult,
   zMcpInfo,
   zMutation,
+  zMutationBatch,
   zMutationResult,
+  zMutationResults,
   zObsidianPushRequest,
   zObsidianPushResult,
   zSearchCardsRequest,
@@ -52,6 +54,7 @@ import {
 import {
   type Db,
   applyMutationRecorded,
+  applyMutationsRecorded,
   clearUndoLog,
   createAttachment,
   dbInfo,
@@ -409,6 +412,28 @@ function registerIpc(
     }
     broadcastChange(result.boardId)
     return result
+  })
+
+  // Bulk gesture: several mutations in ONE transaction, recorded as
+  // one undo-log group so a single Ctrl+Z unwinds the whole thing
+  // (multi-select complete / label / delete, multi-card drag).
+  // attachment.delete is excluded - its file unlink needs the per-
+  // mutation pre-read above, and no bulk surface issues it today.
+  ipcMain.handle(IPC.mutateBatch, (_event, raw: unknown) => {
+    const mutations = zMutationBatch.parse(raw)
+    for (const m of mutations) {
+      if (m.type === 'restore' || m.type === 'attachment.delete') {
+        throw new Error(`${m.type} not allowed in a mutation batch`)
+      }
+    }
+    const results = zMutationResults.parse(
+      applyMutationsRecorded(db, mutations)
+    )
+    // One broadcast per distinct board - bulk surfaces are
+    // single-board today, so this is one event in practice.
+    const boards = new Set(results.map((r) => r.boardId))
+    for (const boardId of boards) broadcastChange(boardId)
+    return results
   })
 
   ipcMain.handle(IPC.attachmentAdd, async (event, raw: unknown) => {
