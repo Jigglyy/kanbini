@@ -9,6 +9,57 @@ Releases are cut by pushing a `v*` tag, which builds the Windows
 installers and publishes a GitHub Release (see
 [`.github/workflows/release.yml`](.github/workflows/release.yml)).
 
+## [0.4.0] - 2026-06-11
+
+### Added
+
+- **The window remembers its size and position.** Kanbini reopens at the
+  same place (and maximized if you left it maximized) instead of a fixed
+  default every launch.
+- **Bulk actions undo in one step.** Completing, labelling, moving, or
+  deleting several selected cards at once - and dragging a multi-card
+  selection - is now a single Ctrl+Z instead of one undo per card.
+- **AI can build a board from scratch.** The Kanbini MCP server gained a
+  "create list" tool and can set a card's priority when creating it, so
+  an assistant can go from an empty board to populated columns on its own.
+
+### Changed
+
+- **Launching Kanbini again focuses the existing window** instead of
+  opening a second copy that fights the first over the same data.
+- **Obsidian push cleans up after itself.** Renaming or deleting a card
+  no longer leaves a stale note behind in the vault, and archived boards
+  are skipped. Files Kanbini doesn't own are still never touched.
+- **Big boards open faster, and quitting backs up faster.** Board loading
+  no longer slows down as a board grows, and the on-quit backup reuses
+  unchanged attachment files instead of re-copying them every time.
+- Orphaned attachment and background files left behind by deletes are
+  swept up in the background after launch.
+
+### Fixed
+
+- **Dragging cards is smooth again.** Moving a card above or below others
+  no longer stutters, and dragging vigorously no longer crashes the
+  board.
+- **Clicking a card focuses it** so the keyboard shortcuts (open, complete,
+  move, delete) act on the card you just clicked without an extra key
+  press first.
+- **Search treats `%` and `_` literally** - searching "100%" finds "100%",
+  not everything starting with "100".
+- **Settings apply everywhere instantly.** Turning on link previews (or
+  auto-cover) from the cover dialog now takes effect immediately instead
+  of after a reopen.
+
+### Security
+
+- **Hardened the opt-in link-preview fetch against SSRF.** Closed an
+  address-parsing gap that could reach loopback/LAN/cloud-metadata via an
+  IPv6-mapped address, and pinned the checked DNS result so a rebinding
+  domain can't slip a private address past the guard.
+- **Restoring from a backup refuses unsafe file paths.** A tampered or
+  corrupted export can no longer write files outside Kanbini's own data
+  folder.
+
 ## [0.3.1] - 2026-06-08
 
 ### Fixed
