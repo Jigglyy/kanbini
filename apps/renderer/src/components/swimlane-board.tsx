@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useDroppable } from '@dnd-kit/core'
 import type {
@@ -279,6 +280,10 @@ function LaneCell({
   // wherever they're looking.
   const atLimit =
     list.wipLimit != null && list.cards.length >= list.wipLimit
+  // Stable items identity between renders that don't reorder the cell
+  // (same rationale as the flat ListColumn) - avoids handing dnd-kit a
+  // fresh array each time the board re-renders mid-drag.
+  const itemIds = useMemo(() => cards.map((c) => c.id), [cards])
   return (
     <section
       ref={setNodeRef}
@@ -292,7 +297,7 @@ function LaneCell({
       } ${isOver ? 'bg-muted' : 'bg-muted/40'}`}
     >
       <SortableContext
-        items={cards.map((c) => c.id)}
+        items={itemIds}
         strategy={verticalListSortingStrategy}
       >
         <ul className="flex min-h-8 flex-col gap-2 px-2 pt-2">

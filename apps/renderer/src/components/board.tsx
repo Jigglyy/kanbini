@@ -97,6 +97,7 @@ import {
   findWipBlock,
   isSortedListReorder,
   isUnchangedMove,
+  listOf,
   planSwimlaneDrop,
   reduceCardMove
 } from '../lib/board-dnd'
@@ -1159,11 +1160,31 @@ export function Board({
     {
       const cur = qc.getQueryData<BoardView | null>(key)
       if (cur && isSortedListReorder(cur, activeId, overId)) return
+
+      // SAME-LIST reorder: do NOT mutate the cache here. dnd-kit's
+      // verticalListSortingStrategy already glides the siblings via pure
+      // CSS transforms (cheap, GPU-composited). Live-reordering the array
+      // on top of that re-renders EVERY card in the list on every
+      // onDragOver frame AND triggers dnd-kit's internal
+      // `useDerivedTransform` FLIP - which is the per-frame getClientRect
+      // reflow storm behind the drag jank, and the StrictMode-dev
+      // "Maximum update depth exceeded" crash (the FLIP's layout effect
+      // sets state keyed on the item's index, which the live reorder
+      // churns every frame). Skipping the reorder leaves `index` stable
+      // so the FLIP never fires; the final order is applied once on drop
+      // (onDragEnd). Cross-list moves still splice live below - a card
+      // has to actually enter the other list's SortableContext to render
+      // there at all.
+      if (cur) {
+        const fromId = listOf(cur, activeId)
+        const toId = listOf(cur, overId)
+        if (fromId && toId && fromId === toId) return
+      }
     }
 
-    // Resolve drop direction from the rect math here, then hand off
-    // to the pure reducer in lib/board-dnd. The rect comparison is
-    // dnd-kit-state and can't live in a pure function.
+    // Cross-list: resolve drop direction from the rect math here, then
+    // hand off to the pure reducer in lib/board-dnd. The rect comparison
+    // is dnd-kit-state and can't live in a pure function.
     const aRect = active.rect.current.translated
     const oRect = over.rect
     const below = !!aRect && aRect.top > oRect.top + oRect.height / 2
@@ -1210,8 +1231,38 @@ export function Board({
       onSwimlaneDragEnd(e, mode)
       return
     }
-    const b = qc.getQueryData<BoardView | null>(key)
+    let b = qc.getQueryData<BoardView | null>(key)
     if (!b) return
+    // SAME-LIST drops weren't live-reordered in onDragOver (the strategy
+    // animated the siblings instead - see the comment there). Apply the
+    // reorder ONCE now so the dropped card lands where it visually sat +
+    // the persist target is computed from the final order. Cross-list
+    // moves already reordered the cache during onDragOver, so `b` is
+    // correct for them. Sorted lists keep their no-op behaviour
+    // (isSortedListReorder), and so do drops back onto the source slot
+    // (reduceCardMove returns `prev` unchanged). Multi-drag + single
+    // move below both read this reordered `b`.
+    {
+      const overId = String(e.over.id)
+      const fromId = listOf(b, activeId)
+      const toId = listOf(b, overId)
+      if (
+        fromId &&
+        toId &&
+        fromId === toId &&
+        !isSortedListReorder(b, activeId, overId)
+      ) {
+        const aRect = e.active.rect.current.translated
+        const oRect = e.over.rect
+        const below = !!aRect && aRect.top > oRect.top + oRect.height / 2
+        const position: 'before' | 'after' = below ? 'after' : 'before'
+        const reordered = reduceCardMove(b, activeId, overId, position)
+        if (reordered !== b) {
+          b = reordered
+          qc.setQueryData<BoardView | null>(key, b)
+        }
+      }
+    }
     const target = computeMoveTarget(b, activeId)
     if (!target) return
     const { toListId: toId, beforeId, afterId } = target
@@ -1731,6 +1782,15 @@ const ListColumn = memo(function ListColumn({
   }, [blocked])
   const shakeClass =
     shakeTick === 0 ? '' : shakeTick % 2 === 1 ? 'shake-a' : 'shake-b'
+  // Stable items identity across re-renders that DON'T change the card
+  // order. During a drag Board re-renders on every dragging /
+  // blockedListId / sibling-card change; a fresh `list.cards.map(...)`
+  // each time hands dnd-kit's SortableContext a new array, churning its
+  // internal index derivation - the documented trigger for the
+  // `useDerivedTransform` "Maximum update depth exceeded" crash and a
+  // source of needless per-frame recompute. `list.cards` only changes
+  // identity when the cache actually reorders, so key the memo on it.
+  const itemIds = useMemo(() => list.cards.map((c) => c.id), [list.cards])
   return (
     <section
       ref={setNodeRef}
@@ -1744,7 +1804,7 @@ const ListColumn = memo(function ListColumn({
       <ListHeader list={list} apply={apply} />
 
       <SortableContext
-        items={list.cards.map((c) => c.id)}
+        items={itemIds}
         strategy={verticalListSortingStrategy}
       >
         <ul className="flex min-h-2 flex-col gap-2 px-2 pt-2">
@@ -1956,6 +2016,66 @@ const SortableCard = memo(function SortableCard({
   // while dnd-kit is measuring rects.
   useSmoothHeight(cardElRef, !anyDragging && !postDropHold)
 
+  // Memoize the heavy, drag-invariant subtrees. A live-reorder drag
+  // re-renders EVERY card in the SortableContext on every onDragOver
+  // frame (they subscribe to the context to pick up their new
+  // transform) - measured at ~1900 SortableCard renders for a 7-card
+  // list over a few sweeps. The card's VISUAL content (cover image,
+  // label chips, checklist preview) doesn't change during a drag - only
+  // the `<li>`'s transform does - so memoizing these elements lets
+  // React skip reconciling their subtrees entirely when the deps are
+  // unchanged (same element reference => reconciler bails). The wrapper
+  // still re-renders to apply the transform; the expensive children
+  // don't. Cuts the per-frame work that makes dev-mode drags janky.
+  // All deps are stable during a drag: `card` only changes identity on
+  // a real data edit, `labels`/`apply`/`onToggleLabelsExpanded` are
+  // referentially stable (board.labels, useBoardMutation, App
+  // useCallback).
+  const coverEl = useMemo(() => <CardCoverThumb card={card} />, [card])
+  const labelsEl = useMemo(
+    () => (
+      <CardLabels
+        labelIds={card.labelIds}
+        labels={labels}
+        expanded={labelsExpanded}
+        onToggleExpand={onToggleLabelsExpanded}
+      />
+    ),
+    [card.labelIds, labels, labelsExpanded, onToggleLabelsExpanded]
+  )
+  const checklistEl = useMemo(
+    () =>
+      showChecklist ? (
+        <div
+          className={cn(
+            'transition-[margin-left] duration-200 ease-out',
+            card.completed
+              ? 'ml-1'
+              : 'ml-0 group-hover/card:ml-4 group-focus-within/card:ml-4'
+          )}
+        >
+          <CardChecklistPreview card={card} apply={apply} />
+        </div>
+      ) : null,
+    [showChecklist, card, apply]
+  )
+  const metaEl = useMemo(
+    () => (
+      <div className="flex flex-wrap items-center gap-1.5">
+        <PriorityBadge card={card} />
+        <DueBadge card={card} />
+      </div>
+    ),
+    [card]
+  )
+  // TitleUrlChip runs a URL regex over the title on every render -
+  // memoize on the title so a drag's per-frame wrapper renders don't
+  // re-scan it.
+  const titleChipEl = useMemo(
+    () => <TitleUrlChip title={card.title} />,
+    [card.title]
+  )
+
   return (
     <>
     <ContextMenu
@@ -2046,14 +2166,10 @@ const SortableCard = memo(function SortableCard({
           )}
         >
           {/* No onClick: the cover is part of the card surface, so a
-              click bubbles to the <li> handler (open / select). */}
-          <CardCoverThumb card={card} />
-          <CardLabels
-            labelIds={card.labelIds}
-            labels={labels}
-            expanded={labelsExpanded}
-            onToggleExpand={onToggleLabelsExpanded}
-          />
+              click bubbles to the <li> handler (open / select).
+              Memoized (coverEl / labelsEl) - see the useMemo block. */}
+          {coverEl}
+          {labelsEl}
           {/* Complete-checkbox hidden until card hover (or focus, or
               already-completed). The wrapper transitions width 0→6 so
               the checkbox is revealed by clipping and the title slides
@@ -2126,27 +2242,12 @@ const SortableCard = memo(function SortableCard({
               {card.title}
             </span>
           </div>
-          <TitleUrlChip title={card.title} />
-          <div className="flex flex-wrap items-center gap-1.5">
-            <PriorityBadge card={card} />
-            <DueBadge card={card} />
-          </div>
-          {showChecklist && (
-            // Slide the preview a touch on card hover so the
-            // card-complete checkbox clears its own column on the
-            // left. Smaller shift than the title's full w-6 reveal -
-            // matching the title exactly felt too indented.
-            <div
-              className={cn(
-                'transition-[margin-left] duration-200 ease-out',
-                card.completed
-                  ? 'ml-1'
-                  : 'ml-0 group-hover/card:ml-4 group-focus-within/card:ml-4'
-              )}
-            >
-              <CardChecklistPreview card={card} apply={apply} />
-            </div>
-          )}
+          {titleChipEl}
+          {/* Memoized meta (priority + due) + checklist preview - the
+              hover-reveal slide is pure CSS (group-hover), so memoizing
+              the element doesn't affect it. See the useMemo block. */}
+          {metaEl}
+          {checklistEl}
 
           {/* Multi-select badge - a filled check in the top-right corner
               (where the pencil sits), so the selection reads at a glance

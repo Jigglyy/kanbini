@@ -134,12 +134,19 @@ export function isSortedListReorder(
   return !!to?.sortMode
 }
 
-/** Live-cache reorder for onDragOver (flat mode). Returns the new
- *  board, or `prev` unchanged when the move is a no-op / unresolvable.
- *  `position` is the caller's resolved insert hint when `overId` is
- *  a card id: 'before' to drop above the over-card, 'after' to drop
- *  below. For `list:<id>` droppables (column-end), pass anything -
- *  the function appends to the end regardless. */
+/** Cache reorder for a card move. Returns the new board, or `prev`
+ *  unchanged when the move is a no-op / unresolvable. `position` is the
+ *  caller's resolved insert hint when `overId` is a card id: 'before'
+ *  to drop above the over-card, 'after' to drop below. For `list:<id>`
+ *  droppables (column-end), pass anything - the function appends to the
+ *  end regardless.
+ *
+ *  Two callers: onDragOver fires it live for CROSS-list moves (the card
+ *  must enter the destination's SortableContext to render there);
+ *  onDragEnd fires it ONCE for SAME-list moves (those aren't
+ *  live-reordered during the drag - dnd-kit's sorting strategy glides
+ *  the siblings via transforms instead, which avoids the per-frame
+ *  re-render storm + the FLIP crash; see board.tsx onDragOver). */
 export function reduceCardMove(
   prev: BoardView,
   activeId: string,

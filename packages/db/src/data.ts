@@ -290,6 +290,18 @@ export function cardOrdering(mode: ListSortMode | null): SQL[] {
   }
 }
 
+/** Parse a raw activity `data` TEXT column (the window-function query
+ *  bypasses drizzle's JSON-mode mapping). Returns null for an absent or
+ *  malformed value so a single bad row never throws out the board view. */
+function parseActivityData(raw: string | null): unknown {
+  if (raw == null) return null
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
 /** Group `rows` into a Map keyed by `key(row)`, preserving row order
  *  within each bucket - so a query's ORDER BY carries through to the
  *  per-card arrays. */
@@ -438,8 +450,10 @@ export function getBoardView(db: Db, boardId?: string): BoardView | null {
       cardId: a.cardId,
       type: a.type,
       // Raw sql bypasses drizzle's JSON-mode column mapping - parse
-      // here so the view shape matches the mapped reads exactly.
-      data: a.data == null ? null : (JSON.parse(a.data) as unknown),
+      // here so the view shape matches the mapped reads exactly. Tolerate
+      // a malformed value (hand-edited DB, future migration) by passing
+      // it through as null rather than throwing out the whole board view.
+      data: parseActivityData(a.data),
       createdAt: a.createdAt
     })),
     (r) => r.cardId
