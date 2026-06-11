@@ -215,13 +215,23 @@ Kanbini's default project (projects are hidden in the UI).
 | `name`        | `string` | yes      | Min length 1.                               |
 | `description` | `string` | no       | Optional short blurb shown on the home grid.|
 
+#### `kanbini_create_list`
+Append a list (column) to the right end of a board. Use the returned
+`id` as the `listId` for `kanbini_create_card`.
+
+| Argument  | Type     | Required | Notes         |
+|-----------|----------|----------|---------------|
+| `boardId` | `string` | yes      |               |
+| `name`    | `string` | yes      | Min length 1. |
+
 #### `kanbini_create_card`
 Append a card to the end of a list.
 
-| Argument | Type     | Required |
-|----------|----------|----------|
-| `listId` | `string` | yes      |
-| `title`  | `string` | yes      |
+| Argument   | Type     | Required | Notes                                                                       |
+|------------|----------|----------|-----------------------------------------------------------------------------|
+| `listId`   | `string` | yes      |                                                                             |
+| `title`    | `string` | yes      | Min length 1.                                                               |
+| `priority` | `string` | no       | One of `low` / `medium` / `high` / `urgent`; omit for unprioritised.        |
 
 #### `kanbini_update_card`
 Patch one or more card fields. Omit fields you don't want to change.

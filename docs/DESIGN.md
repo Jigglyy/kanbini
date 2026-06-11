@@ -128,7 +128,8 @@ union as the renderer IPC), so adding one is a one-liner:
 
 - **Read:** `kanbini_list_boards`, `kanbini_get_board`,
   `kanbini_get_card`, `kanbini_search_cards`.
-- **Write:** `kanbini_create_board`, `kanbini_create_card`,
+- **Write:** `kanbini_create_board`, `kanbini_create_list`,
+  `kanbini_create_card` (optional starting `priority`),
   `kanbini_update_card`, `kanbini_move_card`, `kanbini_delete_card`,
   `kanbini_set_card_labels`, `kanbini_post_comment` (forces
   `author='ai'`), `kanbini_create_checklist`,
