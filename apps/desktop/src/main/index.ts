@@ -82,6 +82,7 @@ import {
 import { createLinkPreviewAttachment } from './link-preview'
 import { pushToObsidianVault } from './obsidian-push'
 import { runRoundTripTest } from './round-trip'
+import { attachWindowState, loadWindowState } from './window-state'
 
 // Custom scheme so the renderer can fetch attachment files safely (no
 // file:// in the page, no path traversal - the handler clamps to
@@ -873,14 +874,20 @@ function createWindow(): void {
   // off every real display; `showInactive()` brings it up without
   // grabbing focus from the foreground app.
   const headlessE2E = process.env['KANBINI_E2E_HEADLESS'] === '1'
+  // Restore the previous session's bounds (skipped for E2E - its
+  // off-screen parking position must never persist or be restored).
+  const winState = headlessE2E ? null : loadWindowState(app.getPath('userData'))
   const win = new BrowserWindow({
-    width: 1280,
-    height: 832,
+    width: winState?.width ?? 1280,
+    height: winState?.height ?? 832,
     show: false,
     autoHideMenuBar: true,
     title: APP_CODENAME,
     backgroundColor: '#0b0b0c',
     ...(devIconPath ? { icon: devIconPath } : {}),
+    ...(winState && winState.x !== undefined && winState.y !== undefined
+      ? { x: winState.x, y: winState.y }
+      : {}),
     ...(headlessE2E ? { x: -30000, y: -30000 } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -899,8 +906,12 @@ function createWindow(): void {
 
   win.once('ready-to-show', () => {
     if (headlessE2E) win.showInactive()
+    // maximize() implies show on every platform; calling show() after
+    // a maximize would flicker the restored size for a frame.
+    else if (winState?.maximized) win.maximize()
     else win.show()
   })
+  if (!headlessE2E) attachWindowState(win, app.getPath('userData'))
   attachZoom(win.webContents)
   attachDevTools(win.webContents)
 
