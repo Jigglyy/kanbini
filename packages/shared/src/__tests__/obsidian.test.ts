@@ -5,6 +5,7 @@ import {
   chooseFilename,
   extractKanbiniId,
   humanDueOffset,
+  shouldPruneNote,
   slugify,
   slugifyTag,
   wikiLinkText,
@@ -281,6 +282,64 @@ describe('extractKanbiniId', () => {
     // treat one of our own files as foreign on re-push.
     const file = '﻿---\nkanbini:\n  id: bom-id\n---\n'
     expect(extractKanbiniId(file)).toBe('bom-id')
+  })
+})
+
+describe('shouldPruneNote', () => {
+  const live = new Set(['card-1', 'card-2', 'card-3'])
+  const written = new Map([
+    ['card-1', '/vault/Kanbini/Board/card-one.md'],
+    ['card-2', '/vault/Kanbini/Board/card-two.md']
+  ])
+
+  it('never touches foreign files (no kanbini.id)', () => {
+    expect(
+      shouldPruneNote(null, live, written, '/vault/Kanbini/Board/note.md')
+    ).toBe(false)
+  })
+
+  it('prunes a note whose card no longer exists', () => {
+    expect(
+      shouldPruneNote(
+        'deleted-card',
+        live,
+        written,
+        '/vault/Kanbini/Board/old.md'
+      )
+    ).toBe(true)
+  })
+
+  it('prunes the OLD path of a card written elsewhere this push (rename)', () => {
+    expect(
+      shouldPruneNote(
+        'card-1',
+        live,
+        written,
+        '/vault/Kanbini/Board/old-title.md'
+      )
+    ).toBe(true)
+  })
+
+  it('keeps the note at its freshly-written path', () => {
+    expect(
+      shouldPruneNote(
+        'card-1',
+        live,
+        written,
+        '/vault/Kanbini/Board/card-one.md'
+      )
+    ).toBe(false)
+  })
+
+  it('keeps a live card that was NOT written this push (archived board / skip)', () => {
+    expect(
+      shouldPruneNote(
+        'card-3',
+        live,
+        written,
+        '/vault/Kanbini/Archived/still-here.md'
+      )
+    ).toBe(false)
   })
 })
 

@@ -280,3 +280,32 @@ export function chooseFilename(
   }
   return name
 }
+
+/** Prune decision for one note found while walking the push target
+ *  after a sync. Conservative on purpose - only files we PROVABLY own
+ *  and that provably went stale get deleted:
+ *
+ *  - `kanbiniId === null` → keep (foreign / user file, never ours to
+ *    touch)
+ *  - id not among the live card ids → prune (the card was deleted;
+ *    without this every delete left a zombie note forever)
+ *  - id was written THIS push but at a different path → prune (the
+ *    card was renamed or its board folder changed; the old slug's
+ *    file is a stale duplicate)
+ *  - id is live but wasn't written this push (archived board, or a
+ *    foreign-collision skip) → keep; we can't prove the note is stale
+ *
+ *  `notePath` / the written path must be compared in one canonical
+ *  form - the FS caller passes both as absolute paths from the same
+ *  walk root, so plain equality is enough. */
+export function shouldPruneNote(
+  kanbiniId: string | null,
+  liveCardIds: ReadonlySet<string>,
+  writtenPathById: ReadonlyMap<string, string>,
+  notePath: string
+): boolean {
+  if (kanbiniId === null) return false
+  if (!liveCardIds.has(kanbiniId)) return true
+  const written = writtenPathById.get(kanbiniId)
+  return written !== undefined && written !== notePath
+}

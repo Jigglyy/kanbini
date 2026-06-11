@@ -661,6 +661,7 @@ function ObsidianSection({
     written: number
     cardCount: number
     skippedForeign: number
+    pruned: number
     warnings: string[]
   }>(null)
   const patchObsidian = (
@@ -691,6 +692,7 @@ function ObsidianSection({
         written: r.written,
         cardCount: r.cardCount,
         skippedForeign: r.skippedForeign,
+        pruned: r.pruned,
         warnings: r.warnings
       })
       patchObsidian({ lastPush: r.pushedAt })
@@ -715,7 +717,8 @@ function ObsidianSection({
           onChange={(v) => patchObsidian({ enabled: v })}
         />
         <p className="px-1 text-xs text-muted-foreground">
-          Sync now writes every card as a Markdown note to{' '}
+          Sync now writes every card on your active boards (archived
+          boards are skipped) as a Markdown note to{' '}
           <code className="rounded bg-muted px-1">
             &lt;vault&gt;/{settings.obsidian.subfolder || 'Kanbini'}/&lt;board&gt;/&lt;title&gt;.md
           </code>
@@ -788,6 +791,13 @@ function ObsidianSection({
                 Left alone: {result.skippedForeign}{' '}
                 {result.skippedForeign === 1 ? 'file' : 'files'} the
                 vault already owned.
+              </p>
+            )}
+            {result.pruned > 0 && (
+              <p className="mt-1 text-muted-foreground">
+                Cleaned up {result.pruned} stale{' '}
+                {result.pruned === 1 ? 'note' : 'notes'} from renamed
+                or deleted cards.
               </p>
             )}
             {result.warnings.length > 0 && (

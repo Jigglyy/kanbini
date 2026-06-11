@@ -445,7 +445,12 @@ export const zObsidianPushResult = z.object({
   /** Per-skipped-file reasons (capped at 20 so the IPC payload
    *  stays tight; the Settings panel just shows the count + a
    *  truncated peek). */
-  warnings: z.array(z.string()).max(20)
+  warnings: z.array(z.string()).max(20),
+  /** Notes we own (kanbini.id frontmatter) that no longer correspond
+   *  to a live card, or that moved to a new filename/board folder
+   *  this push - deleted so renames/deletes stop accumulating stale
+   *  copies in the vault. Foreign files are never touched. */
+  pruned: z.number().int().nonnegative().default(0)
 })
 export type ObsidianPushResult = z.infer<typeof zObsidianPushResult>
 

@@ -161,7 +161,8 @@ function makeBridge() {
         cardCount: 0,
         written: 0,
         skippedForeign: 0,
-        warnings: []
+        warnings: [],
+        pruned: 0
       })
     ),
     uninstallSetRemoveDataOnUninstall: vi.fn(

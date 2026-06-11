@@ -5,9 +5,10 @@ import {
   buildNote,
   chooseFilename,
   extractKanbiniId,
+  shouldPruneNote,
   slugify
 } from '@kanbini/shared'
-import { getBoardView, listBoards, type Db } from '@kanbini/db'
+import { getBoardView, listBoards, listCardIds, type Db } from '@kanbini/db'
 
 // ADR-0042 · one-way push of every card into an Obsidian vault as
 // individual `.md` notes with YAML frontmatter. Pure-write: vault
@@ -72,11 +73,18 @@ export async function pushToObsidianVault(opts: {
   }
   await fsp.mkdir(targetRoot, { recursive: true })
 
-  const boards = listBoards(db)
+  // Archived boards are skipped - their notes stay as-is in the vault
+  // (the prune below keeps them because their card ids are still
+  // live), they just stop receiving updates until un-archived.
+  const boards = listBoards(db).filter((b) => !b.archived)
   let cardCount = 0
   let written = 0
   let skippedForeign = 0
   const warnings: string[] = []
+  // Card id → the absolute path written THIS push. Drives the stale-
+  // note prune: a note we own whose id was written elsewhere this run
+  // is the old copy of a renamed card / moved board folder.
+  const writtenPathById = new Map<string, string>()
 
   for (const summary of boards) {
     const view = getBoardView(db, summary.id)
@@ -141,9 +149,54 @@ export async function pushToObsidianVault(opts: {
         await fsp.writeFile(tmpPath, note, 'utf8')
         await fsp.rename(tmpPath, absPath)
         written++
+        writtenPathById.set(card.id, absPath)
       }
     }
   }
+
+  // Prune stale notes WE own. Renames and deletes used to accumulate
+  // zombie copies forever (a renamed card got a fresh slug, the old
+  // file kept its kanbini.id and just sat there). Walk the target
+  // subfolder only - never the rest of the vault - and apply the
+  // conservative shouldPruneNote rule: foreign files are untouched,
+  // live-but-not-written ids (archived boards, foreign-collision
+  // skips) are kept. This reads frontmatter, which is the same class
+  // of ownership check ADR-0042 already allows - still strictly
+  // one-way, vault content never feeds back into the DB.
+  const liveCardIds = new Set(listCardIds(db))
+  let pruned = 0
+  const walk = async (dir: string): Promise<void> => {
+    let entries
+    try {
+      entries = await fsp.readdir(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      const abs = join(dir, entry.name)
+      if (entry.isDirectory()) {
+        await walk(abs)
+        continue
+      }
+      if (!entry.name.endsWith('.md')) continue
+      let id: string | null
+      try {
+        id = extractKanbiniId(await fsp.readFile(abs, 'utf8'))
+      } catch {
+        continue
+      }
+      if (!shouldPruneNote(id, liveCardIds, writtenPathById, abs)) continue
+      try {
+        await fsp.rm(abs, { force: true })
+        pruned++
+      } catch {
+        if (warnings.length < 20) {
+          warnings.push(`Could not remove stale note: ${abs}`)
+        }
+      }
+    }
+  }
+  await walk(targetRoot)
 
   return {
     pushedAt: startedAt,
@@ -151,6 +204,7 @@ export async function pushToObsidianVault(opts: {
     cardCount,
     written,
     skippedForeign,
-    warnings
+    warnings,
+    pruned
   }
 }

@@ -545,6 +545,17 @@ export function listAttachmentIds(db: Db): string[] {
     .map((r) => r.id)
 }
 
+/** Every card id across every board (archived included). The Obsidian
+ *  push's note pruning treats this as the "still exists" set - a note
+ *  whose kanbini.id isn't here belongs to a deleted card. */
+export function listCardIds(db: Db): string[] {
+  return db
+    .select({ id: card.id })
+    .from(card)
+    .all()
+    .map((r) => r.id)
+}
+
 /** Single-card view - used by the MCP control channel so the AI can
  *  zoom in on a card without pulling the entire board. Returns null
  *  when the id doesn't match anything. */
