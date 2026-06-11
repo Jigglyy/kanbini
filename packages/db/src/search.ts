@@ -12,8 +12,10 @@ import { board, card, cardLabel, label, list } from './schema'
 //
 // Substring (not fuzzy) on purpose: predictable, indexable by SQLite,
 // and the kanban app's content is short enough that fuzzy adds little.
-// Archived cards + closed lists are excluded so the palette never
-// surfaces hidden surface area.
+// Archived cards, closed lists, AND archived boards are excluded so
+// the palette never surfaces hidden surface area (the home screen
+// hides archived boards by default; jumping into one from search was
+// inconsistent with that).
 
 export interface SearchHit {
   cardId: string
@@ -85,6 +87,7 @@ export function searchCards(
       and(
         eq(card.archived, false),
         eq(list.closed, false),
+        eq(board.archived, false),
         or(
           sql`lower(${card.title}) LIKE ${pat} ESCAPE '\\'`,
           sql`lower(coalesce(${card.description}, '')) LIKE ${pat} ESCAPE '\\'`,

@@ -671,12 +671,14 @@ export function headlessSearchCards(
   const boardsById = new Map<string, ExportDump['boards'][number]>()
   for (const b of dump.boards) boardsById.set(b.id, b)
 
-  // Mirror the live searchCards filters: skip archived cards + cards
-  // whose list is closed.
+  // Mirror the live searchCards filters: skip archived cards, cards
+  // whose list is closed, and cards on archived boards.
   const candidates = dump.cards.filter((c) => {
     if (c.archived) return false
     const l = listsById.get(c.listId)
     if (!l || l.closed) return false
+    const b = boardsById.get(l.boardId)
+    if (!b || b.archived) return false
     return true
   })
 

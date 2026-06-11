@@ -240,6 +240,10 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
             description: src.description,
             color: src.color,
             background: carriedBg,
+            // Carry the swimlane grouping like the other view-ish
+            // settings (color / gradient) - a duplicate of a
+            // priority-grouped board should open priority-grouped.
+            swimlaneMode: src.swimlaneMode,
             position: orderKeyBetween(after, null),
             archived: false,
             pinned: false

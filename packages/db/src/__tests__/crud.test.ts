@@ -209,6 +209,19 @@ describe('board CRUD', () => {
     expect(getBoardView(db, dup2.id)?.board.background).toBeNull()
   })
 
+  it('board.duplicate carries the swimlane grouping', () => {
+    const { boardId } = seedBoard()
+    applyMutation(db, {
+      type: 'board.update',
+      id: boardId,
+      patch: { swimlaneMode: 'priority' }
+    })
+    const dup = applyMutation(db, { type: 'board.duplicate', id: boardId })
+    // A duplicate of a priority-grouped board opens priority-grouped,
+    // same as it carries color / gradient.
+    expect(getBoardView(db, dup.id)?.board.swimlaneMode).toBe('priority')
+  })
+
   it('board.duplicate copies lists + labels with new ids but no cards', () => {
     const { boardId } = seedBoard()
     applyMutation(db, {

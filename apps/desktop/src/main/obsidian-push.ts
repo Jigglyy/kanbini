@@ -41,10 +41,17 @@ export async function pushToObsidianVault(opts: {
   // length-validates, but main is the trust boundary).
   const vaultRoot = resolve(vaultPath)
   const targetRoot = resolve(vaultRoot, subfolder)
-  if (
-    targetRoot !== vaultRoot + sep + subfolder &&
-    !targetRoot.startsWith(vaultRoot + sep)
-  ) {
+  // An empty / '.' subfolder resolves to the vault root itself. That
+  // used to fall into the traversal branch below and throw a
+  // misleading "would write outside the vault" - name the real
+  // problem instead (a dedicated subfolder is required so the
+  // foreign-file safety model has a clear ownership boundary).
+  if (targetRoot === vaultRoot) {
+    throw new Error(
+      'Pick a subfolder inside the vault - pushing straight into the vault root is not supported.'
+    )
+  }
+  if (!targetRoot.startsWith(vaultRoot + sep)) {
     throw new Error(
       `Subfolder "${subfolder}" would write outside the vault. Refusing.`
     )

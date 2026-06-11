@@ -115,6 +115,12 @@ function mimeOf(filename: string): string | null {
       return 'image/gif'
     case 'webp':
       return 'image/webp'
+    case 'avif':
+      return 'image/avif'
+    case 'bmp':
+      return 'image/bmp'
+    case 'ico':
+      return 'image/x-icon'
     case 'svg':
       return 'image/svg+xml'
     case 'pdf':

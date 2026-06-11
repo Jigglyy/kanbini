@@ -170,6 +170,31 @@ describe('searchCards', () => {
   // is mild - but pin the behaviour here so we don't ship a silent
   // change. If we ever want exact-substring on these characters,
   // escape them and add `ESCAPE '\\'` to the LIKE clauses in search.ts.
+  it('excludes cards on archived boards', () => {
+    const projectId = ensureDefaultProjectId(db)
+    const b = applyMutation(db, {
+      type: 'board.create',
+      projectId,
+      name: 'Old board'
+    }).id
+    const l = applyMutation(db, {
+      type: 'list.create',
+      boardId: b,
+      name: 'L'
+    }).id
+    applyMutation(db, { type: 'card.create', listId: l, title: 'findable' })
+    expect(searchCards(db, 'findable')).toHaveLength(1)
+
+    applyMutation(db, {
+      type: 'board.update',
+      id: b,
+      patch: { archived: true }
+    })
+    // The home screen hides archived boards by default - search must
+    // not surface a hidden surface either.
+    expect(searchCards(db, 'findable')).toHaveLength(0)
+  })
+
   it('treats SQL LIKE metacharacters in the query as literals', () => {
     const projectId = ensureDefaultProjectId(db)
     const b = applyMutation(db, {

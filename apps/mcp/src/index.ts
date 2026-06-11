@@ -262,9 +262,17 @@ async function asReadToolResult(
 }
 
 // ─── server bootstrap ────────────────────────────────────────────
+// __KANBINI_VERSION__ is inlined by tsup's `define` from the desktop
+// app's package.json (the release-bumped one), so the reported version
+// can't drift from the product again. The typeof guard keeps direct
+// src execution (vitest importing this file un-bundled) from crashing.
+declare const __KANBINI_VERSION__: string
+const SERVER_VERSION =
+  typeof __KANBINI_VERSION__ !== 'undefined' ? __KANBINI_VERSION__ : '0.0.0-dev'
+
 const server = new McpServer({
   name: 'kanbini',
-  version: '0.3.1'
+  version: SERVER_VERSION
 })
 
 server.registerTool(
