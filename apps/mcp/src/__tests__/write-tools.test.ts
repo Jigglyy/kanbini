@@ -99,6 +99,55 @@ describe('MCP write tools - uncovered tools', () => {
     expect(fresh!.description).toBe('via test')
   })
 
+  it('kanbini_create_list + create_card(priority) populate a fresh board end-to-end', async () => {
+    // The full AI bootstrap path: create_board used to be a dead end
+    // (no tool could add lists, so the new board stayed unusable).
+    const board = unwrap<{ id: string }>(
+      await client.callTool({
+        name: 'kanbini_create_board',
+        arguments: { name: 'Bootstrap board' }
+      }),
+      'create_board'
+    )
+    const list = unwrap<{ id: string; boardId: string }>(
+      await client.callTool({
+        name: 'kanbini_create_list',
+        arguments: { boardId: board.id, name: 'Backlog' }
+      }),
+      'create_list'
+    )
+    expect(list.boardId).toBe(board.id)
+
+    const card = unwrap<{ id: string }>(
+      await client.callTool({
+        name: 'kanbini_create_card',
+        arguments: { listId: list.id, title: 'Urgent thing', priority: 'urgent' }
+      }),
+      'create_card (priority)'
+    )
+    const detail = unwrap<{ title: string; priority: string | null }>(
+      await client.callTool({
+        name: 'kanbini_get_card',
+        arguments: { id: card.id }
+      }),
+      'get_card'
+    )
+    expect(detail.title).toBe('Urgent thing')
+    expect(detail.priority).toBe('urgent')
+
+    const view = unwrap<{
+      lists: Array<{ id: string; name: string; cards: Array<{ id: string }> }>
+    }>(
+      await client.callTool({
+        name: 'kanbini_get_board',
+        arguments: { boardId: board.id }
+      }),
+      'get_board (bootstrap)'
+    )
+    expect(view.lists.map((l) => l.name)).toEqual(['Backlog'])
+    expect(view.lists[0]!.cards.map((c) => c.id)).toEqual([card.id])
+  })
+
   it('kanbini_set_card_labels replaces the full label set (additive)', async () => {
     const board = unwrap<{
       labels: Array<{ id: string; name: string }>
@@ -323,6 +372,26 @@ describe('MCP write tools - validation errors', () => {
         arguments: { name: '' }
       }),
       'name'
+    )
+  })
+
+  it('rejects create_list with empty name', async () => {
+    expectValidationError(
+      await client.callTool({
+        name: 'kanbini_create_list',
+        arguments: { boardId: 'whatever', name: '' }
+      }),
+      'name'
+    )
+  })
+
+  it('rejects create_card with an invalid priority enum', async () => {
+    expectValidationError(
+      await client.callTool({
+        name: 'kanbini_create_card',
+        arguments: { listId: 'whatever', title: 'x', priority: 'asap' }
+      }),
+      'priority'
     )
   })
 

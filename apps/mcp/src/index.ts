@@ -385,7 +385,9 @@ server.registerTool(
       'required board title; `description` is an optional short blurb ' +
       'shown on the home picker. Returns { id, boardId } - both equal ' +
       "the new board's id. The board is added to Kanbini's default " +
-      'project automatically (projects are hidden in the UI).',
+      'project automatically (projects are hidden in the UI). Add ' +
+      'columns next with kanbini_create_list, then populate them with ' +
+      'kanbini_create_card.',
     inputSchema: {
       name: z.string().min(1),
       description: z.string().optional()
@@ -396,19 +398,53 @@ server.registerTool(
 )
 
 server.registerTool(
+  'kanbini_create_list',
+  {
+    title: 'Create a list (column)',
+    description:
+      'Create a new list (column) at the right end of a board. Returns ' +
+      '{ id, boardId }; use the returned id as the listId for ' +
+      'kanbini_create_card. Board ids come from kanbini_list_boards or ' +
+      'a fresh kanbini_create_board.',
+    inputSchema: {
+      boardId: z.string(),
+      name: z.string().min(1)
+    }
+  },
+  ({ boardId, name }) =>
+    asToolResult(() => mutate({ type: 'list.create', boardId, name }))
+)
+
+server.registerTool(
   'kanbini_create_card',
   {
     title: 'Create a card',
     description:
       'Create a new card at the end of a list. Returns { id, boardId }. ' +
-      'Use kanbini_get_board first to find a listId.',
+      'Use kanbini_get_board first to find a listId. `priority` ' +
+      "optionally sets one of 'low' | 'medium' | 'high' | 'urgent' at " +
+      'creation (omit for unprioritised); use kanbini_update_card for ' +
+      'the description and other fields. Respect a list\'s `wipLimit` ' +
+      '(visible in the board view): the limit is advisory and not ' +
+      'enforced server-side, so check the list\'s current card count ' +
+      'before adding when a limit is set.',
     inputSchema: {
       listId: z.string(),
-      title: z.string().min(1)
+      title: z.string().min(1),
+      priority: z
+        .enum(['low', 'medium', 'high', 'urgent'])
+        .optional()
     }
   },
-  ({ listId, title }) =>
-    asToolResult(() => mutate({ type: 'card.create', listId, title }))
+  ({ listId, title, priority }) =>
+    asToolResult(() =>
+      mutate({
+        type: 'card.create',
+        listId,
+        title,
+        ...(priority ? { priority } : {})
+      })
+    )
 )
 
 server.registerTool(
@@ -464,7 +500,11 @@ server.registerTool(
       'card that should sit immediately ABOVE the moved card; `afterId` ' +
       'is the card immediately BELOW. Pass null/omit either for ' +
       'start/end of list. Server mints a fractional-index position ' +
-      'between the two neighbours, so calls never collide.',
+      'between the two neighbours, so calls never collide. Respect the ' +
+      "destination list's `wipLimit` when one is set (advisory, not " +
+      'enforced server-side - check its card count first). Note: lists ' +
+      'with a non-null sortMode order themselves; a move into one ' +
+      'lands wherever the sort puts it, not at the requested slot.',
     inputSchema: {
       id: z.string(),
       toListId: z.string(),
