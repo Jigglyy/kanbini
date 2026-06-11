@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { applyMutation, ensureDefaultProjectId } from '../crud'
 import { getBoardView, listBoards } from '../data'
 import { type Db } from '../client'
@@ -439,6 +439,60 @@ describe('undo log basics', () => {
   it('redo on an empty stack is a no-op (not an error)', () => {
     const r = redoOne(db)
     expect(r.applied).toBe(false)
+  })
+})
+
+describe('same-millisecond ordering (bulk gestures)', () => {
+  it('undoes same-ms entries newest-first and redoes oldest-first', () => {
+    const { listId } = seedBoard()
+    // Freeze the clock so every entry lands on ONE createdAt value -
+    // exactly what a bulk multi-select action produces. Ordering then
+    // rides entirely on the UUIDv7 id tiebreaker.
+    const frozen = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(frozen)
+    try {
+      const a = applyMutationRecorded(db, {
+        type: 'card.create',
+        listId,
+        title: 'bulk-A'
+      })
+      const b = applyMutationRecorded(db, {
+        type: 'card.create',
+        listId,
+        title: 'bulk-B'
+      })
+      const c = applyMutationRecorded(db, {
+        type: 'card.create',
+        listId,
+        title: 'bulk-C'
+      })
+
+      const titles = (): string[] =>
+        getBoardView(db)!.lists[0]!.cards.map((x) => x.title)
+      expect(titles()).toEqual(['T', 'bulk-A', 'bulk-B', 'bulk-C'])
+
+      // Undo pops strictly newest-first: C, then B, then A.
+      undoOne(db)
+      expect(titles()).toEqual(['T', 'bulk-A', 'bulk-B'])
+      undoOne(db)
+      expect(titles()).toEqual(['T', 'bulk-A'])
+      undoOne(db)
+      expect(titles()).toEqual(['T'])
+
+      // Redo replays oldest-first: A, then B, then C - same ids.
+      redoOne(db)
+      expect(titles()).toEqual(['T', 'bulk-A'])
+      redoOne(db)
+      expect(titles()).toEqual(['T', 'bulk-A', 'bulk-B'])
+      redoOne(db)
+      expect(titles()).toEqual(['T', 'bulk-A', 'bulk-B', 'bulk-C'])
+      const ids = getBoardView(db)!.lists[0]!.cards.map((x) => x.id)
+      expect(ids).toContain(a.id)
+      expect(ids).toContain(b.id)
+      expect(ids).toContain(c.id)
+    } finally {
+      vi.restoreAllMocks()
+    }
   })
 })
 

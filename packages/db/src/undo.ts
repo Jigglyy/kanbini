@@ -53,8 +53,10 @@ import {
 // control-channel allow-list so AI tools can't resurrect arbitrary
 // state.
 
-/** How many entries (undoable + undone combined) the log holds before
- *  pruning the oldest undoable rows. Tuned to 100 after dogfooding -
+/** How many 'undoable' entries the log holds before pruning the
+ *  oldest ones (the 'undone' redo tail is cleared on every new
+ *  mutation, so it never grows unbounded and isn't counted here).
+ *  Tuned to 100 after dogfooding -
  *  the prior 500-cap version surfaced confusing phantom-create
  *  scenarios where an ancient session's surviving creates got
  *  resurrected by a Ctrl+Z all → Ctrl+Y all sweep. A smaller window
@@ -1280,11 +1282,13 @@ export function applyMutationRecorded(
         '· board=' + shortId(result.boardId)
       )
       // Cap at MAX_UNDO_LOG_SIZE - drop the oldest 'undoable' rows.
+      // `id` (UUIDv7, monotonic within this process) tiebreaks rows
+      // recorded in the same millisecond - see undoOne for why.
       const undoableIds = tx
         .select({ id: undoLog.id })
         .from(undoLog)
         .where(eq(undoLog.status, 'undoable'))
-        .orderBy(asc(undoLog.createdAt))
+        .orderBy(asc(undoLog.createdAt), asc(undoLog.id))
         .all()
         .map((r) => r.id)
       if (undoableIds.length > MAX_UNDO_LOG_SIZE) {
@@ -1311,14 +1315,14 @@ export function undoStatus(db: Db): UndoStatus {
     .select({ description: undoLog.description })
     .from(undoLog)
     .where(eq(undoLog.status, 'undoable'))
-    .orderBy(desc(undoLog.createdAt))
+    .orderBy(desc(undoLog.createdAt), desc(undoLog.id))
     .limit(1)
     .get()
   const nextRedo = db
     .select({ description: undoLog.description })
     .from(undoLog)
     .where(eq(undoLog.status, 'undone'))
-    .orderBy(asc(undoLog.createdAt))
+    .orderBy(asc(undoLog.createdAt), asc(undoLog.id))
     .limit(1)
     .get()
   return {
@@ -1364,7 +1368,14 @@ export function undoOne(
           )
         : eq(undoLog.status, 'undoable')
     )
-    .orderBy(desc(undoLog.createdAt))
+    // `createdAt` is epoch ms, so bulk gestures (multi-select complete,
+    // multi-card drag) record several entries in the SAME millisecond -
+    // ordering by createdAt alone leaves the pop order to the query
+    // plan (it happened to work via index rowid order, but that's not
+    // contractual). `id` is UUIDv7 minted by the `uuid` package, which
+    // is monotonic within a process, so it's a true insertion-order
+    // tiebreaker.
+    .orderBy(desc(undoLog.createdAt), desc(undoLog.id))
     .limit(1)
     .get()
   if (!row) {
@@ -1432,7 +1443,9 @@ export function redoOne(
           )
         : eq(undoLog.status, 'undone')
     )
-    .orderBy(asc(undoLog.createdAt))
+    // Same-millisecond tiebreak as undoOne, mirrored for the redo
+    // direction (asc createdAt → asc id).
+    .orderBy(asc(undoLog.createdAt), asc(undoLog.id))
     .limit(1)
     .get()
   if (!row) {
