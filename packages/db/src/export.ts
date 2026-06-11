@@ -142,42 +142,81 @@ export async function exportToFolder(
     }
   }
 
-  // 4. Copy attachment files. Each row's relPath is
+  // 4. Stage attachment files. Each row's relPath is
   //    "attachments/<id>/<filename>", anchored to userDataDir.
   //    A missing source file (deleted out from under us, or never
   //    written) must NOT abort the whole snapshot - the row still
   //    exports, only its file is skipped. The importer already
   //    tolerates ENOENT the same way; without this an export (and so
   //    the on-quit auto-backup) breaks entirely on one orphaned row.
+  //
+  //    Reuse: attachment files are content-immutable (written once
+  //    under their id), but the export used to re-copy every byte on
+  //    every run - the on-quit auto-backup got slower with each
+  //    attachment added. When the PREVIOUS export already holds a
+  //    copy with the same size + mtime as the source, hardlink it
+  //    into the staging dir instead (instant, still byte-identical;
+  //    the atomic-swap rename keeps inodes, and removing the backup
+  //    later only drops a link). Fresh copies get the source's mtime
+  //    stamped on so the NEXT export can match them - copyFile does
+  //    not preserve timestamps on its own. Any reuse failure falls
+  //    back to a plain copy.
+  const stageFile = async (src: string, dest: string, prev: string) => {
+    let srcStat
+    try {
+      srcStat = await fsp.stat(src)
+    } catch (e: unknown) {
+      if ((e as { code?: string }).code !== 'ENOENT') throw e
+      return false
+    }
+    try {
+      const prevStat = await fsp.stat(prev)
+      // NTFS keeps sub-ms timestamps; utimes round-trips within ~1 ms.
+      if (
+        prevStat.size === srcStat.size &&
+        Math.abs(prevStat.mtimeMs - srcStat.mtimeMs) < 2
+      ) {
+        await fsp.link(prev, dest)
+        return true
+      }
+    } catch {
+      /* no previous copy / hardlink unsupported - fall through */
+    }
+    await fsp.copyFile(src, dest)
+    try {
+      await fsp.utimes(dest, srcStat.atime, srcStat.mtime)
+    } catch {
+      /* timestamp stamping is an optimisation, never fatal */
+    }
+    return true
+  }
+
   for (const att of attachments) {
     const src = join(userDataDir, att.relPath)
     const dest = join(stage, att.relPath)
+    const prev = join(destRoot, att.relPath)
     await fsp.mkdir(dirname(dest), { recursive: true })
-    try {
-      await fsp.copyFile(src, dest)
-    } catch (e: unknown) {
-      if ((e as { code?: string }).code !== 'ENOENT') throw e
+    const ok = await stageFile(src, dest, prev)
+    if (!ok) {
       console.warn(`[export] attachment file missing, skipped: ${att.relPath}`)
     }
   }
 
-  // 4b. Copy board-background image files (ADR-0034). Each board's
+  // 4b. Stage board-background image files (ADR-0034). Each board's
   //     `background` column is a JSON discriminated union; image-kind
   //     entries carry a userData-relative `relPath` under
   //     `board-backgrounds/`. Color + gradient backgrounds need no
   //     file copy - the data already rides in kanbini.json. Same
-  //     ENOENT tolerance as attachments: missing files don't break
-  //     the snapshot.
+  //     ENOENT tolerance + previous-export reuse as attachments.
   for (const b of boards) {
     const bg = b.background as { kind?: string; relPath?: string } | null
     if (!bg || bg.kind !== 'image' || !bg.relPath) continue
     const src = join(userDataDir, bg.relPath)
     const dest = join(stage, bg.relPath)
+    const prev = join(destRoot, bg.relPath)
     await fsp.mkdir(dirname(dest), { recursive: true })
-    try {
-      await fsp.copyFile(src, dest)
-    } catch (e: unknown) {
-      if ((e as { code?: string }).code !== 'ENOENT') throw e
+    const ok = await stageFile(src, dest, prev)
+    if (!ok) {
       console.warn(`[export] board background missing, skipped: ${bg.relPath}`)
     }
   }
