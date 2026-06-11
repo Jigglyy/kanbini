@@ -82,6 +82,7 @@ import {
   startControlChannel,
   type ControlChannelHandle
 } from './control-channel'
+import { sweepOrphanedFiles } from './gc'
 import { createLinkPreviewAttachment } from './link-preview'
 import { pushToObsidianVault } from './obsidian-push'
 import { runRoundTripTest } from './round-trip'
@@ -1111,6 +1112,22 @@ void app.whenReady().then(async () => {
   applyCsp()
   createWindow()
   console.log(`[main] ${APP_CODENAME} ready - ${dbInfo()} @ ${dbPath}`)
+
+  // Orphaned-file GC, well after boot so it never competes with the
+  // first paint. Age-floored (1 h) so in-flight attachment writes and
+  // this session's still-undoable deletes are never touched.
+  setTimeout(() => {
+    void sweepOrphanedFiles({ db, attachmentsRoot, backgroundsRoot })
+      .then((s) => {
+        if (s.removedAttachmentDirs > 0 || s.removedBackgroundEntries > 0) {
+          console.log(
+            `[gc] swept ${s.removedAttachmentDirs} orphaned attachment dir(s), ` +
+              `${s.removedBackgroundEntries} stale background file(s)`
+          )
+        }
+      })
+      .catch((err) => console.warn('[gc] sweep failed:', err))
+  }, 15_000)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

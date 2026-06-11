@@ -535,6 +535,16 @@ export function getBoardView(db: Db, boardId?: string): BoardView | null {
   }
 }
 
+/** Every attachment id - the orphan GC sweep diffs the
+ *  `userData/attachments/<id>/` directory names against this set. */
+export function listAttachmentIds(db: Db): string[] {
+  return db
+    .select({ id: attachment.id })
+    .from(attachment)
+    .all()
+    .map((r) => r.id)
+}
+
 /** Single-card view - used by the MCP control channel so the AI can
  *  zoom in on a card without pulling the entire board. Returns null
  *  when the id doesn't match anything. */
