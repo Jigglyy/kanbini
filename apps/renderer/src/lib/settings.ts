@@ -162,6 +162,18 @@ export function applyTheme(theme: Theme): void {
   document.documentElement.dataset.theme = resolveTheme(theme)
 }
 
+// Same-document fan-out. The `storage` event only fires in OTHER
+// documents - never the one that wrote - so the multiple useSettings()
+// instances in one window (App, Board, UrlCoverModal, …) need their own
+// broadcast channel. Without it, the consent panel flipping
+// `linkPreviews` on inside UrlCoverModal left Board's copy stale until
+// a remount, so gating like auto-cover didn't engage that session.
+const instances = new Set<(s: Settings) => void>()
+
+function broadcast(next: Settings): void {
+  for (const notify of instances) notify(next)
+}
+
 /** Read + update the app-wide preferences. Mirrors useState's tuple
  *  return; the second slot accepts a partial patch (only the keys
  *  you want to change). */
@@ -171,15 +183,21 @@ export function useSettings(): [
 ] {
   const [settings, setSettings] = useState<Settings>(readSettings)
 
-  // Pick up changes from other tabs / windows (multi-window Kanbini
-  // is not a thing today, but `storage` events are free).
   useEffect(() => {
+    // Join the same-document broadcast set (see above).
+    instances.add(setSettings)
+    // Pick up changes from other tabs / windows (multi-window Kanbini
+    // is not a thing today, but `storage` events are free) - and relay
+    // them to every instance in THIS document too.
     const onStorage = (e: StorageEvent): void => {
       if (e.key !== STORAGE_KEY) return
-      setSettings(readSettings())
+      broadcast(readSettings())
     }
     window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
+    return () => {
+      instances.delete(setSettings)
+      window.removeEventListener('storage', onStorage)
+    }
   }, [])
 
   // Apply the theme on change, and while it's `system` follow live OS
@@ -194,11 +212,16 @@ export function useSettings(): [
   }, [settings.theme])
 
   const update = useCallback((patch: Partial<Settings>): void => {
-    setSettings((prev) => {
-      const next = { ...prev, ...patch }
-      writeSettings(next)
-      return next
-    })
+    // Base the merge on the persisted blob (the shared source of
+    // truth) rather than this instance's state, then notify every
+    // mounted instance - including this one - so all copies converge
+    // on the same object. Known edge: if localStorage is unwritable
+    // (private mode / full disk) earlier unpersisted patches are lost
+    // on the next update; preferences already couldn't persist in
+    // that environment.
+    const next = { ...readSettings(), ...patch }
+    writeSettings(next)
+    broadcast(next)
   }, [])
 
   return [settings, update]

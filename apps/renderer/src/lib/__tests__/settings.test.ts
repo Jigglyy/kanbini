@@ -122,6 +122,42 @@ describe('useSettings', () => {
     expect(document.documentElement.dataset.theme).toBe('dark')
   })
 
+  it('propagates updates to every mounted instance in the same document', () => {
+    // App, Board, and UrlCoverModal each call useSettings() - the
+    // `storage` event never fires in the document that wrote, so the
+    // hook's own broadcast has to keep sibling instances in sync. The
+    // live bug: consenting to link previews inside UrlCoverModal left
+    // Board's stale copy gating auto-cover off until a remount.
+    const a = renderHook(() => useSettings())
+    const b = renderHook(() => useSettings())
+
+    act(() => {
+      a.result.current[1]({ linkPreviews: true, autoCoverFromUrl: true })
+    })
+
+    expect(a.result.current[0].linkPreviews).toBe(true)
+    expect(b.result.current[0].linkPreviews).toBe(true)
+    expect(b.result.current[0].autoCoverFromUrl).toBe(true)
+
+    // And the other direction too.
+    act(() => {
+      b.result.current[1]({ boardZoom: 1.5 })
+    })
+    expect(a.result.current[0].boardZoom).toBe(1.5)
+    // Earlier patch survives the second instance's update.
+    expect(a.result.current[0].linkPreviews).toBe(true)
+  })
+
+  it('stops notifying an unmounted instance', () => {
+    const a = renderHook(() => useSettings())
+    const b = renderHook(() => useSettings())
+    b.unmount()
+    act(() => {
+      a.result.current[1]({ theme: 'dark' })
+    })
+    expect(a.result.current[0].theme).toBe('dark')
+  })
+
   it('falls back to defaults when localStorage holds malformed JSON', () => {
     localStorage.setItem('kanbini.settings', '{not json')
     const { result } = renderHook(() => useSettings())
