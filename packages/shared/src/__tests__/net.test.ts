@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isPrivateOrReservedHost } from '../net'
+import { isPrivateOrReservedHost, makePinnedLookup } from '../net'
 
 // SSRF guard classifier (ADR-0023). These ranges are the load-bearing
 // part of the link-preview safety check - a regression here re-opens
@@ -71,6 +71,34 @@ describe('isPrivateOrReservedHost', () => {
     expect(isPrivateOrReservedHost(':::1')).toBe(true) // malformed
     expect(isPrivateOrReservedHost('1:2:3:4:5:6:7:8:9')).toBe(true) // 9 groups
     expect(isPrivateOrReservedHost('fe80::1%eth0')).toBe(true) // zone id
+  })
+
+  it('pinned lookup answers only from the vetted list', () => {
+    const lookup = makePinnedLookup([
+      { address: '93.184.216.34', family: 4 },
+      { address: '2606:2800:220:1::1', family: 6 }
+    ])
+    // Single-answer form (what net.connect uses by default).
+    lookup('example.com', undefined, (err, address, family) => {
+      expect(err).toBeNull()
+      expect(address).toBe('93.184.216.34')
+      expect(family).toBe(4)
+    })
+    // all:true form returns the full vetted set.
+    lookup('example.com', { all: true }, (err, addresses) => {
+      expect(err).toBeNull()
+      expect(addresses).toEqual([
+        { address: '93.184.216.34', family: 4 },
+        { address: '2606:2800:220:1::1', family: 6 }
+      ])
+    })
+  })
+
+  it('pinned lookup errors instead of falling back to real DNS', () => {
+    const lookup = makePinnedLookup([])
+    lookup('example.com', undefined, (err) => {
+      expect(err).toBeInstanceOf(Error)
+    })
   })
 
   it('allows public IP literals + ordinary domain names', () => {

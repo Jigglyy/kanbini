@@ -1,7 +1,14 @@
 import { promises as fsp } from 'node:fs'
 import { lookup } from 'node:dns/promises'
 import { extname, join } from 'node:path'
-import { decodeHtmlEntities, isPrivateOrReservedHost, newId } from '@kanbini/shared'
+import { Agent, fetch as undiciFetch } from 'undici'
+import {
+  decodeHtmlEntities,
+  isPrivateOrReservedHost,
+  makePinnedLookup,
+  newId,
+  type PinnedAddress
+} from '@kanbini/shared'
 import {
   type Db,
   applyMutationRecorded,
@@ -57,36 +64,52 @@ function ensureValidUrl(raw: string): URL {
   return parsed
 }
 
+/** An IP literal as the URL parser hands it to us: bracketed IPv6 or
+ *  dotted-quad IPv4 (WHATWG normalises decimal/octal/hex v4 spellings
+ *  to dotted-quad before we ever see them). */
+function isIpLiteral(host: string): boolean {
+  return host.startsWith('[') || /^\d{1,3}(\.\d{1,3}){3}$/.test(host)
+}
+
 /** SSRF guard (ADR-0023). Refuse any URL whose host is a loopback /
  *  private / link-local / reserved address - either as a literal, or
  *  because the domain name RESOLVES to one (DNS-rebind defence). Run on
  *  the initial URL AND on every redirect target, because Node's `fetch`
  *  does not re-validate redirect hops. Without this, an attacker page
  *  could 302 a preview fetch at `http://127.0.0.1:<mcp-port>/` or the
- *  `169.254.169.254` cloud-metadata endpoint. */
-async function assertFetchableUrl(parsed: URL): Promise<void> {
+ *  `169.254.169.254` cloud-metadata endpoint.
+ *
+ *  Returns the vetted addresses so the caller can PIN them into the
+ *  socket's lookup (see makePinnedLookup). Checking alone leaves a
+ *  TOCTOU: `fetch` re-resolves on connect, so a rebinding DNS server
+ *  could answer public here and private a beat later. With the pin,
+ *  the checked answer is the only one the connect can use. Empty
+ *  array = the host is an IP literal (no DNS involved, no pin needed).
+ *  A resolution failure now throws instead of falling through to an
+ *  UNPINNED fetch - failing closed beats re-opening the race. */
+async function assertFetchableUrl(parsed: URL): Promise<PinnedAddress[]> {
   const host = parsed.hostname
   if (isPrivateOrReservedHost(host)) {
     throw new Error('Link preview refused: host is private/loopback/reserved')
   }
-  // Domain name → resolve + re-check every address it points at. A
-  // public name pointing at a private IP is the classic rebind vector.
-  // Best-effort: a resolution failure is left for `fetch` to surface.
+  if (isIpLiteral(host)) return []
+  let addrs
   try {
-    const addrs = await lookup(host, { all: true })
-    for (const a of addrs) {
-      if (isPrivateOrReservedHost(a.address)) {
-        throw new Error(
-          'Link preview refused: host resolves to a private/loopback address'
-        )
-      }
-    }
-  } catch (err) {
-    if (err instanceof Error && err.message.startsWith('Link preview refused')) {
-      throw err
-    }
-    // ENOTFOUND / EAI_AGAIN etc. - let the subsequent fetch fail loudly.
+    addrs = await lookup(host, { all: true })
+  } catch {
+    throw new Error(`Link preview failed: could not resolve ${host}`)
   }
+  for (const a of addrs) {
+    if (isPrivateOrReservedHost(a.address)) {
+      throw new Error(
+        'Link preview refused: host resolves to a private/loopback address'
+      )
+    }
+  }
+  return addrs.map((a) => ({
+    address: a.address,
+    family: a.family === 6 ? 6 : 4
+  }))
 }
 
 async function fetchWithCap(
@@ -95,23 +118,37 @@ async function fetchWithCap(
 ): Promise<{ body: Buffer; mime: string | null }> {
   const ac = new AbortController()
   const timer = setTimeout(() => ac.abort(), opts.timeoutMs)
+  // Per-hop undici Agents whose connect.lookup answers only from the
+  // vetted address list - closed in the finally once the body's read.
+  const agents: Agent[] = []
   try {
     // Follow redirects MANUALLY so each hop is re-validated by
     // assertFetchableUrl - `redirect: 'follow'` would chase a 302 into
     // private space with no second check.
     let current = url
-    let res!: Response
+    let res!: Awaited<ReturnType<typeof undiciFetch>>
     for (let hop = 0; ; hop++) {
       const parsed = ensureValidUrl(current)
-      await assertFetchableUrl(parsed)
-      res = await fetch(parsed.toString(), {
+      const pins = await assertFetchableUrl(parsed)
+      // Pin the vetted DNS answer into the socket for domain hosts so
+      // the connect can't re-resolve to something private (rebind
+      // TOCTOU). IP literals skip DNS entirely - nothing to pin.
+      let dispatcher: Agent | undefined
+      if (pins.length > 0) {
+        dispatcher = new Agent({
+          connect: { lookup: makePinnedLookup(pins) }
+        })
+        agents.push(dispatcher)
+      }
+      res = await undiciFetch(parsed.toString(), {
         signal: ac.signal,
         redirect: 'manual',
         headers: {
           // Be honest about who's calling - no browser spoof.
           'User-Agent': 'Kanbini/0.0 (+offline, opt-in link preview)',
           Accept: opts.accept
-        }
+        },
+        ...(dispatcher ? { dispatcher } : {})
       })
       const location = res.headers.get('location')
       if (res.status >= 300 && res.status < 400 && location) {
@@ -146,6 +183,7 @@ async function fetchWithCap(
     return { body: Buffer.concat(chunks), mime }
   } finally {
     clearTimeout(timer)
+    for (const a of agents) void a.close().catch(() => {})
   }
 }
 

@@ -27,7 +27,8 @@
   "dependencies": {
     "@kanbini/db": "workspace:*",
     "@kanbini/shared": "workspace:*",
-    "better-sqlite3": "^12.10.0"
+    "better-sqlite3": "^12.10.0",
+    "undici": "^6.25.0"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.4",

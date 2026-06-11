@@ -26,6 +26,9 @@ importers:
       better-sqlite3:
         specifier: ^12.10.0
         version: 12.10.0
+      undici:
+        specifier: ^6.25.0
+        version: 6.25.0
     devDependencies:
       '@electron/rebuild':
         specifier: ^4.0.4

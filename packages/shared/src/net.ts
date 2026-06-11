@@ -107,6 +107,51 @@ function isPrivateIpv6(h: string): boolean {
   return false
 }
 
+/** One vetted DNS answer for `makePinnedLookup`. */
+export interface PinnedAddress {
+  address: string
+  family: 4 | 6
+}
+
+/** Build a `lookup`-compatible function (the option `net.connect` /
+ *  `tls.connect` accept) that answers ONLY from the pre-vetted address
+ *  list, never the real resolver. This closes the SSRF TOCTOU: the
+ *  guard resolves + checks a domain's addresses, but a plain `fetch`
+ *  then re-resolves on connect - a rebinding DNS server can pass the
+ *  check and hand the connect a private address. Pinning makes the
+ *  checked answer the only one the socket can use.
+ *
+ *  Typed structurally (no node imports) so this module stays
+ *  dependency-free and unit-testable; the desktop main process feeds
+ *  it into an undici Agent's `connect.lookup`. */
+export function makePinnedLookup(
+  addresses: PinnedAddress[]
+): (
+  hostname: string,
+  options: { all?: boolean } | undefined,
+  callback: (
+    err: Error | null,
+    address: string | Array<{ address: string; family: number }>,
+    family?: number
+  ) => void
+) => void {
+  return (_hostname, options, callback) => {
+    if (addresses.length === 0) {
+      callback(new Error('pinned lookup: no vetted addresses'), '')
+      return
+    }
+    if (options?.all) {
+      callback(
+        null,
+        addresses.map((a) => ({ address: a.address, family: a.family }))
+      )
+      return
+    }
+    const first = addresses[0]!
+    callback(null, first.address, first.family)
+  }
+}
+
 /** True when `host` (a URL hostname - an IP literal or a domain name)
  *  is a loopback / private / link-local / reserved address an opt-in
  *  link-preview fetch must never reach. Domain names return `false`
