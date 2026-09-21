@@ -59,6 +59,40 @@ required (built-in `fetch`).
 
 ---
 
+## Using the installed app (no repo, no Node.js)
+
+Everything below assumes a repo checkout. If you installed Kanbini from
+the installer instead, you don't need any of it - the app ships the
+server bundle and the runtime that executes it.
+
+Open **Settings -> AI integration** and copy the snippet. It looks like
+this, with your own install path filled in:
+
+```json
+{
+  "mcpServers": {
+    "kanbini": {
+      "command": "C:\\Users\\<you>\\AppData\\Local\\Programs\\Kanbini\\Kanbini.exe",
+      "args": ["C:\\Users\\<you>\\AppData\\Local\\Programs\\Kanbini\\resources\\mcp\\index.js"],
+      "env": { "ELECTRON_RUN_AS_NODE": "1" }
+    }
+  }
+}
+```
+
+`ELECTRON_RUN_AS_NODE=1` tells Electron to behave as a plain Node
+runtime and run the script instead of opening a window. That is how the
+installed app avoids requiring a separate Node.js install - it already
+contains one. Without the env var Electron boots a second copy of the
+UI and the client waits forever for a handshake.
+
+Known limit: the **portable** `.exe` unpacks itself to a fresh temp
+directory on every launch, so both paths in its snippet go stale the
+next time you run it. Use the installer if you want a config you can
+paste once.
+
+---
+
 ## Configure Claude Desktop
 
 Edit your Claude Desktop config file:
@@ -67,7 +101,9 @@ Edit your Claude Desktop config file:
 - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 
 Add a `kanbini` entry under `mcpServers`. Use the absolute path to
-the bundled file:
+the bundled file. (This is the repo-checkout form, which runs on the
+`node` you already have; for an installed Kanbini use the snippet from
+Settings -> AI integration instead.)
 
 ```json
 {

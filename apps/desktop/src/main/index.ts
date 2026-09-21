@@ -17,6 +17,7 @@ import {
 } from 'electron'
 import {
   APP_CODENAME,
+  buildMcpClientSnippet,
   IPC,
   newId,
   zAppInfo,
@@ -339,26 +340,6 @@ function resolveMcpBundlePath(): string | null {
     }
   }
   return null
-}
-
-/** Build the MCP config snippet the user pastes into whatever client
- *  they hook up. Most MCP-capable AIs accept the same `{ mcpServers:
- *  { <name>: { command, args } } }` shape (Claude Desktop, Claude
- *  Code, etc.) - where exactly to drop it is client-specific, so the
- *  UI defers that detail to the user's AI. `bundle` may be null (not
- *  built yet); fall back to a placeholder so the shape is still
- *  copyable. */
-function buildMcpClientSnippet(bundle: string | null): string {
-  const args = [bundle ?? '<absolute path to apps/mcp/dist/index.js>']
-  return JSON.stringify(
-    {
-      mcpServers: {
-        kanbini: { command: 'node', args }
-      }
-    },
-    null,
-    2
-  )
 }
 
 function registerIpc(
@@ -859,7 +840,11 @@ function registerIpc(
         bundle
       },
       snippets: {
-        mcpClientJson: buildMcpClientSnippet(bundle)
+        mcpClientJson: buildMcpClientSnippet({
+          isPackaged: app.isPackaged,
+          execPath: process.execPath,
+          bundle
+        })
       }
     })
   })

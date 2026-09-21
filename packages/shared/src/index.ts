@@ -13,6 +13,7 @@ export const SCHEMA_VERSION = 1 as const;
 export * from "./channels";
 export * from "./html";
 export * from "./id";
+export * from "./mcp-config";
 export * from "./mutations";
 export * from "./net";
 export * from "./obsidian";
