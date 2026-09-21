@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'tsup'
@@ -31,6 +31,28 @@ export default defineConfig({
   // tsup respects the `bin` field - adding a shebang here lets it run
   // as `./dist/index.js` (used by the Claude Code .mcp.json snippet).
   banner: { js: '#!/usr/bin/env node' },
-  // @modelcontextprotocol/sdk + zod are bundled (single-file).
-  noExternal: ['@kanbini/shared']
+  // EVERYTHING non-builtin is bundled in - `@kanbini/shared` AND the
+  // real runtime deps (zod, @modelcontextprotocol/sdk). tsup treats
+  // `dependencies` as external by default, which was fine in dev
+  // (apps/mcp/node_modules is right there) but shipped a packaged
+  // `resources/mcp/index.js` with no node_modules beside it: the
+  // server died on ERR_MODULE_NOT_FOUND before the MCP handshake and
+  // every client reported CONNECTION_CLOSED. The whole point of this
+  // bundle is that a client only needs one path, so bundle for real.
+  noExternal: [/.*/],
+  // Node decides ESM-vs-CJS from the nearest package.json. In dev
+  // that's apps/mcp/package.json (`"type": "module"`); packaged, the
+  // bundle sits alone under `resources/mcp/` with nothing above it,
+  // so Node falls back to CommonJS and either warns-and-reparses
+  // (newer Node) or throws on the first `import` (older Node). Drop a
+  // one-key package.json next to the bundle so the module type is
+  // never ambiguous. electron-builder's extraResources copy is
+  // `**/*` from this dir, so it ships automatically.
+  onSuccess: async () => {
+    writeFileSync(
+      resolve(here, 'dist/package.json'),
+      JSON.stringify({ type: 'module' }, null, 2) + '\n',
+      'utf8'
+    )
+  }
 })

@@ -46,6 +46,14 @@ const RELEASE_DIR = resolve(here, '../release')
 //   - `resources/mcp/index.js` is the MCP server bundle. Settings →
 //     AI integration renders its absolute path; missing = broken
 //     paste-into-AI-client config.
+//   - `resources/mcp/package.json` is the `{"type":"module"}` marker
+//     tsup emits next to the bundle. The bundle is ESM and nothing
+//     above `resources/mcp/` declares a module type, so without it
+//     Node treats index.js as CommonJS and the server dies on its
+//     first `import` (v0.7.1 shipped that way; clients reported the
+//     opaque CONNECTION_CLOSED). Presence-only check - that the
+//     bundle is genuinely self-contained is pinned by
+//     apps/mcp/src/__tests__/bundle-standalone.test.ts.
 //   - `resources/drizzle/meta/_journal.json` is the migration
 //     manifest. The exact file that bit us in the stale-installer
 //     trap (ADR-0050) - main crashes at openDatabase() without it.
@@ -59,6 +67,7 @@ const REQUIRED_SENTINELS = [
   'resources/app.asar',
   'resources/NOTICES.md',
   'resources/mcp/index.js',
+  'resources/mcp/package.json',
   'resources/drizzle/meta/_journal.json',
   'resources/app.asar.unpacked/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
 ]
