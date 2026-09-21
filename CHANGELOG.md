@@ -9,6 +9,23 @@ Releases are cut by pushing a `v*` tag, which builds the Windows
 installers and publishes a GitHub Release (see
 [`.github/workflows/release.yml`](.github/workflows/release.yml)).
 
+## [0.7.2] - 2026-09-21
+
+### Fixed
+
+- **AI integration works in the installed app.** The MCP server shipped
+  in 0.7.1 could not start: it was built expecting two libraries that
+  were not installed alongside it, so it quit before your AI could
+  connect, and clients reported only a bare "connection closed". The
+  server is now fully self-contained.
+- **Connecting your AI no longer requires installing Node.js.** The
+  configuration snippet assumed you already had Node.js on your system.
+  It now points at the runtime built into Kanbini itself, so it works on
+  a clean machine.
+
+After updating, open Settings, go to AI integration, and copy the
+snippet again - both fixes change what it contains.
+
 ## [0.7.1] - 2026-06-22
 
 ### Fixed
