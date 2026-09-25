@@ -9,6 +9,31 @@ Releases are cut by pushing a `v*` tag, which builds the Windows
 installers and publishes a GitHub Release (see
 [`.github/workflows/release.yml`](.github/workflows/release.yml)).
 
+## [Unreleased]
+
+### Added
+
+- **Collapse a card.** Hover a card and click the new arrows next to the
+  pencil, choose "Collapse card" from its right-click menu, or press `m`.
+  A collapsed card hides its cover and checklist items and shows a short
+  summary instead: checklist progress, comments, and attachments. Click
+  again to expand it.
+- **Compact lists.** In a list's menu, set Cards to Compact and every
+  card in it collapses. You can still keep a single card open.
+- **Show only the first few cards of a list.** A list's menu can show at
+  most 10, 20, or 50 cards, with a "Show more" button at the bottom.
+  Hidden cards are never lost: search still finds them, and moving to one
+  with the keyboard or adding a card opens the list back up.
+- **Your AI can do all of this too:** collapse cards, make a list
+  compact, and set how many cards a list shows.
+
+### Changed
+
+- **Each list now scrolls on its own.** A long list gets its own scroll
+  bar and stays within the window, so the rest of the board stays in
+  view. To go back to lists that run the full length of the board, turn
+  off "Scroll each list on its own" under Settings, Cards.
+
 ## [0.8.0] - 2026-09-25
 
 ### Added
