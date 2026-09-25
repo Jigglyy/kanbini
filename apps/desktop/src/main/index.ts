@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import * as fsSync from 'node:fs'
 import { promises as fsp } from 'node:fs'
 import * as nodePath from 'node:path'
-import { basename, dirname, join, resolve, sep } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import {
   app,
   BrowserWindow,
@@ -56,14 +56,15 @@ import {
 } from '@kanbini/shared'
 import {
   type Db,
+  addAttachmentFromBytes,
+  addAttachmentFromPath,
   applyMutationRecorded,
   applyMutationsRecorded,
   clearUndoLog,
-  createAttachment,
   dbInfo,
+  deleteAttachmentWithFile,
   deleteTemplate,
   exportToFolder,
-  getAttachmentRelPath,
   getBoardView,
   importFromFolder,
   importFromTrello,
@@ -71,6 +72,7 @@ import {
   instantiateListTemplate,
   listBoards,
   listTemplates,
+  mimeOf,
   openDatabase,
   redoOne,
   renameTemplate,
@@ -110,39 +112,8 @@ protocol.registerSchemesAsPrivileged([
   }
 ])
 
-/** Minimal extension → MIME map (no extra dep). Returns null for unknown. */
-function mimeOf(filename: string): string | null {
-  const ext = filename.toLowerCase().split('.').pop() ?? ''
-  switch (ext) {
-    case 'png':
-      return 'image/png'
-    case 'jpg':
-    case 'jpeg':
-      return 'image/jpeg'
-    case 'gif':
-      return 'image/gif'
-    case 'webp':
-      return 'image/webp'
-    case 'avif':
-      return 'image/avif'
-    case 'bmp':
-      return 'image/bmp'
-    case 'ico':
-      return 'image/x-icon'
-    case 'svg':
-      return 'image/svg+xml'
-    case 'pdf':
-      return 'application/pdf'
-    case 'txt':
-      return 'text/plain'
-    case 'md':
-      return 'text/markdown'
-    case 'json':
-      return 'application/json'
-    default:
-      return null
-  }
-}
+// mimeOf (extension -> MIME) now lives in @kanbini/db next to the
+// attachment writers that also need it.
 
 // DESIGN §4/§5: hardened shell; main is the single SQLite writer and
 // the only path to data (renderer reaches it via the typed IPC bridge).
@@ -368,32 +339,18 @@ function registerIpc(
 
   ipcMain.handle(IPC.mutate, async (_event, raw: unknown) => {
     const mutation = zMutation.parse(raw)
-    // attachment.delete: look up the file path BEFORE deletion (DB
-    // owns the row, main owns the filesystem) so we can unlink it.
-    let toUnlink: string | null = null
-    if (mutation.type === 'attachment.delete') {
-      const rel = getAttachmentRelPath(db, mutation.id)
-      if (rel) {
-        const abs = resolve(app.getPath('userData'), rel)
-        if (abs.startsWith(attachmentsRoot + sep)) toUnlink = abs
-      }
-    }
-    // ADR-0036: route through the undo-log recorder so every mutation
-    // lands on the stack (renderer-issued or MCP-issued). `restore`
-    // is internal-only - see the comment in @kanbini/db/src/undo.ts.
-    const result = zMutationResult.parse(applyMutationRecorded(db, mutation))
-    if (toUnlink) {
-      try {
-        await fsp.unlink(toUnlink)
-      } catch {
-        /* file may have been removed already */
-      }
-      try {
-        await fsp.rmdir(dirname(toUnlink))
-      } catch {
-        /* dir not empty / already gone - fine */
-      }
-    }
+    // attachment.delete also owns a file on disk. The shared helper
+    // reads the relPath BEFORE the row goes, applies the delete through
+    // the undo recorder, then unlinks - the same path the MCP control
+    // channel uses, so the two can't drift.
+    // ADR-0036: every other mutation routes through the undo-log
+    // recorder so it lands on the stack (renderer-issued or MCP-issued).
+    // `restore` is internal-only - see the comment in @kanbini/db/src/undo.ts.
+    const result = zMutationResult.parse(
+      mutation.type === 'attachment.delete'
+        ? await deleteAttachmentWithFile(db, { userDataDir, id: mutation.id })
+        : applyMutationRecorded(db, mutation)
+    )
     broadcastChange(result.boardId)
     return result
   })
@@ -431,35 +388,17 @@ function registerIpc(
     if (res.canceled || res.filePaths.length === 0) return null
     const src = res.filePaths[0]!
 
-    const id = newId()
-    const filename = basename(src)
-    const destDir = join(attachmentsRoot, id)
-    await fsp.mkdir(destDir, { recursive: true })
-    const dest = join(destDir, filename)
-    await fsp.copyFile(src, dest)
-    const stat = await fsp.stat(dest)
-    const mime = mimeOf(filename)
-    const relPath = `attachments/${id}/${filename}`
-
-    const { boardId } = createAttachment(db, {
-      id,
+    // A human picked this file in the native dialog, so no size cap
+    // (the cap exists for automated callers - see
+    // ATTACHMENT_PATH_MAX_BYTES).
+    const { attachment, boardId } = await addAttachmentFromPath(db, {
+      userDataDir,
       cardId,
-      filename,
-      relPath,
-      mime,
-      size: stat.size
+      sourcePath: src,
+      maxBytes: Number.POSITIVE_INFINITY
     })
     broadcastChange(boardId)
-    return zAttachmentView.parse({
-      id,
-      filename,
-      relPath,
-      mime,
-      size: stat.size,
-      sourceUrl: null,
-      sourceTitle: null,
-      createdAt: Date.now()
-    })
+    return zAttachmentView.parse(attachment)
   })
 
   // Paste an image from the system clipboard onto a card (Ctrl/Cmd+V
@@ -477,34 +416,17 @@ function registerIpc(
     const png = image.toPNG()
     if (png.length === 0) return null
 
-    const id = newId()
-    const filename = `pasted-${Date.now()}.png`
-    const destDir = join(attachmentsRoot, id)
-    await fsp.mkdir(destDir, { recursive: true })
-    const dest = join(destDir, filename)
-    await fsp.writeFile(dest, png)
-    const relPath = `attachments/${id}/${filename}`
-    const mime = 'image/png'
-
-    const { boardId } = createAttachment(db, {
-      id,
+    // No size cap: the user put this on their own clipboard.
+    const { attachment, boardId } = await addAttachmentFromBytes(db, {
+      userDataDir,
       cardId,
-      filename,
-      relPath,
-      mime,
-      size: png.length
+      filename: `pasted-${Date.now()}.png`,
+      bytes: png,
+      mime: 'image/png',
+      maxBytes: Number.POSITIVE_INFINITY
     })
     broadcastChange(boardId)
-    return zAttachmentView.parse({
-      id,
-      filename,
-      relPath,
-      mime,
-      size: png.length,
-      sourceUrl: null,
-      sourceTitle: null,
-      createdAt: Date.now()
-    })
+    return zAttachmentView.parse(attachment)
   })
 
   // ADR-0034 · set a board background from an image file. Opens the

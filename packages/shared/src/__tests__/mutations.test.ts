@@ -181,6 +181,32 @@ describe('zMutation - every arm', () => {
     })
     expect(parsed.type).toBe('list.update')
   })
+
+  it('keeps `archived` on a card.update patch', () => {
+    // zod strips unknown keys, so before the field existed an archive
+    // request parsed "fine" and silently did nothing. Pin that it now
+    // survives parsing.
+    const parsed = zMutation.parse({
+      type: 'card.update',
+      id: 'c1',
+      patch: { archived: true }
+    })
+    expect(parsed).toEqual({
+      type: 'card.update',
+      id: 'c1',
+      patch: { archived: true }
+    })
+  })
+
+  it('rejects a non-boolean archived', () => {
+    expect(() =>
+      zMutation.parse({
+        type: 'card.update',
+        id: 'c1',
+        patch: { archived: 'yes' }
+      })
+    ).toThrow()
+  })
 })
 
 describe('zMutationResult / zChangeEvent', () => {

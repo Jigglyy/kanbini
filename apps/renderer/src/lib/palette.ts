@@ -1,5 +1,10 @@
-// Single source for the accent swatches used by lists, labels, and
-// boards (the home-picker colour picker).
+import { ACCENT_VALUES } from '@kanbini/shared'
+
+// Accent swatches used by lists, labels, and boards (the home-picker
+// colour picker). The VALUES are defined once, named, in
+// `@kanbini/shared` (ACCENT_PALETTE) so the MCP server can resolve "red"
+// to the exact swatch string; this module re-exports them as `ACCENTS`
+// and owns the renderer-only helpers.
 //
 // OKLCH on purpose: a categorical rainbow spread evenly around the hue
 // wheel so a user has plenty of distinct label/list/board colours to
@@ -39,26 +44,9 @@ export function tint(color: string, pct: number, base: string): string {
   return `color-mix(in oklab, ${color} ${pct}%, ${base})`
 }
 
-export const ACCENTS = [
-  'oklch(0.63 0.19 25)', // red
-  // Orange: brighter + more saturated than the muted ochre `medium`
-  // priority (oklch(0.66 0.12 70)) so a label bar and a priority flag
-  // never read as the same colour. Priorities stay deliberately muted;
-  // labels are the vivid set, and this one leans into that.
-  'oklch(0.72 0.19 48)', // orange
-  'oklch(0.76 0.14 85)', // amber
-  'oklch(0.84 0.15 105)', // yellow
-  'oklch(0.74 0.17 140)', // lime
-  'oklch(0.64 0.15 160)', // green
-  'oklch(0.68 0.10 195)', // teal
-  'oklch(0.74 0.12 210)', // cyan
-  'oklch(0.69 0.13 230)', // sky
-  'oklch(0.60 0.16 262)', // blue
-  'oklch(0.56 0.17 292)', // indigo
-  'oklch(0.62 0.18 322)', // purple
-  'oklch(0.67 0.20 352)', // pink
-  'oklch(0.66 0.19 8)' // rose
-] as const
+/** The swatch values in picker order (red -> rose). Derived from the
+ *  named `ACCENT_PALETTE` in `@kanbini/shared`; edit colours there. */
+export const ACCENTS = ACCENT_VALUES
 
 /** Swatch list for a colour picker on an entity (label / list / board)
  *  that may already carry a colour. If `current` is a non-null colour

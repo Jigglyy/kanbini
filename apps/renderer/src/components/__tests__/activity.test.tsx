@@ -259,6 +259,22 @@ describe('<Activity>', () => {
     ).toBeInTheDocument()
   })
 
+  it("describes archive / restore (set via the MCP archive tool)", () => {
+    // Without these branches the feed would show the raw 'archived' /
+    // 'unarchived' type names - the exact regression the header warns
+    // about.
+    renderActivities([
+      makeActivity({ id: 'a1', type: 'archived' }),
+      makeActivity({ id: 'a2', type: 'unarchived' })
+    ])
+    expect(screen.getByText('archived this card')).toBeInTheDocument()
+    expect(
+      screen.getByText('restored this card from the archive')
+    ).toBeInTheDocument()
+    expect(screen.queryByText('archived')).not.toBeInTheDocument()
+    expect(screen.queryByText('unarchived')).not.toBeInTheDocument()
+  })
+
   it("falls back to the raw type string for an unrecognised activity kind", () => {
     // Forward-compat: a future build that adds a new activity type
     // shouldn't crash the feed - it should show the raw type so the

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   zAppInfo,
+  zArchivedItemsView,
+  zAttachmentAddResult,
+  zAttachmentAddViaChannelRequest,
   zAttachmentView,
   zBoardSummary,
   zBoardView,
@@ -358,5 +361,82 @@ describe('zAppInfo / zMcpInfo (M4-F)', () => {
     }
     expect(zMcpInfo.parse(running)).toEqual(running)
     expect(zMcpInfo.parse(stopped)).toEqual(stopped)
+  })
+})
+
+describe('zAttachmentAddViaChannelRequest (MCP attachment.add)', () => {
+  it('accepts the path form', () => {
+    expect(
+      zAttachmentAddViaChannelRequest.parse({ cardId: 'c1', path: '/tmp/a.txt' })
+    ).toEqual({ cardId: 'c1', path: '/tmp/a.txt' })
+  })
+
+  it('accepts the inline form and defaults encoding to utf8', () => {
+    expect(
+      zAttachmentAddViaChannelRequest.parse({
+        cardId: 'c1',
+        filename: 'n.md',
+        content: '# hi'
+      })
+    ).toEqual({ cardId: 'c1', filename: 'n.md', content: '# hi', encoding: 'utf8' })
+  })
+
+  it('rejects a request with no source', () => {
+    expect(() => zAttachmentAddViaChannelRequest.parse({ cardId: 'c1' })).toThrow()
+  })
+
+  it('rejects an unknown encoding and an empty filename', () => {
+    expect(() =>
+      zAttachmentAddViaChannelRequest.parse({
+        cardId: 'c1',
+        filename: 'a',
+        content: 'x',
+        encoding: 'hex'
+      })
+    ).toThrow()
+    expect(() =>
+      zAttachmentAddViaChannelRequest.parse({
+        cardId: 'c1',
+        filename: '',
+        content: 'x'
+      })
+    ).toThrow()
+  })
+})
+
+describe('zAttachmentAddResult', () => {
+  it('is an attachment view plus the board it landed on', () => {
+    const value = {
+      id: 'a1',
+      filename: 'a.txt',
+      relPath: 'attachments/a1/a.txt',
+      mime: 'text/plain',
+      size: 1,
+      sourceUrl: null,
+      sourceTitle: null,
+      createdAt: 1,
+      boardId: 'b1'
+    }
+    expect(zAttachmentAddResult.parse(value)).toEqual(value)
+  })
+})
+
+describe('zArchivedItemsView', () => {
+  it('round-trips a populated value', () => {
+    const value = {
+      boardId: 'b1',
+      lists: [{ id: 'l1', name: 'Old', color: null, cardCount: 3 }],
+      cards: [
+        {
+          id: 'c1',
+          title: 'T',
+          listId: 'l1',
+          listName: 'Old',
+          listClosed: true,
+          updatedAt: 5
+        }
+      ]
+    }
+    expect(zArchivedItemsView.parse(value)).toEqual(value)
   })
 })

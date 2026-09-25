@@ -5,6 +5,7 @@
 import { SCHEMA_VERSION } from '@kanbini/shared'
 
 export * as schema from './schema'
+export * from './attachments'
 export * from './client'
 export * from './crud'
 export * from './data'

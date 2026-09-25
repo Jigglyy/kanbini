@@ -1,5 +1,6 @@
-import { asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import {
+  type ArchivedItemsView,
   type BoardBackground,
   type BoardSummary,
   type BoardView,
@@ -523,10 +524,15 @@ export function getBoardView(db: Db, boardId?: string): BoardView | null {
       wipLimit: l.wipLimit,
       sortMode,
       onEnter: parseOnEnter(l.onEnter),
+      // Archived cards are hidden, same as listBoards' counts and
+      // search. (Closed lists stay IN the view with `closed: true` -
+      // the renderer filters those itself - but a card has no such flag
+      // in CardView, so the read side has to leave it out.) Mirrored by
+      // the headless reader; the parity suite pins it.
       cards: db
         .select()
         .from(card)
-        .where(eq(card.listId, l.id))
+        .where(and(eq(card.listId, l.id), eq(card.archived, false)))
         .orderBy(...ordering)
         .all()
         .map((c) => ({
@@ -544,6 +550,80 @@ export function getBoardView(db: Db, boardId?: string): BoardView | null {
           coverAttachmentId: c.coverAttachmentId,
           activities: activitiesFor(c.id)
         }))
+      }
+    })
+  }
+}
+
+/** Closed lists + archived cards on one board - the only way to find
+ *  either again, since the board view, search, and home counts all hide
+ *  them. null when the board doesn't exist. Ordering is part of the
+ *  contract (the headless reader mirrors it exactly): lists by board
+ *  position, cards by updatedAt desc - archiving stamps updatedAt, so
+ *  the thing you just put away is first - with the UUIDv7 id breaking
+ *  same-millisecond ties. */
+export function getArchivedItems(
+  db: Db,
+  boardId: string
+): ArchivedItemsView | null {
+  const b = db
+    .select({ id: board.id })
+    .from(board)
+    .where(eq(board.id, boardId))
+    .get()
+  if (!b) return null
+
+  const lists = db
+    .select()
+    .from(list)
+    .where(eq(list.boardId, boardId))
+    .orderBy(asc(list.position), asc(list.id))
+    .all()
+  const listById = new Map(lists.map((l) => [l.id, l]))
+
+  const liveCounts = new Map(
+    db
+      .select({ listId: card.listId, c: sql<number>`count(*)` })
+      .from(card)
+      .innerJoin(list, eq(card.listId, list.id))
+      .where(and(eq(list.boardId, boardId), eq(card.archived, false)))
+      .groupBy(card.listId)
+      .all()
+      .map((r) => [r.listId, r.c])
+  )
+
+  const archivedCards = db
+    .select({
+      id: card.id,
+      title: card.title,
+      listId: card.listId,
+      updatedAt: card.updatedAt
+    })
+    .from(card)
+    .innerJoin(list, eq(card.listId, list.id))
+    .where(and(eq(list.boardId, boardId), eq(card.archived, true)))
+    .orderBy(desc(card.updatedAt), desc(card.id))
+    .all()
+
+  return {
+    boardId,
+    lists: lists
+      .filter((l) => l.closed)
+      .map((l) => ({
+        id: l.id,
+        name: l.name,
+        color: l.color,
+        cardCount: liveCounts.get(l.id) ?? 0
+      })),
+    cards: archivedCards.map((c) => {
+      const l = listById.get(c.listId)
+      return {
+        id: c.id,
+        title: c.title,
+        listId: c.listId,
+        listName: l?.name ?? '',
+        listClosed: l?.closed ?? false,
+        updatedAt: c.updatedAt
       }
     })
   }

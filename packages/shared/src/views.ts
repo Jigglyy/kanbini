@@ -35,6 +35,42 @@ export type AttachmentAddRequest = z.infer<typeof zAttachmentAddRequest>
 export const zAttachmentPasteRequest = z.object({ cardId: z.string() })
 export type AttachmentPasteRequest = z.infer<typeof zAttachmentPasteRequest>
 
+/** Control-channel `attachment.add` (MCP). No dialog - the caller says
+ *  where the bytes come from, one of two ways:
+ *   - `path`: an absolute path to a local file, which main copies in.
+ *     Main and the MCP server run as the same user on the same machine,
+ *     so the path means the same thing to both.
+ *   - `content` + `filename`: inline data, as `utf8` text (notes, CSV,
+ *     code an AI wrote) or `base64` (small binaries). The filename is
+ *     sanitised to one safe path segment before it touches disk.
+ *  Size ceilings live with the writers in @kanbini/db. */
+export const zAttachmentAddViaChannelRequest = z.union([
+  z.object({
+    cardId: z.string(),
+    path: z.string().min(1)
+  }),
+  z.object({
+    cardId: z.string(),
+    filename: z.string().min(1).max(255),
+    content: z.string(),
+    encoding: z.enum(['utf8', 'base64']).default('utf8')
+  })
+])
+export type AttachmentAddViaChannelRequest = z.infer<
+  typeof zAttachmentAddViaChannelRequest
+>
+
+/** What `attachment.add` returns: the stored attachment plus the board
+ *  it landed on (same `boardId` contract as a MutationResult). */
+export const zAttachmentAddResult = zAttachmentView.extend({
+  boardId: z.string().nullable()
+})
+export type AttachmentAddResult = z.infer<typeof zAttachmentAddResult>
+
+/** Control-channel `attachment.delete`. */
+export const zAttachmentDeleteRequest = z.object({ id: z.string() })
+export type AttachmentDeleteRequest = z.infer<typeof zAttachmentDeleteRequest>
+
 /** Request payload for `board:setBackgroundImage` (ADR-0034). Opens
  *  a file dialog in main, copies the chosen image under
  *  `userData/board-backgrounds/<boardId>/`, then applies the
@@ -347,6 +383,43 @@ export const zSearchHit = z.object({
 export type SearchHit = z.infer<typeof zSearchHit>
 export const zSearchHits = z.array(zSearchHit)
 export type SearchHits = z.infer<typeof zSearchHits>
+
+/** What a board has hidden away: closed lists and archived cards.
+ *  Neither shows on the board view, in search, or in the home counts,
+ *  and the app has no screen for them yet - so this read is the only
+ *  way to find them again (MCP `kanbini_list_archived`, which the
+ *  archive tools point at). Ordered for a "what did I just put away?"
+ *  read: lists by board position, cards most-recently-touched first. */
+export const zArchivedItemsView = z.object({
+  boardId: z.string(),
+  lists: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      color: z.string().nullable(),
+      /** Non-archived cards inside the closed list. They reappear with
+       *  the list when it's reopened. */
+      cardCount: z.number().int()
+    })
+  ),
+  cards: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      listId: z.string(),
+      listName: z.string(),
+      /** True when the card's list is ALSO closed - unarchiving the card
+       *  alone won't make it visible until the list is reopened. */
+      listClosed: z.boolean(),
+      updatedAt: z.number().int()
+    })
+  )
+})
+export type ArchivedItemsView = z.infer<typeof zArchivedItemsView>
+
+/** Request for the archived-items read. */
+export const zGetArchivedItemsRequest = z.object({ boardId: z.string() })
+export type GetArchivedItemsRequest = z.infer<typeof zGetArchivedItemsRequest>
 
 /** Returned by `export:now` IPC + the on-quit auto-export (M4-A). */
 export const zExportSummary = z.object({

@@ -946,6 +946,7 @@ export function inverseBefore(db: Db, m: Mutation): Mutation | null {
       if ('coverAttachmentId' in m.patch)
         patch.coverAttachmentId = old.coverAttachmentId
       if ('priority' in m.patch) patch.priority = old.priority
+      if ('archived' in m.patch) patch.archived = old.archived
       return { type: 'card.update', id: m.id, patch }
     }
     case 'list.update': {

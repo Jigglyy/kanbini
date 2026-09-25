@@ -527,6 +527,13 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
           data: m.patch.priority === null ? null : { priority: m.patch.priority }
         })
       }
+      if (m.patch.archived !== undefined) {
+        logActivity(db, {
+          boardId,
+          cardId: m.id,
+          type: m.patch.archived ? 'archived' : 'unarchived'
+        })
+      }
       return { id: m.id, boardId }
     }
     case 'card.delete': {
@@ -657,6 +664,31 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
     case 'card.setLabels': {
       const boardId = cardBoardId(db, m.id)
       return db.transaction((tx) => {
+        // Labels are board-scoped. Same guard shape as the cover pointer
+        // in card.update: the renderer only ever offers the card's own
+        // board's labels, but an MCP / control-channel caller can send
+        // any id - and a label from ANOTHER board would be stored,
+        // never render (chips resolve against the card's board), and
+        // leak a cross-board reference into exports. Reject unknown and
+        // foreign ids up front, before anything is written.
+        if (m.labelIds.length > 0) {
+          if (boardId === null) throw new Error(`card ${m.id} not found`)
+          const owned = tx
+            .select({ id: label.id, boardId: label.boardId })
+            .from(label)
+            .where(inArray(label.id, m.labelIds))
+            .all()
+          const ownerById = new Map(owned.map((r) => [r.id, r.boardId]))
+          for (const id of m.labelIds) {
+            const owner = ownerById.get(id)
+            if (owner === undefined) throw new Error(`label ${id} not found`)
+            if (owner !== boardId) {
+              throw new Error(
+                `label ${id} belongs to a different board than card ${m.id}`
+              )
+            }
+          }
+        }
         const oldIds = tx
           .select({ id: cardLabel.labelId })
           .from(cardLabel)

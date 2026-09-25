@@ -182,6 +182,10 @@ function describe(
     }
     case 'priority-cleared':
       return 'cleared the priority'
+    case 'archived':
+      return 'archived this card'
+    case 'unarchived':
+      return 'restored this card from the archive'
     case 'moved':
       return (
         <>

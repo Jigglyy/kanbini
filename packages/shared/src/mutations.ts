@@ -163,7 +163,14 @@ export const zMutation = z.discriminatedUnion('type', [
       coverAttachmentId: z.string().nullable().optional(),
       // ADR-0037 card priority. null = unprioritised; the four-level
       // enum matches the renderer badge + the swimlanes lane keys.
-      priority: zCardPriority.nullable().optional()
+      priority: zCardPriority.nullable().optional(),
+      // Archive flag. The column shipped in schema v1 and every read
+      // path that counts or searches already honours it, but nothing
+      // could SET it until the MCP archive tool. An archived card is
+      // hidden from the board view, search, and the home counts; it
+      // keeps its list, position, and everything attached, so
+      // unarchiving puts it back exactly where it was.
+      archived: z.boolean().optional()
     })
   }),
   z.object({ type: z.literal('card.delete'), id: z.string() }),

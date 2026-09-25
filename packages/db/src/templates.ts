@@ -154,10 +154,13 @@ function snapshotCards(
   listId: string,
   tmplLabelIdByReal: Map<string, string> | null
 ) {
+  // Archived cards are left out, same as closed lists are left out of
+  // a board template: a template captures what the board SHOWS, and
+  // instantiating would otherwise resurrect put-away cards as live ones.
   const cards = tx
     .select()
     .from(card)
-    .where(eq(card.listId, listId))
+    .where(and(eq(card.listId, listId), eq(card.archived, false)))
     .orderBy(asc(card.position))
     .all()
   return cards.map((c) => {
