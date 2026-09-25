@@ -127,13 +127,27 @@ main's `mutate` method on the control channel (the same discriminated
 union as the renderer IPC), so adding one is a one-liner:
 
 - **Read:** `kanbini_list_boards`, `kanbini_get_board`,
-  `kanbini_get_card`, `kanbini_search_cards`.
-- **Write:** `kanbini_create_board`, `kanbini_create_list`,
-  `kanbini_create_card` (optional starting `priority`),
-  `kanbini_update_card`, `kanbini_move_card`, `kanbini_delete_card`,
+  `kanbini_get_card`, `kanbini_search_cards`, `kanbini_list_archived`.
+- **Cards:** `kanbini_create_card` (optional starting `priority`),
+  `kanbini_update_card` (incl. `collapsed`), `kanbini_move_card`,
+  `kanbini_delete_card`, `kanbini_archive_card`,
   `kanbini_set_card_labels`, `kanbini_post_comment` (forces
   `author='ai'`), `kanbini_create_checklist`,
   `kanbini_add_checklist_item`, `kanbini_toggle_checklist_item`.
+- **Lists and boards:** `kanbini_create_list`, `kanbini_update_list`
+  (name, colour, card limit, sort mode, on-enter rule, `cardDensity`,
+  `visibleCardLimit`), `kanbini_move_list`, `kanbini_archive_list`,
+  `kanbini_create_board`, `kanbini_update_board`,
+  `kanbini_archive_board`.
+- **Labels:** `kanbini_create_label`, `kanbini_update_label`,
+  `kanbini_delete_label` (colours by palette name or raw CSS).
+- **Attachments:** `kanbini_add_attachment` (from an absolute path, or
+  inline utf8 / base64 content) and `kanbini_delete_attachment`. These
+  two use dedicated file-aware control-channel methods rather than
+  `mutate`, because they write and remove files as well as rows.
+
+Display settings (`collapsed`, `cardDensity`, `visibleCardLimit`) never
+hide anything from the AI: the board view always returns every card.
 
 Each write fires `broadcastChange(boardId)` so open renderers refetch and
 AI edits appear live. Stdio transport means the same server works for any
@@ -146,13 +160,14 @@ the smoke/explore scripts.
 
 **Included:** boards; lists (active/closed, colour, card limit, on-enter
 automations, per-list sort: manual / created / added-to-list / due /
-title / priority); cards (title, Markdown description, due date + done state,
-priority, cover); labels + filtering; checklists; comments; local
-attachments; drag-and-drop reorder/move; multi-select (Ctrl/Cmd-click,
-Shift-click range) with bulk actions + group drag; swimlanes; board/list
-templates; cross-board search + command palette; undo/redo; board
-backgrounds + zoom; plain-text export/import; Trello import; settings; the
-MCP server. Opt-in and off by default: link previews and one-way Obsidian
+title / priority, compact cards, show-first-N with "Show more", and each
+list scrolling on its own); cards (title, Markdown description, due date +
+done state, priority, cover, collapse to a one-line summary, archive);
+labels + filtering; checklists; comments; local attachments; drag-and-drop
+reorder/move; multi-select (Ctrl/Cmd-click, Shift-click range) with bulk
+actions + group drag; swimlanes; board/list templates; cross-board search +
+command palette; undo/redo; board backgrounds + zoom; plain-text
+export/import; Trello import; settings; the MCP server. Opt-in and off by default: link previews and one-way Obsidian
 export.
 
 **Possible later:** custom fields; sub-tasks / linked cards; saved
@@ -178,9 +193,13 @@ sample board. See [`PACKAGING.md`](PACKAGING.md).
 
 ## 10. Known limitations
 
-- Kanban DnD polish (autoscroll, large-list virtualization, list-level
-  drag) - the basics are in; the rest is deferred until a real board hits
-  the limit.
+- Large-list virtualization is deferred. Long lists are handled by each
+  list scrolling on its own plus the per-list "show first N" limit; every
+  card that IS on screen is still mounted.
+- Archived cards and lists have no screen in the app yet. The AI can list
+  and restore them (`kanbini_list_archived`), and Ctrl+Z undoes an
+  archive.
+- The per-list card limit (show first N) is ignored in swimlane mode.
 - Undo of a cross-list card move does not reverse a list's on-enter
   automation (a two-step manual fix for now).
 - Builds are unsigned (code signing deferred).

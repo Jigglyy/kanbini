@@ -54,14 +54,19 @@ that never closes: a board that's yours, local, and always on.
   comments, local attachments (paste an image straight in), cover images,
   and a per-card activity log. Cards with a description show a small marker
   in the list.
+- **Long boards stay readable** - each list scrolls on its own, a card
+  can be collapsed to a one-line summary (or a whole list set to compact),
+  and a list can show just its first 10 / 20 / 50 cards with a "Show more"
+  button.
 - **Multi-select** - Ctrl/Cmd-click cards (or Shift-click for a range) to
   pick several at once, then complete, set priority, re-label, move, or
   delete them in bulk from a floating action bar (or a right-click menu) -
   and drag the whole group between lists.
 - **Local MCP server** - a token-gated 127.0.0.1 control channel + stdio
-  server (`@kanbini/mcp`) with read/write tools (get / create / update /
-  move / delete / label / comment / checklist / search). Edits stream
-  into the open UI live. See [`docs/MCP.md`](docs/MCP.md).
+  server (`@kanbini/mcp`) with 27 read/write tools: cards, lists, boards,
+  labels, comments, checklists, attachments, archiving, list settings
+  (card limit, sort, colour, compact cards, how many to show), and search.
+  Edits stream into the open UI live. See [`docs/MCP.md`](docs/MCP.md).
 - **Scriptable HTTP API** - the same token-gated 127.0.0.1 control channel
   is also a plain local HTTP API (REST routes for reads + writes, plus a
   batch endpoint that lands as one undo step) for non-MCP tools, scripts,
