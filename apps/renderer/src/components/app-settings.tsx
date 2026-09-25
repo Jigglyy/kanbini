@@ -362,6 +362,12 @@ function CardsSection({
 
       <Section title="Card display">
         <ToggleRow
+          label="Scroll each list on its own"
+          hint="Long lists get their own scroll bar, so the rest of the board stays in view."
+          checked={settings.listsScrollSeparately}
+          onChange={(v) => update({ listsScrollSeparately: v })}
+        />
+        <ToggleRow
           label="Show checklists on cards"
           hint="Tick items without opening the card."
           checked={settings.showChecklistOnCard}

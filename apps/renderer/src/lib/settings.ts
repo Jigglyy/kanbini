@@ -56,6 +56,12 @@ export interface Settings {
   /** When true, a card's checklist items render on the in-list card so
    *  they can be ticked without opening the card detail. */
   showChecklistOnCard: boolean
+  /** When true (default), each list is capped to the board's height and
+   *  scrolls on its own - header and "Add a card" stay put - so one long
+   *  list no longer scrolls every other list off screen. False restores
+   *  the old layout: lists grow to full length and the whole board
+   *  scrolls. Flat layout only; swimlanes always scroll as one board. */
+  listsScrollSeparately: boolean
   /** Trello-style label display. When false (default) the in-list card
    *  collapses its label chips to compact colour bars (no text) so a
    *  card carrying both labels and a priority doesn't read as two
@@ -105,6 +111,7 @@ const DEFAULTS: Settings = {
   cardLimitBlocksCreate: true,
   cardLimitBlocksDrag: true,
   showChecklistOnCard: true,
+  listsScrollSeparately: true,
   labelsExpanded: false,
   theme: 'system',
   boardZoom: 1,

@@ -19,6 +19,7 @@ const BASE_SETTINGS: Settings = {
   cardLimitBlocksCreate: false,
   cardLimitBlocksDrag: false,
   showChecklistOnCard: false,
+  listsScrollSeparately: true,
   labelsExpanded: false,
   linkPreviews: false,
   autoCoverFromUrl: false,
@@ -466,4 +467,28 @@ describe('<AppSettings> About - Third-party software', () => {
     expect(button).toBeDisabled()
   })
 
+})
+
+describe('<AppSettings> Cards section', () => {
+  it('offers "Scroll each list on its own", reflecting and updating the setting', async () => {
+    const user = userEvent.setup()
+    const update = vi.fn()
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: Infinity } }
+    })
+    render(
+      <QueryClientProvider client={qc}>
+        <AppSettings
+          onClose={vi.fn()}
+          settings={{ ...BASE_SETTINGS, listsScrollSeparately: true }}
+          update={update}
+        />
+      </QueryClientProvider>
+    )
+    await user.click(screen.getByRole('button', { name: 'Cards' }))
+    const toggle = screen.getByRole('checkbox', { name: /Scroll each list on its own/ })
+    expect(toggle).toBeChecked()
+    await user.click(toggle)
+    expect(update).toHaveBeenCalledWith({ listsScrollSeparately: false })
+  })
 })

@@ -539,11 +539,15 @@ export function App() {
               // sidebar stay 1:1. Composes with Ctrl/Cmd +/- (which
               // zooms the whole window via Electron setZoomLevel).
               // Cast for older React typings that omit `zoom`.
+              // `h-full` carries <main>'s height down to the lists row so
+              // each list can cap itself to it (listsScrollSeparately).
               <div
                 style={{ zoom: settings.boardZoom } as CSSProperties}
+                className="h-full"
               >
                 <Board
                   board={view}
+                  listsScrollSeparately={settings.listsScrollSeparately}
                   blockCreate={settings.cardLimitBlocksCreate}
                   blockDrag={settings.cardLimitBlocksDrag}
                   showChecklist={settings.showChecklistOnCard}

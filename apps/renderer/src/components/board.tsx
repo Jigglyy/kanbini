@@ -2,6 +2,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -527,7 +528,8 @@ export function Board({
   autoCoverFromUrl,
   boardZoom,
   initialOpenCardId,
-  onConsumedOpenCard
+  onConsumedOpenCard,
+  listsScrollSeparately = false
 }: {
   board: BoardView
   blockCreate: boolean
@@ -566,6 +568,9 @@ export function Board({
    *  (undefined → id again) is then a real prop change that reopens the
    *  detail, instead of a silent no-op (the value never changed). */
   onConsumedOpenCard?: () => void
+  /** settings.listsScrollSeparately: cap each list to the board height
+   *  and scroll its body. Flat layout only - see `capLists`. */
+  listsScrollSeparately?: boolean
 }) {
   useAutoCoverFromUrl({
     boardId: board.board.id,
@@ -583,6 +588,9 @@ export function Board({
   // the overlay under the cursor. dnd-kit sized the overlay to the source
   // rect at pickup, so the overlay keeps the source look.
   const [draggingCompact, setDraggingCompact] = useState(false)
+  // Lists scroll on their own only in the flat layout: swimlanes lay
+  // cards out in lane rows, which scroll with the board as before.
+  const capLists = listsScrollSeparately && !board.board.swimlaneMode
   // List-column reorder. Holds the id of the list being
   // dragged so the DragOverlay can render a column preview; null when no
   // list drag is in flight. Card drags leave this null (and list drags
@@ -1866,6 +1874,9 @@ export function Board({
           aren't affected; uses event delegation on a single wrapper
           rather than per-element bubbling listeners. */}
       <div
+        // Carries the height chain to the lists row when lists scroll on
+        // their own (see `capLists` below); harmless otherwise.
+        className={capLists ? 'h-full' : undefined}
         onClick={(e) => {
           // A click on the board surface that isn't a card clears both
           // the keyboard-nav focus ring AND the multi-selection.
@@ -1948,7 +1959,13 @@ export function Board({
           )
         }
         return (
-          <div className="flex items-start gap-4">
+          // `key` remounts the columns when the scroll mode flips: each
+          // card's useSmoothHeight caches its scroll parent on first use,
+          // and that parent changes (the list body vs <main>).
+          <div
+            key={capLists ? 'capped' : 'flow'}
+            className={cn('flex items-start gap-4', capLists && 'h-full')}
+          >
             <SortableContext
               items={listColItemIds}
               strategy={horizontalListSortingStrategy}
@@ -1957,6 +1974,7 @@ export function Board({
                 <ListColumn
                   key={list.id}
                   list={list}
+                  capped={capLists}
                   labels={board.labels}
                   apply={apply}
                   blockCreate={blockCreate}
@@ -2067,7 +2085,7 @@ export function Board({
           // pixel-for-pixel; `zoom` mirrors App's board wrapper (the
           // overlay is body-portaled, same caveat as the card overlay).
           <div
-            className="cursor-grabbing"
+            className={cn('cursor-grabbing', capLists && 'h-full')}
             style={
               boardZoom !== 1 ? ({ zoom: boardZoom } as CSSProperties) : undefined
             }
@@ -2077,6 +2095,7 @@ export function Board({
               labels={board.labels}
               showChecklist={showChecklist}
               labelsExpanded={labelsExpanded}
+              capped={capLists}
             />
           </div>
         )}
@@ -2232,6 +2251,7 @@ export function ListHeader({
 
 const ListColumn = memo(function ListColumn({
   list,
+  capped = false,
   labels,
   apply,
   blockCreate,
@@ -2252,6 +2272,13 @@ const ListColumn = memo(function ListColumn({
   canMoveRight
 }: {
   list: BoardView['lists'][number]
+  /** Lists scroll on their own: the column caps to the board's height,
+   *  and only the card body scrolls - the header and "Add a card" stay
+   *  put. The body is the nearest scroll parent for the cards inside, so
+   *  dnd-kit auto-scrolls it when a drag nears its edge (it scrolls the
+   *  ancestors of whatever is under the pointer) and useSmoothHeight's
+   *  above-fold compensation targets it. */
+  capped?: boolean
   labels: LabelView[]
   apply: (m: Mutation, o: Optimistic) => void
   blockCreate: boolean
@@ -2369,8 +2396,8 @@ const ListColumn = memo(function ListColumn({
         transition
       }}
       className={`flex w-72 shrink-0 flex-col overflow-hidden rounded-lg border bg-muted/60 pb-1 transition-colors ${
-        list.color ? '' : 'border-border'
-      } ${
+        capped ? 'max-h-full' : ''
+      } ${list.color ? '' : 'border-border'} ${
         blocked
           ? 'ring-2 ring-red-400/70'
           : isOver
@@ -2391,7 +2418,18 @@ const ListColumn = memo(function ListColumn({
         items={itemIds}
         strategy={verticalListSortingStrategy}
       >
-        <ul className="flex min-h-2 flex-col gap-2 px-2 pt-2">
+        <ul
+          data-list-body={list.id}
+          className={cn(
+            'flex min-h-2 flex-col gap-2 px-2 pt-2',
+            // `min-h-0` lets the body shrink below its content inside the
+            // capped column so `overflow-y-auto` engages. `pb-1` keeps
+            // the last card's shadow from being clipped by the scroller.
+            // `overflow-anchor:none` for the same reason as <main>:
+            // useSmoothHeight compensates above-fold growth by hand.
+            capped && 'min-h-0 overflow-y-auto pb-1 [overflow-anchor:none]'
+          )}
+        >
           {list.cards.map((card) => (
             <SortableCard
               key={card.id}
@@ -2469,13 +2507,29 @@ function ListColumnPreview({
   list,
   labels,
   showChecklist,
-  labelsExpanded
+  labelsExpanded,
+  capped = false
 }: {
   list: BoardView['lists'][number]
   labels: LabelView[]
   showChecklist: boolean
   labelsExpanded?: boolean
+  /** Mirror a capped (scroll-on-its-own) column: fill the overlay box
+   *  dnd-kit sized to the source, clip the body, and copy the source
+   *  body's scroll position so the lifted column shows the same cards
+   *  the user grabbed, not the top of the list. */
+  capped?: boolean
 }) {
+  const bodyRef = useRef<HTMLUListElement | null>(null)
+  useLayoutEffect(() => {
+    if (!capped || !bodyRef.current) return
+    const source = document.querySelector<HTMLElement>(
+      // window.CSS (the browser API), not dnd-kit's `CSS` helper
+      // imported at the top of this file.
+      `[data-list-body="${window.CSS.escape(list.id)}"]`
+    )
+    if (source) bodyRef.current.scrollTop = source.scrollTop
+  }, [capped, list.id])
   return (
     <section
       aria-hidden
@@ -2484,8 +2538,8 @@ function ListColumnPreview({
       // bg-muted/60 unless a card is being dragged over it); the clone
       // used opaque bg-muted, which read as the list darkening on grab.
       className={`flex w-72 shrink-0 flex-col overflow-hidden rounded-lg border bg-muted/60 pb-1 ${
-        list.color ? '' : 'border-border'
-      }`}
+        capped ? 'h-full' : ''
+      } ${list.color ? '' : 'border-border'}`}
     >
       <h2
         style={
@@ -2499,9 +2553,15 @@ function ListColumnPreview({
         <span className="flex-1 truncate">{list.name}</span>
         <span className="text-xs text-muted-foreground">{list.cards.length}</span>
       </h2>
-      <ul className="flex min-h-2 flex-col gap-2 px-2 pt-2">
+      <ul
+        ref={bodyRef}
+        className={cn(
+          'flex min-h-2 flex-col gap-2 px-2 pt-2',
+          capped && 'min-h-0 flex-1 overflow-hidden pb-1'
+        )}
+      >
         {list.cards.map((card) => (
-          <li key={card.id}>
+          <li key={card.id} className="shrink-0">
             <CardFace
               card={card}
               labels={labels}
@@ -2823,7 +2883,11 @@ const SortableCard = memo(function SortableCard({
             // `focused` state ring (double-highlight bug seen when
             // arrow-keying after a drag). The `focused` state IS the
             // single source of truth for the keyboard-nav indicator.
-            'group/card relative flex flex-col gap-1 overflow-hidden rounded-md border bg-card px-3 py-2 text-sm transition-[border-color,box-shadow] cursor-grab active:cursor-grabbing focus:outline-none',
+            // `shrink-0`: the card is a flex item of the list body, and its
+            // `overflow-hidden` drops its automatic min-height to 0 - so in a
+            // height-capped body (lists that scroll on their own) cards would
+            // squash to fit instead of the body scrolling.
+            'group/card relative flex shrink-0 flex-col gap-1 overflow-hidden rounded-md border bg-card px-3 py-2 text-sm transition-[border-color,box-shadow] cursor-grab active:cursor-grabbing focus:outline-none',
             // Default vs `cursor-was-on-overlay-at-drop-end` styling.
             // The post-drop force matches what the DragOverlay's last
             // frame is painting (border-ring/60 + shadow-md), so when
