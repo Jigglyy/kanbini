@@ -9,17 +9,25 @@ import { join } from 'node:path'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import {
   type Db,
+  addAttachmentFromRequest,
   applyMutationRecorded,
   applyMutationsRecorded,
+  deleteAttachmentWithFile,
+  getArchivedItems,
   getBoardView,
   getCardView,
   listBoards,
   searchCards
 } from '@kanbini/db'
 import {
+  zArchivedItemsView,
+  zAttachmentAddResult,
+  zAttachmentAddViaChannelRequest,
+  zAttachmentDeleteRequest,
   zBoardsListView,
   zBoardView,
   zCardView,
+  zGetArchivedItemsRequest,
   zGetBoardViewRequest,
   zGetCardViewRequest,
   zMutation,
@@ -44,11 +52,14 @@ import {
 //      same methods, so there's one implementation + one test surface:
 //        GET  /boards            -> boards.list
 //        GET  /boards/:id        -> board.getView
+//        GET  /boards/:id/archived -> board.archived
 //        GET  /cards/:id         -> card.get
 //        GET  /search?query=&limit= -> search.cards
 //        POST /mutate            -> mutate      (body = a zMutation)
 //        POST /mutate/batch      -> mutate.batch (body = zMutation[] or
 //                                   { mutations: [...] })
+//        POST /attachments       -> attachment.add (body = a
+//                                   zAttachmentAddViaChannelRequest)
 // Both require the same bearer token; documented in docs/MCP.md.
 //
 // Security model:
@@ -66,26 +77,38 @@ import {
 //   same shape as the renderer's IPC.mutate channel; `mutate.batch`
 //   mirrors IPC.mutateBatch (one transaction, one undo group).
 //
-// Known limitation: `attachment.delete` issued via MCP removes the DB
-// row but does NOT unlink the file on disk (the renderer IPC handler
-// does that synchronously around applyMutation). Orphan attachment
-// directories are caught by the M5 GC sweep already in the backlog -
-// acceptable since the AI tool surface (apps/mcp) doesn't expose
-// attachment.delete yet.
+// Attachments own files as well as rows, so both directions go through
+// the @kanbini/db writers the renderer IPC uses: `attachment.add`
+// copies/writes the file then inserts the row, and `attachment.delete`
+// - as its own method OR as a `mutate` arm - unlinks the file after the
+// row goes. (`mutate` used to drop the row and strand the file for the
+// GC sweep; that was tolerable only while no tool exposed it.)
 
 const HOST = '127.0.0.1'
 const TOKEN_FILE = 'mcp-token'
 const INFO_FILE = 'mcp.json'
-const MAX_BODY_BYTES = 1 * 1024 * 1024 // 1 MB
+// Sized for inline attachment content: 10 MB decoded is ~13.4 MB as
+// base64, plus the JSON envelope. Everything else is tiny; the cap is a
+// guard against a runaway caller, and only a bearer-token holder on
+// loopback can send a body at all.
+const MAX_BODY_BYTES = 16 * 1024 * 1024 // 16 MB
 
 /** Side-effects a method may want to fire after touching the DB. */
 interface MethodContext {
   /** Called after a successful write so renderers refetch and AI edits
    *  show up live. Pass null for board-agnostic writes. */
   onChange: (boardId: string | null) => void
+  /** `<userData>` - attachment files live under `attachments/` here. */
+  userDataDir: string
 }
 
-type Method = (db: Db, params: unknown, ctx: MethodContext) => unknown
+/** Sync for DB-only methods; attachment methods touch disk and return a
+ *  promise. The dispatcher awaits either. */
+type Method = (
+  db: Db,
+  params: unknown,
+  ctx: MethodContext
+) => unknown | Promise<unknown>
 
 const methods: Record<string, Method> = {
   'boards.list': (db) => {
@@ -103,7 +126,28 @@ const methods: Record<string, Method> = {
     const { query, limit } = zSearchCardsRequest.parse(raw ?? {})
     return zSearchHits.parse(searchCards(db, query, limit))
   },
-  mutate: (db, raw, ctx) => {
+  'board.archived': (db, raw) => {
+    const { boardId } = zGetArchivedItemsRequest.parse(raw ?? {})
+    return zArchivedItemsView.nullable().parse(getArchivedItems(db, boardId))
+  },
+  'attachment.add': async (db, raw, ctx) => {
+    const request = zAttachmentAddViaChannelRequest.parse(raw)
+    const { attachment, boardId } = await addAttachmentFromRequest(db, {
+      userDataDir: ctx.userDataDir,
+      request
+    })
+    ctx.onChange(boardId)
+    return zAttachmentAddResult.parse({ ...attachment, boardId })
+  },
+  'attachment.delete': async (db, raw, ctx) => {
+    const { id } = zAttachmentDeleteRequest.parse(raw)
+    const result = zMutationResult.parse(
+      await deleteAttachmentWithFile(db, { userDataDir: ctx.userDataDir, id })
+    )
+    ctx.onChange(result.boardId)
+    return result
+  },
+  mutate: async (db, raw, ctx) => {
     // Accepts the same discriminated union the renderer uses. Each
     // arm's zod schema runs first; applyMutation throws on FK
     // violations etc., which the dispatcher already maps to 400/500.
@@ -120,7 +164,14 @@ const methods: Record<string, Method> = {
       // though no MCP tool exposes it today.
       throw new Error('restore mutation not allowed via control channel')
     }
-    const result = zMutationResult.parse(applyMutationRecorded(db, mutation))
+    const result = zMutationResult.parse(
+      mutation.type === 'attachment.delete'
+        ? await deleteAttachmentWithFile(db, {
+            userDataDir: ctx.userDataDir,
+            id: mutation.id
+          })
+        : applyMutationRecorded(db, mutation)
+    )
     ctx.onChange(result.boardId)
     return result
   },
@@ -269,14 +320,18 @@ export async function startControlChannel(
   /** Run an allow-listed method and write its HTTP response. Shared by
    *  the JSON-RPC `/rpc` route and every REST alias so there's exactly
    *  one dispatch + error-mapping path. */
-  function runMethod(name: string, params: unknown, res: ServerResponse): void {
+  async function runMethod(
+    name: string,
+    params: unknown,
+    res: ServerResponse
+  ): Promise<void> {
     const handler = methods[name]
     if (!handler) {
       send(res, 400, { error: `unknown method: ${name}` })
       return
     }
     try {
-      send(res, 200, handler(db, params, { onChange }))
+      send(res, 200, await handler(db, params, { onChange, userDataDir }))
     } catch (e) {
       // Duck-type ZodError (no `zod` dep at this workspace; instanceof
       // would need it). The shape - name + issues array - is stable
@@ -307,12 +362,21 @@ export async function startControlChannel(
     // REST read aliases (GET): params come from the path / query string.
     if (httpMethod === 'GET') {
       if (path === '/boards') {
-        runMethod('boards.list', {}, res)
+        await runMethod('boards.list', {}, res)
+        return
+      }
+      const archivedMatch = /^\/boards\/([^/]+)\/archived$/.exec(path)
+      if (archivedMatch) {
+        await runMethod(
+          'board.archived',
+          { boardId: decodeURIComponent(archivedMatch[1]!) },
+          res
+        )
         return
       }
       const boardMatch = /^\/boards\/([^/]+)$/.exec(path)
       if (boardMatch) {
-        runMethod(
+        await runMethod(
           'board.getView',
           { boardId: decodeURIComponent(boardMatch[1]!) },
           res
@@ -321,14 +385,18 @@ export async function startControlChannel(
       }
       const cardMatch = /^\/cards\/([^/]+)$/.exec(path)
       if (cardMatch) {
-        runMethod('card.get', { id: decodeURIComponent(cardMatch[1]!) }, res)
+        await runMethod(
+          'card.get',
+          { id: decodeURIComponent(cardMatch[1]!) },
+          res
+        )
         return
       }
       if (path === '/search') {
         const query =
           url.searchParams.get('query') ?? url.searchParams.get('q') ?? ''
         const limitRaw = url.searchParams.get('limit')
-        runMethod(
+        await runMethod(
           'search.cards',
           { query, ...(limitRaw != null ? { limit: Number(limitRaw) } : {}) },
           res
@@ -351,19 +419,23 @@ export async function startControlChannel(
       // JSON-RPC envelope - what the bundled MCP server speaks.
       if (path === '/rpc') {
         const env = body as { method?: unknown; params?: unknown } | null
-        runMethod(String(env?.method ?? ''), env?.params, res)
+        await runMethod(String(env?.method ?? ''), env?.params, res)
         return
       }
       // REST write aliases - the body IS the mutation / mutation array.
       if (path === '/mutate') {
-        runMethod('mutate', body, res)
+        await runMethod('mutate', body, res)
+        return
+      }
+      if (path === '/attachments') {
+        await runMethod('attachment.add', body, res)
         return
       }
       if (path === '/mutate/batch') {
         const mutations = Array.isArray(body)
           ? body
           : (body as { mutations?: unknown } | null)?.mutations
-        runMethod('mutate.batch', mutations, res)
+        await runMethod('mutate.batch', mutations, res)
         return
       }
       send(res, 404, { error: 'not found' })

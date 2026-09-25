@@ -1,16 +1,20 @@
 import { promises as fsp } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { z } from 'zod'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
+  ACCENT_NAMES,
   APP_CODENAME,
   decodeEscapedWhitespace,
+  resolveAccentColor,
+  zListSortMode,
   type Mutation,
   type MutationResult
 } from '@kanbini/shared'
 import {
+  headlessArchivedItems,
   headlessBoardView,
   headlessCardView,
   headlessListBoards,
@@ -25,12 +29,16 @@ import {
 // control channel (M3-A) using the bearer token from
 // `<userData>/mcp.json`.
 //
-// Read tools (M3-B + M4-G): kanbini_list_boards, kanbini_get_board,
-//   kanbini_get_card.
-// Write tools (M3-tail + M4-G): create / update / move / delete cards,
-// set labels, post AI-authored comments, manage checklists, create
-// boards. Every successful write triggers main's broadcastChange, so
-// an open renderer reflects AI edits live.
+// Read tools: kanbini_list_boards, kanbini_get_board, kanbini_get_card,
+//   kanbini_search_cards, kanbini_list_archived (all with the headless
+//   export fallback when the app is closed).
+// Write tools: create / update / move / delete / archive cards; create /
+//   update / move / archive lists (incl. WIP limit, sort mode, colour,
+//   on-enter rule); create / update / archive boards; create / rename /
+//   recolour / delete labels and set them on cards; post AI-authored
+//   comments; manage checklists; add and delete attachments. Every
+//   successful write triggers main's broadcastChange, so an open
+//   renderer reflects AI edits live.
 
 // ─── userData discovery ──────────────────────────────────────────
 // Replicate Electron's `app.getPath('userData')` for the same
@@ -301,7 +309,9 @@ server.registerTool(
     title: 'Get Kanbini board',
     description:
       'Return one Kanbini board view (project, lists, cards, labels). ' +
-      'If boardId is omitted, returns the first board; call ' +
+      'Archived cards are left out; archived lists are included with ' +
+      '`closed: true` (the app hides them) - kanbini_list_archived lists ' +
+      'both. If boardId is omitted, returns the first board; call ' +
       'kanbini_list_boards first if the database may have multiple ' +
       'boards. Returns null if the id does not match anything. When ' +
       "the desktop app is closed, falls back to the last on-disk export.",
@@ -324,7 +334,8 @@ server.registerTool(
     description:
       'Return one Kanbini card by id, including title, description, ' +
       'priority (low/medium/high/urgent or null), checklists, comments, ' +
-      'attachments, and recent activity feed. Returns null if the id ' +
+      'attachments, and recent activity feed. Works for archived cards ' +
+      'too (see kanbini_list_archived). Returns null if the id ' +
       'does not exist. When the desktop app is closed, falls back to ' +
       "the last on-disk export.",
     inputSchema: { id: z.string() }
@@ -545,7 +556,8 @@ server.registerTool(
     description:
       'Replace the full set of label ids on a card (idempotent). Pass ' +
       'an empty array to remove all labels. Label ids come from the ' +
-      "board view's top-level `labels[]`.",
+      "board view's top-level `labels[]`, and must belong to the card's " +
+      'board; make a missing one with kanbini_create_label.',
     inputSchema: {
       id: z.string(),
       labelIds: z.array(z.string())
@@ -632,6 +644,386 @@ server.registerTool(
     asToolResult(() =>
       mutate({ type: 'checklistItem.update', id, patch: { completed } })
     )
+)
+
+// ─── board / list / label / archive / attachment tools ───────────
+// Everything below closes the gaps the first tool set left: labels could
+// only be assigned (never made), list settings (WIP limit, sort, colour,
+// on-enter rule) and board colour were UI-only, nothing could archive,
+// and attachments were read-only. All of it is either a thin wrapper
+// over an existing zMutation arm (so validation, undo, and the live
+// `changed` broadcast come for free) or one of the file-aware control-
+// channel methods (`attachment.add` / `attachment.delete`).
+
+/** Colour input shared by every colour-taking tool. A palette name maps
+ *  to the exact swatch the app's pickers offer (resolved here, before
+ *  the mutation, so the stored value is always the real swatch string);
+ *  anything else is passed through as a raw CSS colour. */
+const zColorInput = z
+  .string()
+  .min(1)
+  .max(32)
+  .describe(
+    `One of the app palette names (${ACCENT_NAMES.join(', ')}) - ` +
+      'preferred, so the colour matches the swatches in the app - or a ' +
+      'raw CSS colour string such as one read back from another entity.'
+  )
+
+const PALETTE_HINT =
+  `Colours: pass a palette name (${ACCENT_NAMES.join(', ')}) so it ` +
+  "matches the app's swatch picker."
+
+server.registerTool(
+  'kanbini_update_board',
+  {
+    title: 'Update board settings',
+    description:
+      'Patch a board. `name` renames it; `description` is the short ' +
+      'blurb on the home picker (null clears it); `color` is the board ' +
+      'accent shown on its home card and header tint (null clears it); ' +
+      '`pinned` favourites it to the top of the home picker. Omit ' +
+      'fields you do not want to change. To archive a board use ' +
+      'kanbini_archive_board. ' +
+      PALETTE_HINT,
+    inputSchema: {
+      id: z.string(),
+      patch: z.object({
+        name: z.string().min(1).optional(),
+        description: z.string().nullable().optional(),
+        color: zColorInput.nullable().optional(),
+        pinned: z.boolean().optional()
+      })
+    }
+  },
+  ({ id, patch }) =>
+    asToolResult(() =>
+      mutate({
+        type: 'board.update',
+        id,
+        patch: {
+          ...patch,
+          ...(typeof patch.color === 'string'
+            ? { color: resolveAccentColor(patch.color) }
+            : {})
+        }
+      })
+    )
+)
+
+server.registerTool(
+  'kanbini_update_list',
+  {
+    title: 'Update list settings',
+    description:
+      'Patch a list (column). `name` renames it. `color` tints the list ' +
+      'header and border (null clears it). `wipLimit` sets a work-in-' +
+      'progress cap - a positive integer, or null to remove it; the app ' +
+      'shows the count against the cap and blocks drags past it, but ' +
+      'the limit is NOT enforced for writes, so check the card count ' +
+      'yourself before adding. `sortMode` orders the cards: "manual" ' +
+      '(drag order, the default), "created-asc"/"created-desc" (card ' +
+      'creation time), "added-asc"/"added-desc" (when the card entered ' +
+      'this list), "due-asc" (soonest due first, undated last), ' +
+      '"title-asc"/"title-desc" (alphabetical), "priority-desc" (urgent ' +
+      'first). Switching back to "manual" freezes the current sorted ' +
+      'order as the new drag order. `onEnter` runs when a card is moved ' +
+      'INTO this list from another one: "complete" marks it done, ' +
+      '"uncomplete" reopens it, null removes the rule. To reorder lists ' +
+      'use kanbini_move_list; to hide one use kanbini_archive_list. ' +
+      PALETTE_HINT,
+    inputSchema: {
+      id: z.string(),
+      patch: z.object({
+        name: z.string().min(1).optional(),
+        color: zColorInput.nullable().optional(),
+        wipLimit: z.number().int().positive().nullable().optional(),
+        sortMode: z.enum(['manual', ...zListSortMode.options]).optional(),
+        onEnter: z.enum(['complete', 'uncomplete']).nullable().optional()
+      })
+    }
+  },
+  ({ id, patch }) =>
+    asToolResult(() => {
+      const { color, sortMode, onEnter, ...rest } = patch
+      return mutate({
+        type: 'list.update',
+        id,
+        patch: {
+          ...rest,
+          ...(color !== undefined
+            ? { color: color === null ? null : resolveAccentColor(color) }
+            : {}),
+          ...(sortMode !== undefined
+            ? { sortMode: sortMode === 'manual' ? null : sortMode }
+            : {}),
+          ...(onEnter !== undefined
+            ? { onEnter: onEnter === null ? null : { kind: onEnter } }
+            : {})
+        }
+      })
+    })
+)
+
+server.registerTool(
+  'kanbini_move_list',
+  {
+    title: 'Reorder a list',
+    description:
+      'Move a list (column) to a new position on its board. `beforeId` ' +
+      'is the list that should sit immediately to the LEFT of it; ' +
+      '`afterId` the list immediately to the RIGHT. Omit or pass null ' +
+      'for the far left / far right. Both neighbours must be lists on ' +
+      'the same board, in their current left-to-right order (get it ' +
+      'from kanbini_get_board; closed lists count too, since they keep ' +
+      'their slot).',
+    inputSchema: {
+      id: z.string(),
+      beforeId: z.string().nullable().optional(),
+      afterId: z.string().nullable().optional()
+    }
+  },
+  ({ id, beforeId, afterId }) =>
+    asToolResult(() =>
+      mutate({
+        type: 'list.move',
+        id,
+        beforeId: beforeId ?? null,
+        afterId: afterId ?? null
+      })
+    )
+)
+
+server.registerTool(
+  'kanbini_create_label',
+  {
+    title: 'Create a label',
+    description:
+      'Create a new label on a board. Labels are board-scoped: the ' +
+      'returned id can be put on any card of THAT board with ' +
+      'kanbini_set_card_labels. Check the board view\'s `labels[]` first ' +
+      'so you reuse an existing label instead of making a near-duplicate. ' +
+      'Returns { id, boardId }. ' +
+      PALETTE_HINT,
+    inputSchema: {
+      boardId: z.string(),
+      name: z.string().min(1),
+      color: zColorInput
+    }
+  },
+  ({ boardId, name, color }) =>
+    asToolResult(() =>
+      mutate({
+        type: 'label.create',
+        boardId,
+        name,
+        color: resolveAccentColor(color)
+      })
+    )
+)
+
+server.registerTool(
+  'kanbini_update_label',
+  {
+    title: 'Rename or recolour a label',
+    description:
+      'Patch a label. `name` renames it and `color` recolours it - the ' +
+      'change shows on every card carrying the label. Omit fields you ' +
+      'do not want to change. ' +
+      PALETTE_HINT,
+    inputSchema: {
+      id: z.string(),
+      patch: z.object({
+        name: z.string().min(1).optional(),
+        color: zColorInput.optional()
+      })
+    }
+  },
+  ({ id, patch }) =>
+    asToolResult(() =>
+      mutate({
+        type: 'label.update',
+        id,
+        patch: {
+          ...patch,
+          ...(patch.color !== undefined
+            ? { color: resolveAccentColor(patch.color) }
+            : {})
+        }
+      })
+    )
+)
+
+server.registerTool(
+  'kanbini_delete_label',
+  {
+    title: 'Delete a label',
+    description:
+      'Delete a label from its board. It is removed from EVERY card that ' +
+      'carries it. The user can undo this in the app (Ctrl+Z), which ' +
+      'puts it back on the same cards, but confirm intent first when ' +
+      'the label is in use.',
+    inputSchema: { id: z.string() }
+  },
+  ({ id }) => asToolResult(() => mutate({ type: 'label.delete', id }))
+)
+
+// Archive tools. The app has no screen for archived cards or closed
+// lists yet, so each description tells the AI how to find them again -
+// and to say so to the user, who would otherwise see the item vanish.
+
+server.registerTool(
+  'kanbini_archive_card',
+  {
+    title: 'Archive or restore a card',
+    description:
+      'Archive (archived: true) or restore (archived: false) a card. An ' +
+      'archived card disappears from the board, search, and card counts ' +
+      'but keeps its list, position, checklists, comments, and ' +
+      'attachments, so restoring puts it back exactly where it was. The ' +
+      'app has no view of archived cards yet: tell the user the card was ' +
+      'archived rather than deleted, and use kanbini_list_archived to ' +
+      'find it again. Prefer this over kanbini_delete_card when the user ' +
+      'wants a card "out of the way".',
+    inputSchema: { id: z.string(), archived: z.boolean() }
+  },
+  ({ id, archived }) =>
+    asToolResult(() =>
+      mutate({ type: 'card.update', id, patch: { archived } })
+    )
+)
+
+server.registerTool(
+  'kanbini_archive_list',
+  {
+    title: 'Archive or restore a list',
+    description:
+      'Archive (archived: true) or restore (archived: false) a whole list ' +
+      '(column). An archived list is hidden from the board along with ' +
+      'every card in it, and its cards drop out of search and counts; ' +
+      'nothing is deleted, and restoring brings the list back in its ' +
+      'original slot with its cards. The app has no view of archived ' +
+      'lists yet: tell the user, and use kanbini_list_archived to find ' +
+      'it again.',
+    inputSchema: { id: z.string(), archived: z.boolean() }
+  },
+  ({ id, archived }) =>
+    asToolResult(() =>
+      mutate({ type: 'list.update', id, patch: { closed: archived } })
+    )
+)
+
+server.registerTool(
+  'kanbini_archive_board',
+  {
+    title: 'Archive or restore a board',
+    description:
+      'Archive (archived: true) or restore (archived: false) a board. An ' +
+      'archived board is hidden from the home picker (the user can still ' +
+      'reach it with "Show archived") and its cards drop out of search. ' +
+      'Nothing is deleted. kanbini_list_boards still returns archived ' +
+      'boards, flagged `archived: true`.',
+    inputSchema: { id: z.string(), archived: z.boolean() }
+  },
+  ({ id, archived }) =>
+    asToolResult(() =>
+      mutate({ type: 'board.update', id, patch: { archived } })
+    )
+)
+
+server.registerTool(
+  'kanbini_list_archived',
+  {
+    title: 'List archived cards and lists',
+    description:
+      'Return what a board has archived: `lists` (archived lists, with ' +
+      'how many live cards are inside) and `cards` (archived cards, most ' +
+      'recently touched first, each with its list name). A card whose ' +
+      '`listClosed` is true sits in an archived list, so restoring the ' +
+      'card alone will not make it visible - restore the list too. Use ' +
+      'the ids with kanbini_archive_card / kanbini_archive_list ' +
+      '(archived: false) to bring things back. Returns null for an ' +
+      'unknown boardId. When the desktop app is closed, falls back to ' +
+      'the last on-disk export.',
+    inputSchema: { boardId: z.string() }
+  },
+  ({ boardId }) =>
+    asReadToolResult(() =>
+      readWithFallback('board.archived', { boardId }, (snap) =>
+        headlessArchivedItems(snap, boardId)
+      )
+    )
+)
+
+server.registerTool(
+  'kanbini_add_attachment',
+  {
+    title: 'Attach a file to a card',
+    description:
+      'Attach a file to a card, from ONE of two sources. (1) `path`: an ' +
+      'absolute path to a local file, which the app copies in (up to ' +
+      '100 MB) - use this for files that already exist on disk. (2) ' +
+      '`filename` + `content`: inline data you produce yourself, as ' +
+      '`encoding: "utf8"` text (the default - notes, CSV, code) or ' +
+      '`encoding: "base64"` for small binaries (up to 10 MB decoded). ' +
+      'The filename\'s extension sets the file type; unsafe characters ' +
+      'are replaced. Returns the stored attachment ({ id, filename, ' +
+      'mime, size, ... , boardId }). To show an image as the card\'s ' +
+      'cover, pass the returned id as `coverAttachmentId` to ' +
+      'kanbini_update_card.',
+    inputSchema: {
+      cardId: z.string(),
+      path: z.string().min(1).optional(),
+      filename: z.string().min(1).max(255).optional(),
+      content: z.string().optional(),
+      encoding: z.enum(['utf8', 'base64']).optional()
+    }
+  },
+  ({ cardId, path, filename, content, encoding }) =>
+    asToolResult(async () => {
+      const inline = filename !== undefined || content !== undefined
+      if (path !== undefined && inline) {
+        throw new Error(
+          'Pass either `path` OR `filename` + `content`, not both.'
+        )
+      }
+      if (path !== undefined) {
+        if (!isAbsolute(path)) {
+          throw new Error(
+            `\`path\` must be absolute (got "${path}"). The app resolves ` +
+              'it in its own process, where a relative path would mean ' +
+              'something different.'
+          )
+        }
+        return rpc('attachment.add', { cardId, path })
+      }
+      if (filename === undefined || content === undefined) {
+        throw new Error(
+          'Pass `path` for a file on disk, or both `filename` and ' +
+            '`content` for inline data.'
+        )
+      }
+      return rpc('attachment.add', {
+        cardId,
+        filename,
+        content,
+        encoding: encoding ?? 'utf8'
+      })
+    })
+)
+
+server.registerTool(
+  'kanbini_delete_attachment',
+  {
+    title: 'Delete an attachment',
+    description:
+      'Delete an attachment from its card, including the stored file. ' +
+      'If it was the card\'s cover, the cover is cleared. The user can ' +
+      'undo this in the app (Ctrl+Z) but the undo restores only the ' +
+      'entry, NOT the file, so confirm intent first. Attachment ids come ' +
+      'from kanbini_get_card.',
+    inputSchema: { id: z.string() }
+  },
+  ({ id }) => asToolResult(() => rpc('attachment.delete', { id }))
 )
 
 const transport = new StdioServerTransport()

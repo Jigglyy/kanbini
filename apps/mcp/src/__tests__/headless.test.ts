@@ -11,6 +11,7 @@ import {
   applyMutation,
   applyMutationRecorded,
   exportToFolder,
+  getArchivedItems,
   getBoardView,
   getCardView,
   listBoards,
@@ -20,6 +21,7 @@ import {
   type Db
 } from '@kanbini/db'
 import {
+  headlessArchivedItems,
   headlessBoardView,
   headlessCardView,
   headlessListBoards,
@@ -160,6 +162,52 @@ describe('headless readers vs live @kanbini/db', () => {
           getBoardView(db2)
         )
       }
+    } finally {
+      close()
+    }
+  })
+
+  it('archived cards + closed lists read identically in both readers', async () => {
+    // Throwaway DB, same reason as the sort-parity case. Covers the
+    // board view hiding archived cards (and keeping closed lists,
+    // flagged) plus the board.archived read's two orderings. Several
+    // cards are archived back-to-back so some share a millisecond and
+    // the id tiebreak is exercised, not just the timestamp sort.
+    const { db: db2, close } = openDatabase({
+      filePath: ':memory:',
+      migrationsFolder: MIGRATIONS
+    })
+    try {
+      seedSampleData(db2)
+      const view = getBoardView(db2)!
+      const boardId = view.board.id
+      const cards = view.lists.flatMap((l) => l.cards)
+      expect(cards.length).toBeGreaterThanOrEqual(3)
+      for (const c of cards.slice(0, 3)) {
+        applyMutation(db2, {
+          type: 'card.update',
+          id: c.id,
+          patch: { archived: true }
+        })
+      }
+      applyMutation(db2, {
+        type: 'list.update',
+        id: view.lists[view.lists.length - 1]!.id,
+        patch: { closed: true }
+      })
+      const root = join(tmpRoot, 'archive-parity')
+      const exDir = join(root, 'export')
+      await exportToFolder(db2, root, exDir)
+      const snap = await loadHeadlessSnapshot(exDir)
+
+      expect(headlessBoardView(snap!, boardId)).toEqual(
+        getBoardView(db2, boardId)
+      )
+      const live = getArchivedItems(db2, boardId)
+      expect(live!.cards).toHaveLength(3)
+      expect(live!.lists).toHaveLength(1)
+      expect(headlessArchivedItems(snap!, boardId)).toEqual(live)
+      expect(headlessArchivedItems(snap!, 'does-not-exist')).toBeNull()
     } finally {
       close()
     }

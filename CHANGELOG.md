@@ -9,6 +9,42 @@ Releases are cut by pushing a `v*` tag, which builds the Windows
 installers and publishes a GitHub Release (see
 [`.github/workflows/release.yml`](.github/workflows/release.yml)).
 
+## [Unreleased]
+
+### Added
+
+- **Your AI can now manage much more of a board.** New AI integration
+  tools cover:
+  - **Labels:** create, rename, recolour, and delete them.
+  - **List settings:** set or clear a work-in-progress limit, change the
+    sort order, set the colour, and set a rule that completes or reopens
+    cards moved in. Lists can also be reordered.
+  - **Board settings:** rename, recolour, and favourite a board.
+  - **Archiving:** archive or restore cards, lists, and boards, and see
+    what a board has archived.
+  - **Attachments:** attach a file from your computer or content the AI
+    writes itself, and delete attachments.
+
+  Colours can be given by name ("blue", "teal", ...) and land on the same
+  swatches the app's colour pickers show.
+
+### Changed
+
+- **Archived cards are now hidden from the board.** Before, a card
+  marked archived still showed on the board even though search and the
+  home screen counts left it out. Nothing in the app could archive a card
+  yet, so no existing card changes. The app has no screen for archived
+  cards or lists yet; ask your AI to list or restore them.
+- **Deleting an attachment through the AI integration now deletes the
+  file too,** the same as deleting one in the app. It used to leave the
+  file behind for the cleanup sweep.
+
+### Fixed
+
+- **A card can no longer be given a label from a different board.** The
+  app never offered one, but the AI integration accepted it, and the
+  label would then never show on the card.
+
 ## [0.7.2] - 2026-09-21
 
 ### Fixed

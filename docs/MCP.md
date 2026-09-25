@@ -221,7 +221,9 @@ renderer consumes).
 |-----------|----------|----------|------------------------------------------------------------|
 | `boardId` | `string` | no       | Defaults to the first board. Use `kanbini_list_boards` for multi-board DBs. |
 
-Returns `null` if the id doesn't match anything.
+Archived cards are left out. Archived lists are included with
+`closed: true` (the app hides them). Returns `null` if the id doesn't
+match anything.
 
 #### `kanbini_get_card`
 
@@ -232,7 +234,30 @@ board view.
 |----------|----------|----------|-----------------------------|
 | `id`     | `string` | yes      | UUIDv7 from `get_board`.    |
 
-Returns `null` if the id doesn't exist.
+Works for archived cards too. Returns `null` if the id doesn't exist.
+
+#### `kanbini_list_archived`
+
+What a board has put away. Archived cards and lists don't show on the
+board, in search, or in the home counts, and **the app has no screen
+for them yet**, so this is how to find them again.
+
+| Argument  | Type     | Required |
+|-----------|----------|----------|
+| `boardId` | `string` | yes      |
+
+Returns `{ boardId, lists, cards }`:
+
+- `lists`: archived lists by board position, each
+  `{ id, name, color, cardCount }` (`cardCount` = live cards inside,
+  which come back with the list).
+- `cards`: archived cards, most recently touched first, each
+  `{ id, title, listId, listName, listClosed, updatedAt }`. When
+  `listClosed` is true the card is in an archived list, so restoring
+  the card alone won't make it visible.
+
+Returns `null` for an unknown board. Falls back to the on-disk export
+when the app is closed, like the other reads.
 
 ### Write
 
@@ -296,7 +321,8 @@ collide.
 
 #### `kanbini_delete_card`
 Permanently delete a card. Checklists, comments, and attachment rows
-cascade. Attachment files on disk remain (a cleanup sweep is a future nicety).
+cascade. The attachment files are left on disk and removed by the app's
+startup cleanup sweep once they're more than an hour old.
 
 | Argument | Type     | Required |
 |----------|----------|----------|
@@ -309,6 +335,10 @@ Replace the full label set on a card (idempotent).
 |-------------|------------|--------------------------------------|
 | `id`        | `string`   | Card id.                             |
 | `labelIds`  | `string[]` | Pass `[]` to remove all labels.      |
+
+Every id must be a label on the **card's own board**. An unknown id or
+one from another board is rejected and nothing changes. Make a missing
+label with `kanbini_create_label`.
 
 #### `kanbini_post_comment`
 Post a comment **as the AI** - author is forced to `'ai'`, so the
@@ -346,6 +376,121 @@ Mark a checklist item complete (`true`) or reopen it (`false`).
 | `id`        | `string`  | yes      |
 | `completed` | `boolean` | yes      |
 
+#### `kanbini_archive_card`
+Archive (`archived: true`) or restore (`archived: false`) a card. An
+archived card leaves the board, search, and counts but keeps its list,
+position, and everything attached, so restoring puts it back where it
+was. Logged in the card's activity feed and undoable with Ctrl+Z.
+
+| Argument   | Type      | Required |
+|------------|-----------|----------|
+| `id`       | `string`  | yes      |
+| `archived` | `boolean` | yes      |
+
+### Colours
+
+Every tool that takes a colour accepts either a **palette name** -
+`red`, `orange`, `amber`, `yellow`, `lime`, `green`, `teal`, `cyan`,
+`sky`, `blue`, `indigo`, `purple`, `pink`, `rose` (case-insensitive) -
+or a raw CSS colour string (32 characters max). Names resolve to the
+exact swatch the app's colour pickers offer, so prefer them; a raw
+colour still works, and the picker shows it as an extra swatch.
+
+### Boards and lists
+
+#### `kanbini_update_board`
+Patch a board. Omit fields you don't want to change.
+
+| Field         | Type                 | Notes                                        |
+|---------------|----------------------|----------------------------------------------|
+| `id`          | `string`             | Board id.                                    |
+| `patch.name`        | `string`       | Rename.                                      |
+| `patch.description` | `string \| null` | Home-picker blurb; `null` clears it.       |
+| `patch.color`       | colour `\| null` | Accent on the home card + header; `null` clears it. |
+| `patch.pinned`      | `boolean`      | Favourite to the top of the home picker.     |
+
+#### `kanbini_archive_board`
+Archive or restore a board (`id`, `archived`). An archived board is
+hidden from the home picker (still reachable with "Show archived") and
+its cards drop out of search. Nothing is deleted.
+
+#### `kanbini_update_list`
+Patch a list. Omit fields you don't want to change.
+
+| Field            | Type                  | Notes |
+|------------------|-----------------------|-------|
+| `id`             | `string`              | List id. |
+| `patch.name`     | `string`              | Rename. |
+| `patch.color`    | colour `\| null`      | Header band + border; `null` clears it. |
+| `patch.wipLimit` | positive int `\| null` | Work-in-progress cap; `null` removes it. The app blocks drags past it, but writes are NOT capped - check the card count before adding. |
+| `patch.sortMode` | see below             | How the list orders its cards. |
+| `patch.onEnter`  | `"complete" \| "uncomplete" \| null` | Runs when a card is moved in from another list. `null` removes the rule. |
+
+`sortMode` values: `manual` (drag order, the default), `created-asc` /
+`created-desc`, `added-asc` / `added-desc` (when the card entered this
+list), `due-asc` (soonest first, undated last), `title-asc` /
+`title-desc`, `priority-desc` (urgent first). Switching back to
+`manual` keeps the sorted order that was on screen as the new drag
+order.
+
+#### `kanbini_move_list`
+Reorder a list on its board.
+
+| Argument   | Type             | Notes |
+|------------|------------------|-------|
+| `id`       | `string`         | The list to move. |
+| `beforeId` | `string \| null` | List that should sit immediately to its **left**; omit for far left. |
+| `afterId`  | `string \| null` | List immediately to its **right**; omit for far right. |
+
+#### `kanbini_archive_list`
+Archive or restore a whole list with its cards (`id`, `archived`).
+Nothing is deleted, and restoring brings it back in its original slot.
+Find archived lists with `kanbini_list_archived`.
+
+### Labels
+
+Labels belong to one board.
+
+#### `kanbini_create_label`
+`boardId`, `name`, `color` (required). Returns `{ id, boardId }`; put it
+on cards with `kanbini_set_card_labels`. Check the board's existing
+`labels[]` first to avoid near-duplicates.
+
+#### `kanbini_update_label`
+`id` plus a `patch` of `name` and/or `color`. The change shows on
+every card with the label.
+
+#### `kanbini_delete_label`
+`id`. Removes the label from its board and from every card that has
+it. Ctrl+Z in the app restores it on the same cards.
+
+### Attachments
+
+#### `kanbini_add_attachment`
+Attach a file to a card from **one** of two sources:
+
+| Argument   | Type                 | Notes |
+|------------|----------------------|-------|
+| `cardId`   | `string`             | Required. |
+| `path`     | `string`             | Absolute path to a local file; the app copies it in. Up to 100 MB. |
+| `filename` | `string`             | With `content`: the name to store it under. Its extension sets the file type. |
+| `content`  | `string`             | Inline data. |
+| `encoding` | `"utf8" \| "base64"` | For `content`. Default `utf8` (text); `base64` for small binaries, up to 10 MB decoded. |
+
+Relative paths are rejected (the app resolves the path in its own
+process, where a relative path means something else). Inline filenames
+are made safe as one path segment before touching disk, so a name like
+`../../x` can't escape the attachment folder.
+
+Returns the stored attachment (`id`, `filename`, `relPath`, `mime`,
+`size`, ...) plus `boardId`. To make an image the card's cover, pass its
+`id` as `coverAttachmentId` to `kanbini_update_card`.
+
+#### `kanbini_delete_attachment`
+`id`. Deletes the attachment **and its file**, and clears the card's
+cover if it pointed there. Ctrl+Z in the app restores the entry but not
+the file.
+
 ---
 
 ## Direct HTTP API (without MCP)
@@ -373,10 +518,12 @@ Same rules as the MCP hop apply:
 |--------------------------|----------------|---------------------------------------|
 | `GET  /boards`           | `boards.list`  | -                                     |
 | `GET  /boards/:id`       | `board.getView`| -                                     |
+| `GET  /boards/:id/archived` | `board.archived` | -                                |
 | `GET  /cards/:id`        | `card.get`     | -                                     |
 | `GET  /search?query=&limit=` | `search.cards` | query string                      |
 | `POST /mutate`           | `mutate`       | one mutation (the `zMutation` union)  |
 | `POST /mutate/batch`     | `mutate.batch` | `zMutation[]` or `{ "mutations": [] }`|
+| `POST /attachments`      | `attachment.add` | `{ cardId, path }` or `{ cardId, filename, content, encoding? }` |
 | `POST /rpc`              | any method     | `{ "method": "...", "params": {} }`   |
 
 `POST /rpc` is the original JSON-RPC envelope (what the bundled MCP
@@ -388,7 +535,12 @@ methods. A mutation's shape is the discriminated union documented under
 `/mutate/batch` applies every mutation in **one transaction** recorded
 as a **single undo group** - one round trip, atomic, and one Ctrl+Z
 reverses the whole gesture. It rejects `restore` and `attachment.delete`
-(the latter needs a file-unlink the channel doesn't do).
+(the latter removes a file as well as a row, which is done per call).
+A single `attachment.delete` through `POST /mutate` (or the
+`attachment.delete` RPC method) deletes the file too.
+
+Request bodies are capped at 16 MB, which leaves room for a 10 MB inline
+attachment encoded as base64.
 
 ### Example
 
@@ -466,7 +618,7 @@ as "app offline". Restart the desktop app.
   via resources; main already broadcasts `changed`, so wiring it
   into the control channel as a long-poll or SSE stream is a
   natural follow-up. Nice-to-have, not blocking.
-- **MCP-side attachment add**: today `attachment.delete` is the
-  only attachment write the channel accepts; adding requires a
-  file path or bytes payload (no dialog in MCP), so it is a future
-  addition.
+- **An in-app view of archived cards and lists**: the archive tools
+  and `kanbini_list_archived` make archiving reversible from the AI
+  side, but the app itself has no screen to browse or restore them
+  yet.

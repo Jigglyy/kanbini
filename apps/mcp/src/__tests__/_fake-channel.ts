@@ -5,7 +5,10 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { APP_CODENAME, type Mutation } from '@kanbini/shared'
 import {
+  addAttachmentFromRequest,
   applyMutationRecorded,
+  deleteAttachmentWithFile,
+  getArchivedItems,
   getBoardView,
   getCardView,
   listBoards,
@@ -20,7 +23,10 @@ import {
 //   - an in-memory SQLite via the real `openDatabase` (same migrations)
 //   - an HTTP server on a random port that mirrors the real
 //     control-channel allow-list (board.getView, card.get, boards.list,
-//     search.cards, mutate)
+//     search.cards, board.archived, attachment.add, attachment.delete,
+//     mutate). The attachment methods call the SAME @kanbini/db writers
+//     the desktop channel does, against this fake's temp userData, so
+//     the files they write are real and assertable.
 //   - a temp userData dir with `mcp.json` + `mcp-token` so the spawned
 //     MCP server finds them via `KANBINI_USERDATA_OVERRIDE`
 //
@@ -71,6 +77,13 @@ export async function startFakeChannel(opts?: {
 
   const token = `test-${Math.random().toString(36).slice(2)}`
 
+  // Temp userData up front: attachment methods write under it, so it
+  // has to exist before the first request lands. APP_CODENAME segment
+  // matches Electron's per-app userData layout the real desktop uses.
+  const tmp = await mkdtemp(join(tmpdir(), 'kanbini-mcp-test-'))
+  const userDataDir = join(tmp, APP_CODENAME)
+  await mkdir(userDataDir, { recursive: true })
+
   // Test hook: when > 0, destroy the next incoming request's socket
   // without responding (then decrement), so the MCP client's fetch sees
   // a connection reset - mimicking a stale keep-alive socket.
@@ -108,62 +121,95 @@ export async function startFakeChannel(opts?: {
       }
       const method = payload.method
       const params = payload.params
-      try {
-        let result: unknown
-        switch (method) {
-          case 'board.getView':
-            result = getBoardView(
-              db,
-              (params as { boardId?: string } | undefined)?.boardId
-            )
-            break
-          case 'card.get':
-            result = getCardView(db, (params as { id: string }).id)
-            break
-          case 'boards.list':
-            result = listBoards(db)
-            break
-          case 'search.cards': {
-            const p = params as { query: string; limit?: number }
-            result = searchCards(db, p.query, p.limit)
-            break
-          }
-          case 'mutate': {
-            // Match the real channel's reject-restore-on-control-channel
-            // belt-and-braces (the renderer / MCP don't expose it, but
-            // a future test client COULD construct one - keep the
-            // fake's behaviour identical so a regression here would
-            // surface in our suite).
-            const m = params as Mutation
-            if ((m as { type?: string }).type === 'restore') {
-              throw new Error('restore mutation not allowed via control channel')
+      void (async () => {
+        try {
+          let result: unknown
+          switch (method) {
+            case 'board.getView':
+              result = getBoardView(
+                db,
+                (params as { boardId?: string } | undefined)?.boardId
+              )
+              break
+            case 'card.get':
+              result = getCardView(db, (params as { id: string }).id)
+              break
+            case 'boards.list':
+              result = listBoards(db)
+              break
+            case 'search.cards': {
+              const p = params as { query: string; limit?: number }
+              result = searchCards(db, p.query, p.limit)
+              break
             }
-            result = applyMutationRecorded(db, m)
-            break
+            case 'board.archived':
+              result = getArchivedItems(
+                db,
+                (params as { boardId: string }).boardId
+              )
+              break
+            case 'attachment.add': {
+              const p = params as Parameters<
+                typeof addAttachmentFromRequest
+              >[1]['request'] & { encoding?: 'utf8' | 'base64' }
+              // The real channel's zod schema defaults `encoding` to utf8;
+              // mirror that here rather than pull the schema in.
+              const request =
+                'path' in p ? p : { ...p, encoding: p.encoding ?? 'utf8' }
+              const { attachment, boardId } = await addAttachmentFromRequest(
+                db,
+                { userDataDir, request }
+              )
+              result = { ...attachment, boardId }
+              break
+            }
+            case 'attachment.delete':
+              result = await deleteAttachmentWithFile(db, {
+                userDataDir,
+                id: (params as { id: string }).id
+              })
+              break
+            case 'mutate': {
+              // Match the real channel's reject-restore-on-control-channel
+              // belt-and-braces (the renderer / MCP don't expose it, but
+              // a future test client COULD construct one - keep the
+              // fake's behaviour identical so a regression here would
+              // surface in our suite).
+              const m = params as Mutation
+              if ((m as { type?: string }).type === 'restore') {
+                throw new Error('restore mutation not allowed via control channel')
+              }
+              // Same file-aware routing as the real channel.
+              result =
+                m.type === 'attachment.delete'
+                  ? await deleteAttachmentWithFile(db, { userDataDir, id: m.id })
+                  : applyMutationRecorded(db, m)
+              break
+            }
+            default:
+              res.statusCode = 400
+              res.setHeader('content-type', 'application/json')
+              res.end(JSON.stringify({ error: `unknown method: ${method}` }))
+              return
           }
-          default:
-            res.statusCode = 400
-            res.setHeader('content-type', 'application/json')
-            res.end(JSON.stringify({ error: `unknown method: ${method}` }))
-            return
+          // Match the real channel: write the result body directly (NOT
+          // wrapped in `{result}`). MCP's `rpc()` returns `res.json()`
+          // raw + each tool callback feeds it to JSON.stringify for the
+          // text content. A wrapping object would leak into the tool's
+          // visible output and break every test's `unwrap().*`.
+          res.statusCode = 200
+          res.setHeader('content-type', 'application/json')
+          res.end(JSON.stringify(result ?? null))
+        } catch (err) {
+          res.statusCode = 500
+          res.setHeader('content-type', 'application/json')
+          res.end(
+            JSON.stringify({
+              error: err instanceof Error ? err.message : String(err)
+            })
+          )
         }
-        // Match the real channel: write the result body directly (NOT
-        // wrapped in `{result}`). MCP's `rpc()` returns `res.json()`
-        // raw + each tool callback feeds it to JSON.stringify for the
-        // text content. A wrapping object would leak into the tool's
-        // visible output and break every test's `unwrap().*`.
-        res.statusCode = 200
-        res.setHeader('content-type', 'application/json')
-        res.end(JSON.stringify(result ?? null))
-      } catch (err) {
-        res.statusCode = 500
-        res.setHeader('content-type', 'application/json')
-        res.end(
-          JSON.stringify({
-            error: err instanceof Error ? err.message : String(err)
-          })
-        )
-      }
+      })()
     })
   })
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
@@ -173,12 +219,7 @@ export async function startFakeChannel(opts?: {
   }
   const port = addr.port
 
-  // Plant the discovery files. APP_CODENAME segment in the path
-  // matches Electron's per-app userData layout the real desktop
-  // writes to.
-  const tmp = await mkdtemp(join(tmpdir(), 'kanbini-mcp-test-'))
-  const userDataDir = join(tmp, APP_CODENAME)
-  await mkdir(userDataDir, { recursive: true })
+  // Plant the discovery files.
   await writeFile(
     join(userDataDir, 'mcp.json'),
     JSON.stringify({ port, token, pid: process.pid })

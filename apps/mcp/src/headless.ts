@@ -2,6 +2,7 @@ import { promises as fsp } from 'node:fs'
 import { join } from 'node:path'
 import type {
   ActivityView,
+  ArchivedItemsView,
   AttachmentView,
   BoardBackground,
   BoardSummary,
@@ -22,9 +23,10 @@ import type {
 
 // Headless read-only fallback for MCP tools when the desktop app is
 // closed. Parses the plain-text export at <userData>/export/ - the
-// same snapshot the auto-export-on-quit writes - and exposes the four
-// read methods the control channel does (boards.list / board.getView /
-// card.get / search.cards) with byte-compatible view shapes.
+// same snapshot the auto-export-on-quit writes - and exposes the read
+// methods the control channel does (boards.list / board.getView /
+// card.get / search.cards / board.archived) with byte-compatible view
+// shapes.
 //
 // Drift risk: the view-builders in `@kanbini/db/data.ts` are the
 // source of truth. If a future build adds a column or reshapes a view,
@@ -459,7 +461,12 @@ export function headlessBoardView(
     .filter((l) => l.boardId === b.id)
     .sort((a, b) => strcmp(a.position, b.position))
 
-  const cardsByList = groupBy(dump.cards, (c) => c.listId)
+  // Archived cards are hidden, matching getBoardView's
+  // `card.archived = false` filter (closed lists stay, flagged).
+  const cardsByList = groupBy(
+    dump.cards.filter((c) => !c.archived),
+    (c) => c.listId
+  )
   const labelIdsByCard = groupBy(dump.cardLabels, (cl) => cl.cardId)
   const checklistsByCard = groupBy(dump.checklists, (cl) => cl.cardId)
   const itemsByChecklist = groupBy(
@@ -524,6 +531,54 @@ export function headlessBoardView(
     },
     labels: viewLabels,
     lists
+  }
+}
+
+/** Mirror of `getArchivedItems` (@kanbini/db/data.ts): closed lists by
+ *  position (id tiebreak), archived cards by updatedAt desc (id desc
+ *  tiebreak). Pinned against the live read by the parity suite. */
+export function headlessArchivedItems(
+  snap: HeadlessSnapshot,
+  boardId: string
+): ArchivedItemsView | null {
+  const { dump } = snap
+  if (!dump.boards.some((b) => b.id === boardId)) return null
+
+  const lists = dump.lists
+    .filter((l) => l.boardId === boardId)
+    .sort((a, b) => strcmp(a.position, b.position) || strcmp(a.id, b.id))
+  const listById = new Map(lists.map((l) => [l.id, l]))
+
+  const liveCounts = new Map<string, number>()
+  const archived: ExportDump['cards'] = []
+  for (const c of dump.cards) {
+    if (!listById.has(c.listId)) continue
+    if (c.archived) archived.push(c)
+    else liveCounts.set(c.listId, (liveCounts.get(c.listId) ?? 0) + 1)
+  }
+  archived.sort((a, b) => b.updatedAt - a.updatedAt || strcmp(b.id, a.id))
+
+  return {
+    boardId,
+    lists: lists
+      .filter((l) => l.closed)
+      .map((l) => ({
+        id: l.id,
+        name: l.name,
+        color: l.color,
+        cardCount: liveCounts.get(l.id) ?? 0
+      })),
+    cards: archived.map((c) => {
+      const l = listById.get(c.listId)
+      return {
+        id: c.id,
+        title: c.title,
+        listId: c.listId,
+        listName: l?.name ?? '',
+        listClosed: l?.closed ?? false,
+        updatedAt: c.updatedAt
+      }
+    })
   }
 }
 
