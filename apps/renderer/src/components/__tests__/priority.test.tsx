@@ -32,6 +32,7 @@ function makeCard(
     comments: [],
     attachments: [],
     coverAttachmentId: null,
+    collapsed: null,
     activities: [],
     ...overrides
   }

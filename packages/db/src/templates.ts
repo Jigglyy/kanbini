@@ -15,7 +15,11 @@ import {
 } from '@kanbini/shared'
 import type { Db } from './client'
 import { ensureDefaultProjectId } from './crud'
-import { parseListSortMode } from './data'
+import {
+  parseCardDensity,
+  parseListSortMode,
+  parseVisibleCardLimit
+} from './data'
 import {
   board,
   card,
@@ -75,6 +79,8 @@ export function saveBoardTemplate(
       position: l.position,
       wipLimit: l.wipLimit,
       sortMode: parseListSortMode(l.sortMode),
+      cardDensity: parseCardDensity(l.cardDensity),
+      visibleCardLimit: parseVisibleCardLimit(l.visibleCardLimit),
       cards: snapshotCards(tx, l.id, tmplLabelIdByReal)
     }))
 
@@ -123,7 +129,8 @@ export function saveListTemplate(
       position: c.position,
       priority: c.priority,
       completed: c.completed,
-      checklists: c.checklists
+      checklists: c.checklists,
+      collapsed: c.collapsed
     }))
 
     const payload: TemplateListData = {
@@ -132,7 +139,9 @@ export function saveListTemplate(
         name: l.name,
         color: l.color,
         wipLimit: l.wipLimit,
-        sortMode: parseListSortMode(l.sortMode)
+        sortMode: parseListSortMode(l.sortMode),
+        cardDensity: parseCardDensity(l.cardDensity),
+        visibleCardLimit: parseVisibleCardLimit(l.visibleCardLimit)
       },
       cards
     }
@@ -205,7 +214,8 @@ function snapshotCards(
       priority: priorityParsed.success ? priorityParsed.data : null,
       completed: c.completed,
       labelTmplIds: labelIds,
-      checklists
+      checklists,
+      collapsed: c.collapsed
     }
   })
 }
@@ -329,7 +339,10 @@ export function instantiateBoardTemplate(
           color: l.color,
           position: listKeys[i]!,
           wipLimit: l.wipLimit,
-          sortMode: l.sortMode
+          sortMode: l.sortMode,
+          // Absent in templates saved before card density existed.
+          cardDensity: l.cardDensity ?? null,
+          visibleCardLimit: l.visibleCardLimit ?? null
         })
         .run()
       insertTemplateCards(tx, newListId, l.cards, realLabelIdByTmpl)
@@ -379,7 +392,9 @@ export function instantiateListTemplate(
         color: data.list.color,
         position: orderKeyBetween(after, null),
         wipLimit: data.list.wipLimit,
-        sortMode: data.list.sortMode
+        sortMode: data.list.sortMode,
+        cardDensity: data.list.cardDensity ?? null,
+        visibleCardLimit: data.list.visibleCardLimit ?? null
       })
       .run()
     // List templates carry cards without label assignments - pass an
@@ -402,6 +417,7 @@ function insertTemplateCards(
     completed: boolean
     checklists: TemplateBoardData['lists'][number]['cards'][number]['checklists']
     labelTmplIds?: string[]
+    collapsed?: boolean | null
   }>,
   realLabelIdByTmpl: Map<string, string>
 ): void {
@@ -417,7 +433,8 @@ function insertTemplateCards(
         description: c.description,
         priority: c.priority ?? undefined,
         completed: c.completed,
-        position: cardKeys[i]!
+        position: cardKeys[i]!,
+        collapsed: c.collapsed ?? null
       })
       .run()
 

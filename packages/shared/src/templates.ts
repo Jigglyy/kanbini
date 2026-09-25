@@ -1,9 +1,11 @@
 import { z } from 'zod'
 import {
   zBoardBackground,
+  zCardDensity,
   zCardPriority,
   zListSortMode,
-  zSwimlaneMode
+  zSwimlaneMode,
+  zVisibleCardLimit
 } from './views'
 
 // Board / list templates (ADR-0038). One row in `template` per saved
@@ -51,7 +53,10 @@ const zTplCard = z.object({
   /** Empty for list templates. Indexes into the board template's
    *  own `labels` array (template-internal ids). */
   labelTmplIds: z.array(z.string()),
-  checklists: z.array(zTplChecklist)
+  checklists: z.array(zTplChecklist),
+  // Card density settings. Optional so templates saved before they
+  // existed still parse (same format version - absent = default).
+  collapsed: z.boolean().nullable().optional()
 })
 
 const zTplList = z.object({
@@ -60,6 +65,8 @@ const zTplList = z.object({
   position: z.string(),
   wipLimit: z.number().int().positive().nullable(),
   sortMode: zListSortMode.nullable(),
+  cardDensity: zCardDensity.nullable().optional(),
+  visibleCardLimit: zVisibleCardLimit.nullable().optional(),
   cards: z.array(zTplCard)
 })
 
@@ -95,7 +102,9 @@ export const zTemplateListData = z.object({
     name: z.string().min(1).max(200),
     color: z.string().nullable(),
     wipLimit: z.number().int().positive().nullable(),
-    sortMode: zListSortMode.nullable()
+    sortMode: zListSortMode.nullable(),
+    cardDensity: zCardDensity.nullable().optional(),
+    visibleCardLimit: zVisibleCardLimit.nullable().optional()
   }),
   cards: z.array(
     // List-template cards omit labelTmplIds (labels are board-scoped

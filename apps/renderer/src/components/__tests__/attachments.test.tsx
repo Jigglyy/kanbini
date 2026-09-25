@@ -44,6 +44,7 @@ function makeCard(overrides: Partial<CardView> = {}): CardView {
     comments: [],
     attachments: [],
     coverAttachmentId: null,
+    collapsed: null,
     activities: [],
     ...overrides
   }

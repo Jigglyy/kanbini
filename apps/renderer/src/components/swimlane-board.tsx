@@ -343,6 +343,7 @@ function LaneCell({
                           comments: [],
                           attachments: [],
                           coverAttachmentId: null,
+                          collapsed: null,
                           activities: []
                         }
                       ]

@@ -213,6 +213,50 @@ describe('headless readers vs live @kanbini/db', () => {
     }
   })
 
+  it('card density settings read identically in both readers', async () => {
+    const { db: db2, close } = openDatabase({
+      filePath: ':memory:',
+      migrationsFolder: MIGRATIONS
+    })
+    try {
+      seedSampleData(db2)
+      const view = getBoardView(db2)!
+      const boardId = view.board.id
+      const [first, second] = view.lists
+      const cards = view.lists.flatMap((l) => l.cards)
+      applyMutation(db2, {
+        type: 'list.update',
+        id: first!.id,
+        patch: { cardDensity: 'compact', visibleCardLimit: 2 }
+      })
+      applyMutation(db2, {
+        type: 'list.update',
+        id: second!.id,
+        patch: { visibleCardLimit: 10 }
+      })
+      applyMutation(db2, {
+        type: 'card.update',
+        id: cards[0]!.id,
+        patch: { collapsed: false }
+      })
+      applyMutation(db2, {
+        type: 'card.update',
+        id: cards[1]!.id,
+        patch: { collapsed: true }
+      })
+      const root = join(tmpRoot, 'density-parity')
+      const exDir = join(root, 'export')
+      await exportToFolder(db2, root, exDir)
+      const snap = await loadHeadlessSnapshot(exDir)
+      expect(headlessBoardView(snap!, boardId)).toEqual(getBoardView(db2, boardId))
+      for (const c of cards.slice(0, 2)) {
+        expect(headlessCardView(snap!, c.id)).toEqual(getCardView(db2, c.id))
+      }
+    } finally {
+      close()
+    }
+  })
+
   it('headlessCardView matches getCardView for every seeded card', async () => {
     const snap = await loadHeadlessSnapshot(exportDir)
     const board = getBoardView(db)!

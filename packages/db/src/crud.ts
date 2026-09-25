@@ -158,6 +158,24 @@ function cardBoardId(db: Db, cardId: string): string | null {
   return c ? listBoardId(db, c.listId) : null
 }
 
+/** Display-only fields: changing how a card or list is DRAWN isn't an
+ *  edit, so a patch made only of these leaves `updatedAt` alone (it
+ *  feeds search tiebreaks and the archived-items "recently touched"
+ *  order). They're also excluded from the undo log - see inverseBefore. */
+const CARD_VIEW_FIELDS: ReadonlySet<string> = new Set(['collapsed'])
+const LIST_VIEW_FIELDS: ReadonlySet<string> = new Set([
+  'cardDensity',
+  'visibleCardLimit'
+])
+
+function isViewOnlyPatch(
+  patch: Record<string, unknown>,
+  viewFields: ReadonlySet<string>
+): boolean {
+  const keys = Object.keys(patch)
+  return keys.length > 0 && keys.every((k) => viewFields.has(k))
+}
+
 /** Apply a validated mutation; returns the affected entity + board. */
 export function applyMutation(db: Db, m: Mutation): MutationResult {
   switch (m.type) {
@@ -392,7 +410,11 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
         }
       }
       db.update(list)
-        .set({ ...m.patch, updatedAt: now() })
+        .set(
+          isViewOnlyPatch(m.patch, LIST_VIEW_FIELDS)
+            ? { ...m.patch }
+            : { ...m.patch, updatedAt: now() }
+        )
         .where(eq(list.id, m.id))
         .run()
       return { id: m.id, boardId }
@@ -479,7 +501,11 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
         }
       }
       db.update(card)
-        .set({ ...m.patch, updatedAt: now() })
+        .set(
+          isViewOnlyPatch(m.patch, CARD_VIEW_FIELDS)
+            ? { ...m.patch }
+            : { ...m.patch, updatedAt: now() }
+        )
         .where(eq(card.id, m.id))
         .run()
       // One activity row per field changed - keeps the feed terse and

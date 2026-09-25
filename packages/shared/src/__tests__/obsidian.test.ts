@@ -367,6 +367,7 @@ describe('buildNote (v2 format)', () => {
       comments: [],
       attachments: [],
       coverAttachmentId: null,
+      collapsed: null,
       activities: [],
       ...overrides
     }
@@ -380,6 +381,8 @@ describe('buildNote (v2 format)', () => {
     wipLimit: null,
     sortMode: null,
     onEnter: null,
+    cardDensity: null,
+    visibleCardLimit: null,
     cards: []
   }
   const board = {

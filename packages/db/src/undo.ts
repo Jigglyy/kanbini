@@ -193,6 +193,10 @@ export interface CardSnapshot {
   priority: string | null
   /** ADR-0032 follow-up: when the card was added to its list. */
   listAddedAt: number
+  /** Per-card collapse (view state). Optional: snapshots written to the
+   *  undo log before the column existed don't carry it, and restore
+   *  treats absent as null (follow the list). */
+  collapsed?: boolean | null
   createdAt: number
   updatedAt: number
   labelIds: string[]
@@ -281,6 +285,9 @@ export interface ListSnapshot {
   sortMode: string | null
   /** ADR-0041 on-enter rule (JSON-mode column = unknown shape). */
   onEnter: unknown
+  /** Card density view settings. Optional for pre-column snapshots. */
+  cardDensity?: string | null
+  visibleCardLimit?: number | null
   createdAt: number
   updatedAt: number
   cards: CardSnapshot[]
@@ -496,6 +503,7 @@ export function snapshotCard(db: Db, id: string): CardSnapshot | null {
     archived: r.archived,
     priority: r.priority,
     listAddedAt: r.listAddedAt,
+    collapsed: r.collapsed,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
     labelIds,
@@ -526,6 +534,8 @@ export function snapshotList(db: Db, id: string): ListSnapshot | null {
     wipLimit: r.wipLimit,
     sortMode: r.sortMode,
     onEnter: r.onEnter,
+    cardDensity: r.cardDensity,
+    visibleCardLimit: r.visibleCardLimit,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
     cards
@@ -587,6 +597,7 @@ function restoreCard(db: Db, s: CardSnapshot): void {
       archived: s.archived,
       priority: s.priority,
       listAddedAt: s.listAddedAt,
+      collapsed: s.collapsed ?? null,
       createdAt: s.createdAt,
       updatedAt: s.updatedAt
     })
@@ -746,6 +757,8 @@ function restoreList(db: Db, s: ListSnapshot): void {
       wipLimit: s.wipLimit,
       sortMode: s.sortMode,
       onEnter: s.onEnter,
+      cardDensity: s.cardDensity ?? null,
+      visibleCardLimit: s.visibleCardLimit ?? null,
       createdAt: s.createdAt,
       updatedAt: s.updatedAt
     })
@@ -947,6 +960,12 @@ export function inverseBefore(db: Db, m: Mutation): Mutation | null {
         patch.coverAttachmentId = old.coverAttachmentId
       if ('priority' in m.patch) patch.priority = old.priority
       if ('archived' in m.patch) patch.archived = old.archived
+      // `collapsed` is a view setting - deliberately NOT captured, same
+      // as board.swimlaneMode, so Ctrl+Z never un-collapses a card when
+      // the user meant to undo an edit. A collapse-only patch has an
+      // empty inverse -> null -> the recorder logs nothing, which also
+      // keeps the redo tail intact.
+      if (Object.keys(patch).length === 0) return null
       return { type: 'card.update', id: m.id, patch }
     }
     case 'list.update': {
@@ -959,6 +978,9 @@ export function inverseBefore(db: Db, m: Mutation): Mutation | null {
       if ('wipLimit' in m.patch) patch.wipLimit = old.wipLimit
       if ('sortMode' in m.patch) patch.sortMode = old.sortMode
       if ('onEnter' in m.patch) patch.onEnter = old.onEnter
+      // cardDensity / visibleCardLimit are view settings - not captured,
+      // same reasoning as card.collapsed above.
+      if (Object.keys(patch).length === 0) return null
       return { type: 'list.update', id: m.id, patch }
     }
     case 'board.update': {

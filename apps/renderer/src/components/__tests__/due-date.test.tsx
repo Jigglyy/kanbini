@@ -30,6 +30,7 @@ function makeCard(overrides: Partial<CardView> = {}): CardView {
     comments: [],
     attachments: [],
     coverAttachmentId: null,
+    collapsed: null,
     activities: [],
     ...overrides
   }
@@ -92,6 +93,8 @@ describe('patchDue', () => {
           wipLimit: null,
           sortMode: null,
           onEnter: null,
+          cardDensity: null,
+          visibleCardLimit: null,
           cards: [makeCard({ id: 'c1' }), makeCard({ id: 'c2' })]
         }
       ]
@@ -122,6 +125,8 @@ describe('patchDue', () => {
           wipLimit: null,
           sortMode: null,
           onEnter: null,
+          cardDensity: null,
+          visibleCardLimit: null,
           cards: [makeCard({ id: 'c1', dueAt: 1234 })]
         }
       ]

@@ -8,6 +8,7 @@ import type {
   BoardSummary,
   BoardView,
   BoardsListView,
+  CardDensity,
   CardPriority,
   CardView,
   ChecklistView,
@@ -75,6 +76,9 @@ interface ExportDump {
     wipLimit: number | null
     sortMode: string | null
     onEnter: unknown
+    /** Absent in exports written before card density existed. */
+    cardDensity?: string | null
+    visibleCardLimit?: number | null
   }>
   cards: Array<{
     id: string
@@ -90,6 +94,8 @@ interface ExportDump {
     priority: string | null
     coverAttachmentId: string | null
     listAddedAt: number
+    /** Absent in exports written before card density existed. */
+    collapsed?: boolean | null
     createdAt: number
     updatedAt: number
   }>
@@ -251,6 +257,16 @@ function parseSortMode(s: string | null): ListSortMode | null {
     default:
       return null
   }
+}
+
+/** Mirror of `parseCardDensity` in @kanbini/db/data.ts. */
+function parseCardDensity(s: string | null | undefined): CardDensity | null {
+  return s === 'compact' ? s : null
+}
+
+/** Mirror of `parseVisibleCardLimit` in @kanbini/db/data.ts. */
+function parseVisibleCardLimit(n: number | null | undefined): number | null {
+  return typeof n === 'number' && Number.isInteger(n) && n > 0 ? n : null
 }
 
 function parseSwimlaneMode(s: string | null): SwimlaneMode | null {
@@ -510,6 +526,8 @@ export function headlessBoardView(
       wipLimit: l.wipLimit,
       sortMode,
       onEnter: parseOnEnter(l.onEnter),
+      cardDensity: parseCardDensity(l.cardDensity),
+      visibleCardLimit: parseVisibleCardLimit(l.visibleCardLimit),
       cards
     }
   })
@@ -698,6 +716,7 @@ function buildCardView(
     completed: c.completed,
     dueAt: c.dueAt,
     priority: parsePriority(c.priority),
+    collapsed: c.collapsed ?? null,
     labelIds,
     checklists,
     comments,

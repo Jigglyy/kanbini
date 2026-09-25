@@ -1,10 +1,12 @@
 import { z } from 'zod'
 import {
   zBoardBackground,
+  zCardDensity,
   zCardPriority,
   zListOnEnterRule,
   zListSortMode,
-  zSwimlaneMode
+  zSwimlaneMode,
+  zVisibleCardLimit
 } from './views'
 
 // All writes go through one `mutate` IPC channel as a discriminated
@@ -124,7 +126,12 @@ export const zMutation = z.discriminatedUnion('type', [
       // The DB layer fires the matching rule INSIDE the `card.move`
       // transaction so move + rule effect land atomically and log
       // as one event.
-      onEnter: zListOnEnterRule.nullable().optional()
+      onEnter: zListOnEnterRule.nullable().optional(),
+      // View settings (excluded from undo, like board.swimlaneMode):
+      // compact cards for the whole list, and how many cards to show
+      // before "Show N more". null clears each back to the default.
+      cardDensity: zCardDensity.nullable().optional(),
+      visibleCardLimit: zVisibleCardLimit.nullable().optional()
     })
   }),
   z.object({ type: z.literal('list.delete'), id: z.string() }),
@@ -170,7 +177,10 @@ export const zMutation = z.discriminatedUnion('type', [
       // hidden from the board view, search, and the home counts; it
       // keeps its list, position, and everything attached, so
       // unarchiving puts it back exactly where it was.
-      archived: z.boolean().optional()
+      archived: z.boolean().optional(),
+      // Per-card collapse (view setting, excluded from undo): true =
+      // compact, false = always full, null = follow the list.
+      collapsed: z.boolean().nullable().optional()
     })
   }),
   z.object({ type: z.literal('card.delete'), id: z.string() }),

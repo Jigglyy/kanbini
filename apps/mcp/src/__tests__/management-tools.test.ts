@@ -299,6 +299,54 @@ describe('list settings', () => {
   })
 })
 
+describe('card density', () => {
+  interface DensityList {
+    id: string
+    cardDensity: string | null
+    visibleCardLimit: number | null
+    cards: Array<{ id: string; collapsed: boolean | null }>
+  }
+
+  it('collapses a card, keeps one open, and follows the list again', async () => {
+    const { boardId, cardIds } = await makeBoard(['L'], ['a'])
+    const card = async () =>
+      ((await getBoard(boardId)).lists[0] as unknown as DensityList).cards[0]!
+    for (const collapsed of [true, false, null]) {
+      await call('kanbini_update_card', { id: cardIds[0], patch: { collapsed } })
+      expect((await card()).collapsed).toBe(collapsed)
+    }
+  })
+
+  it('sets a list compact with "compact" and back with "full"', async () => {
+    const { boardId, listIds } = await makeBoard()
+    const list = async () => (await getBoard(boardId)).lists[0] as unknown as DensityList
+    await call('kanbini_update_list', { id: listIds[0], patch: { cardDensity: 'compact' } })
+    expect((await list()).cardDensity).toBe('compact')
+    await call('kanbini_update_list', { id: listIds[0], patch: { cardDensity: 'full' } })
+    // "full" is the stored null - the AI never has to know that.
+    expect((await list()).cardDensity).toBeNull()
+  })
+
+  it('sets a visible-card limit but still reads every card', async () => {
+    const { boardId, listIds } = await makeBoard(['L'], ['a', 'b', 'c', 'd'])
+    await call('kanbini_update_list', { id: listIds[0], patch: { visibleCardLimit: 2 } })
+    const list = (await getBoard(boardId)).lists[0] as unknown as DensityList
+    expect(list.visibleCardLimit).toBe(2)
+    expect(list.cards).toHaveLength(4)
+    await call('kanbini_update_list', { id: listIds[0], patch: { visibleCardLimit: null } })
+    expect(
+      ((await getBoard(boardId)).lists[0] as unknown as DensityList).visibleCardLimit
+    ).toBeNull()
+  })
+
+  it('rejects an out-of-range limit and an unknown density at the tool boundary', async () => {
+    const { listIds } = await makeBoard()
+    await callError('kanbini_update_list', { id: listIds[0], patch: { visibleCardLimit: 0 } })
+    await callError('kanbini_update_list', { id: listIds[0], patch: { visibleCardLimit: 5000 } })
+    await callError('kanbini_update_list', { id: listIds[0], patch: { cardDensity: 'tiny' } })
+  })
+})
+
 describe('board settings', () => {
   it('renames, recolours, and pins a board', async () => {
     const { boardId } = await makeBoard()

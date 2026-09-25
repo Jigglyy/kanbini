@@ -107,6 +107,17 @@ export const list = sqliteTable(
     // migration. Renderer + db both soft-narrow unknown shapes to
     // null and skip the rule rather than throw.
     onEnter: text('on_enter', { mode: 'json' }),
+    // How this list draws its cards. null = full cards (today's look);
+    // 'compact' = every card in the list renders compact unless the card
+    // itself says otherwise (`card.collapsed === false`). Plain text so a
+    // later density ('titles') needs no migration; the read side
+    // soft-narrows an unknown value to null. A VIEW setting: excluded
+    // from the undo log, same as `board.swimlaneMode`.
+    cardDensity: text('card_density'),
+    // Show at most this many cards before a "Show N more" footer. null =
+    // show all. Purely presentational - the board view (and so the MCP
+    // server) always returns every card. View setting, excluded from undo.
+    visibleCardLimit: integer('visible_card_limit'),
     ...timestamps
   },
   (t) => [index('idx_list_board').on(t.boardId, t.position)]
@@ -149,6 +160,12 @@ export const card = sqliteTable(
     listAddedAt: integer('list_added_at')
       .notNull()
       .$defaultFn(() => Date.now()),
+    // Per-card collapse, three-state: null = follow the list's
+    // `cardDensity`, true = always compact, false = always full (so one
+    // card can stay open inside a compact list). The card renders compact
+    // when `collapsed ?? (list.cardDensity === 'compact')`. A VIEW
+    // setting: excluded from the undo log and the activity feed.
+    collapsed: integer('collapsed', { mode: 'boolean' }),
     ...timestamps
   },
   (t) => [

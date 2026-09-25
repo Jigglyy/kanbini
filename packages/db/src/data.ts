@@ -4,6 +4,7 @@ import {
   type BoardBackground,
   type BoardSummary,
   type BoardView,
+  type CardDensity,
   type CardPriority,
   type ListOnEnterRule,
   type ListSortMode,
@@ -12,6 +13,7 @@ import {
   newId,
   orderKeysBetween,
   zBoardBackground,
+  zCardDensity,
   zCardPriority,
   zListOnEnterRule,
   zListSortMode,
@@ -252,6 +254,20 @@ export function listBoards(db: Db): BoardSummary[] {
 export function parseListSortMode(s: string | null): ListSortMode | null {
   const r = zListSortMode.safeParse(s)
   return r.success ? r.data : null
+}
+
+/** Soft-narrow a stored list.card_density (null = full cards). A density
+ *  shipped by a newer build (e.g. 'titles') degrades to full cards on
+ *  this one instead of failing the board view. */
+export function parseCardDensity(s: string | null): CardDensity | null {
+  const r = zCardDensity.safeParse(s)
+  return r.success ? r.data : null
+}
+
+/** Soft-narrow a stored list.visible_card_limit: anything but a positive
+ *  integer (a hand-edited row, a future sentinel) reads as "show all". */
+export function parseVisibleCardLimit(n: number | null): number | null {
+  return typeof n === 'number' && Number.isInteger(n) && n > 0 ? n : null
 }
 
 /** ORDER BY clause for a list's cards under the given sort mode. Manual
@@ -524,6 +540,8 @@ export function getBoardView(db: Db, boardId?: string): BoardView | null {
       wipLimit: l.wipLimit,
       sortMode,
       onEnter: parseOnEnter(l.onEnter),
+      cardDensity: parseCardDensity(l.cardDensity),
+      visibleCardLimit: parseVisibleCardLimit(l.visibleCardLimit),
       // Archived cards are hidden, same as listBoards' counts and
       // search. (Closed lists stay IN the view with `closed: true` -
       // the renderer filters those itself - but a card has no such flag
@@ -543,6 +561,7 @@ export function getBoardView(db: Db, boardId?: string): BoardView | null {
           completed: c.completed,
           dueAt: c.dueAt,
           priority: parsePriority(c.priority),
+          collapsed: c.collapsed,
           labelIds: labelIdsFor(c.id),
           checklists: checklistsFor(c.id),
           comments: commentsFor(c.id),
@@ -742,6 +761,7 @@ export function getCardView(db: Db, cardId: string) {
     completed: c.completed,
     dueAt: c.dueAt,
     priority: parsePriority(c.priority),
+    collapsed: c.collapsed,
     labelIds,
     checklists,
     comments,

@@ -96,6 +96,7 @@ describe('zCardView / zListView / zBoardView', () => {
     completed: false,
     dueAt: null,
     priority: null,
+    collapsed: null,
     labelIds: [],
     checklists: [],
     comments: [],
@@ -118,9 +119,51 @@ describe('zCardView / zListView / zBoardView', () => {
       wipLimit: null,
       sortMode: null,
       onEnter: null,
+      cardDensity: null,
+      visibleCardLimit: null,
       cards: [card]
     }
     expect(zListView.parse(list)).toEqual(list)
+  })
+
+  it('accepts every collapse state and the density settings', () => {
+    for (const collapsed of [null, true, false]) {
+      expect(zCardView.parse({ ...card, collapsed }).collapsed).toBe(collapsed)
+    }
+    const list = {
+      id: 'l1',
+      name: 'Todo',
+      color: null,
+      closed: false,
+      position: 'a0',
+      wipLimit: null,
+      sortMode: null,
+      onEnter: null,
+      cardDensity: 'compact',
+      visibleCardLimit: 20,
+      cards: []
+    }
+    expect(zListView.parse(list)).toEqual(list)
+  })
+
+  it('rejects an unknown density and a non-positive or huge limit', () => {
+    const base = {
+      id: 'l1',
+      name: 'Todo',
+      color: null,
+      closed: false,
+      position: 'a0',
+      wipLimit: null,
+      sortMode: null,
+      onEnter: null,
+      cardDensity: null,
+      visibleCardLimit: null,
+      cards: []
+    }
+    expect(() => zListView.parse({ ...base, cardDensity: 'tiny' })).toThrow()
+    expect(() => zListView.parse({ ...base, visibleCardLimit: 0 })).toThrow()
+    expect(() => zListView.parse({ ...base, visibleCardLimit: 2.5 })).toThrow()
+    expect(() => zListView.parse({ ...base, visibleCardLimit: 1001 })).toThrow()
   })
 
   it('round-trips a BoardView', () => {

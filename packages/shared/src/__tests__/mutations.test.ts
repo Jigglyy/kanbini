@@ -198,6 +198,32 @@ describe('zMutation - every arm', () => {
     })
   })
 
+  it('keeps the card density fields on card.update and list.update', () => {
+    expect(
+      zMutation.parse({ type: 'card.update', id: 'c1', patch: { collapsed: null } })
+    ).toEqual({ type: 'card.update', id: 'c1', patch: { collapsed: null } })
+    expect(
+      zMutation.parse({
+        type: 'list.update',
+        id: 'l1',
+        patch: { cardDensity: 'compact', visibleCardLimit: 10 }
+      })
+    ).toEqual({
+      type: 'list.update',
+      id: 'l1',
+      patch: { cardDensity: 'compact', visibleCardLimit: 10 }
+    })
+  })
+
+  it('rejects an unknown density and a zero limit', () => {
+    expect(() =>
+      zMutation.parse({ type: 'list.update', id: 'l1', patch: { cardDensity: 'full' } })
+    ).toThrow()
+    expect(() =>
+      zMutation.parse({ type: 'list.update', id: 'l1', patch: { visibleCardLimit: 0 } })
+    ).toThrow()
+  })
+
   it('rejects a non-boolean archived', () => {
     expect(() =>
       zMutation.parse({

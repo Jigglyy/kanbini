@@ -304,6 +304,8 @@ Patch one or more card fields. Omit fields you don't want to change.
 | `dueAt`               | `number \| null` | Epoch ms. `null` clears.           |
 | `completed`           | `boolean`        | Toggles the checkbox.              |
 | `coverAttachmentId`   | `string \| null` | Set or clear the cover banner.     |
+| `priority`            | `"low" \| "medium" \| "high" \| "urgent" \| null` | `null` clears. |
+| `collapsed`           | `boolean \| null` | How the card is drawn in its list: `true` compact, `false` always full, `null` follows the list's `cardDensity`. Display only. |
 
 #### `kanbini_move_card`
 Move a card between lists, or reorder within its list.
@@ -425,6 +427,14 @@ Patch a list. Omit fields you don't want to change.
 | `patch.wipLimit` | positive int `\| null` | Work-in-progress cap; `null` removes it. The app blocks drags past it, but writes are NOT capped - check the card count before adding. |
 | `patch.sortMode` | see below             | How the list orders its cards. |
 | `patch.onEnter`  | `"complete" \| "uncomplete" \| null` | Runs when a card is moved in from another list. `null` removes the rule. |
+| `patch.cardDensity` | `"full" \| "compact"` | `compact` draws every card in the list compact; a card opts out with `collapsed: false`. |
+| `patch.visibleCardLimit` | 1-1000 `\| null` | Show at most this many cards, then "Show N more". `null` shows all. |
+
+`cardDensity`, `visibleCardLimit`, and a card's `collapsed` are **display
+settings**. The board view always returns every card with its full
+content, so a limit never means the list is shorter than it looks. They
+also stay out of the undo log, like Group by: Ctrl+Z never reverts a
+collapse.
 
 `sortMode` values: `manual` (drag order, the default), `created-asc` /
 `created-desc`, `added-asc` / `added-desc` (when the card entered this

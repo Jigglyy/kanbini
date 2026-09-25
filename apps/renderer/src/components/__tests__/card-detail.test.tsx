@@ -61,6 +61,7 @@ function makeCard(overrides: Partial<CardView> = {}): CardView {
     comments: [],
     attachments: [],
     coverAttachmentId: null,
+    collapsed: null,
     activities: [],
     ...overrides
   }
@@ -87,6 +88,8 @@ function makeBoardView(cards: CardView[]): BoardView {
         wipLimit: null,
         sortMode: null,
         onEnter: null,
+        cardDensity: null,
+        visibleCardLimit: null,
         cards
       }
     ]

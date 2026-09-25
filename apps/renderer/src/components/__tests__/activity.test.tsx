@@ -40,6 +40,7 @@ function renderActivities(rows: ActivityView[]) {
     comments: [],
     attachments: [],
     coverAttachmentId: null,
+    collapsed: null,
     activities: rows
   }
   return render(<Activity card={card} labels={labels} />)

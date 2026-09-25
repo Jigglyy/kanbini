@@ -22,6 +22,7 @@ function makeCard(id: string, labelIds: string[]): CardView {
     comments: [],
     attachments: [],
     coverAttachmentId: null,
+    collapsed: null,
     activities: []
   }
 }
@@ -50,6 +51,8 @@ function makeBoard(
         wipLimit: null,
         sortMode: null,
         onEnter: null,
+        cardDensity: null,
+        visibleCardLimit: null,
         cards
       }
     ]

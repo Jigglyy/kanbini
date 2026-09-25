@@ -26,6 +26,8 @@ function makeList(overrides: Partial<ListView> = {}): ListView {
     wipLimit: null,
     sortMode: null,
     onEnter: null,
+    cardDensity: null,
+    visibleCardLimit: null,
     cards: [],
     ...overrides
   }

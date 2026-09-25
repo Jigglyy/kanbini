@@ -210,6 +210,10 @@ export const zCardView = z.object({
   dueAt: z.number().nullable(),
   /** Optional priority (ADR-0037); null = unprioritised. */
   priority: zCardPriority.nullable(),
+  /** Per-card collapse: null = follow the list's `cardDensity`, true =
+   *  always compact, false = always full. Display only - a collapsed
+   *  card's content is all still here. */
+  collapsed: z.boolean().nullable(),
   labelIds: z.array(z.string()),
   checklists: z.array(zChecklistView),
   comments: z.array(zCommentView),
@@ -242,6 +246,22 @@ export const zListSortMode = z.enum([
 ])
 export type ListSortMode = z.infer<typeof zListSortMode>
 
+/** How a list draws its cards. Stored as nullable text: null = full
+ *  cards (the default), 'compact' = compact cards. An enum of one today
+ *  so a later 'titles' density slots in without a migration; the read
+ *  side soft-narrows anything unrecognised to null. */
+export const zCardDensity = z.enum(['compact'])
+export type CardDensity = z.infer<typeof zCardDensity>
+
+/** Upper bound for a list's visible-card limit. Far above anything the
+ *  UI offers (10 / 20 / 50) - it only stops a nonsense value. */
+export const MAX_VISIBLE_CARD_LIMIT = 1000
+export const zVisibleCardLimit = z
+  .number()
+  .int()
+  .positive()
+  .max(MAX_VISIBLE_CARD_LIMIT)
+
 /** ADR-0041 · per-list automation that fires when a card enters the
  *  list. v1 ships two kinds - flip completed on/off - both stateless
  *  so they're idempotent (re-running the rule on an already-completed
@@ -267,6 +287,11 @@ export const zListView = z.object({
   sortMode: zListSortMode.nullable(),
   /** On-card-enter automation (ADR-0041); null = no automation. */
   onEnter: zListOnEnterRule.nullable(),
+  /** null = full cards; 'compact' = compact unless a card opts out. */
+  cardDensity: zCardDensity.nullable(),
+  /** Show at most this many cards on screen; null = all. Display only:
+   *  `cards` always holds every card. */
+  visibleCardLimit: zVisibleCardLimit.nullable(),
   cards: z.array(zCardView)
 })
 export type ListView = z.infer<typeof zListView>

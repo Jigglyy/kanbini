@@ -37,6 +37,8 @@ function makeBoard(id: string, listName = 'Todo'): BoardView {
         wipLimit: null,
         sortMode: null,
         onEnter: null,
+        cardDensity: null,
+        visibleCardLimit: null,
         cards: []
       }
     ]

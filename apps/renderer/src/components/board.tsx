@@ -1851,6 +1851,8 @@ export function Board({
                   wipLimit: null,
                   sortMode: null,
                   onEnter: null,
+                  cardDensity: null,
+                  visibleCardLimit: null,
                   cards: []
                 }
               ]
@@ -2392,6 +2394,7 @@ const ListColumn = memo(function ListColumn({
                         comments: [],
                         attachments: [],
                         coverAttachmentId: null,
+                        collapsed: null,
                         activities: []
                       }
                     ]

@@ -7,6 +7,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
   ACCENT_NAMES,
   APP_CODENAME,
+  MAX_VISIBLE_CARD_LIMIT,
   decodeEscapedWhitespace,
   resolveAccentColor,
   zListSortMode,
@@ -311,7 +312,10 @@ server.registerTool(
       'Return one Kanbini board view (project, lists, cards, labels). ' +
       'Archived cards are left out; archived lists are included with ' +
       '`closed: true` (the app hides them) - kanbini_list_archived lists ' +
-      'both. If boardId is omitted, returns the first board; call ' +
+      'both. Every other card is returned in full regardless of how the ' +
+      "app draws it (`collapsed`, and each list's `cardDensity` and " +
+      '`visibleCardLimit` are display settings). If boardId is omitted, ' +
+      'returns the first board; call ' +
       'kanbini_list_boards first if the database may have multiple ' +
       'boards. Returns null if the id does not match anything. When ' +
       "the desktop app is closed, falls back to the last on-disk export.",
@@ -470,7 +474,12 @@ server.registerTool(
       'null to clear. `completed` toggles the checkbox. `coverAttachmentId` ' +
       'is the attachment id to use as the cover banner, or null to clear. ' +
       "`priority` is one of 'low' | 'medium' | 'high' | 'urgent', or null " +
-      'to clear. Omit fields you do not want to change.',
+      'to clear. `collapsed` only changes how the card is DRAWN in its ' +
+      'list: true shows it compact (title, labels, one badge row), false ' +
+      "keeps it full even in a compact list, null follows the list's " +
+      '`cardDensity`. It hides nothing from you - every read still ' +
+      'returns the full card - so change it only when the user asks for ' +
+      'a tidier board. Omit fields you do not want to change.',
     inputSchema: {
       id: z.string(),
       patch: z.object({
@@ -482,7 +491,8 @@ server.registerTool(
         priority: z
           .enum(['low', 'medium', 'high', 'urgent'])
           .nullable()
-          .optional()
+          .optional(),
+        collapsed: z.boolean().nullable().optional()
       })
     }
   },
@@ -728,8 +738,15 @@ server.registerTool(
       'first). Switching back to "manual" freezes the current sorted ' +
       'order as the new drag order. `onEnter` runs when a card is moved ' +
       'INTO this list from another one: "complete" marks it done, ' +
-      '"uncomplete" reopens it, null removes the rule. To reorder lists ' +
-      'use kanbini_move_list; to hide one use kanbini_archive_list. ' +
+      '"uncomplete" reopens it, null removes the rule. `cardDensity` ' +
+      '"compact" draws every card in the list compact (a card can opt out ' +
+      'with kanbini_update_card collapsed: false); "full" is the default. ' +
+      '`visibleCardLimit` shows at most that many cards on screen, then a ' +
+      '"Show N more" button (1-1000, or null for all). Both are display ' +
+      'only: kanbini_get_board always returns EVERY card with its full ' +
+      'content, so never read a limit as the list being shorter. Change ' +
+      'them only when the user asks. To reorder lists use ' +
+      'kanbini_move_list; to hide one use kanbini_archive_list. ' +
       PALETTE_HINT,
     inputSchema: {
       id: z.string(),
@@ -738,13 +755,21 @@ server.registerTool(
         color: zColorInput.nullable().optional(),
         wipLimit: z.number().int().positive().nullable().optional(),
         sortMode: z.enum(['manual', ...zListSortMode.options]).optional(),
-        onEnter: z.enum(['complete', 'uncomplete']).nullable().optional()
+        onEnter: z.enum(['complete', 'uncomplete']).nullable().optional(),
+        cardDensity: z.enum(['full', 'compact']).optional(),
+        visibleCardLimit: z
+          .number()
+          .int()
+          .positive()
+          .max(MAX_VISIBLE_CARD_LIMIT)
+          .nullable()
+          .optional()
       })
     }
   },
   ({ id, patch }) =>
     asToolResult(() => {
-      const { color, sortMode, onEnter, ...rest } = patch
+      const { color, sortMode, onEnter, cardDensity, ...rest } = patch
       return mutate({
         type: 'list.update',
         id,
@@ -758,6 +783,11 @@ server.registerTool(
             : {}),
           ...(onEnter !== undefined
             ? { onEnter: onEnter === null ? null : { kind: onEnter } }
+            : {}),
+          // "full" is the stored null; spelled out for the AI so it
+          // never has to know the column's null convention.
+          ...(cardDensity !== undefined
+            ? { cardDensity: cardDensity === 'full' ? null : cardDensity }
             : {})
         }
       })

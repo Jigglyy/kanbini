@@ -37,6 +37,7 @@ function makeCard(overrides: Partial<CardView> = {}): CardView {
     comments: [],
     attachments: [],
     coverAttachmentId: null,
+    collapsed: null,
     activities: [],
     ...overrides
   }
@@ -64,6 +65,8 @@ describe('withLabels', () => {
           wipLimit: null,
           sortMode: null,
           onEnter: null,
+          cardDensity: null,
+          visibleCardLimit: null,
           cards: [
             makeCard({ id: 'c1', labelIds: ['l1'] }),
             makeCard({ id: 'c2', labelIds: ['l2'] })
@@ -98,6 +101,8 @@ function makeBoardWith(labels: LabelView[], cardLabelIds: string[]): BoardView {
         wipLimit: null,
         sortMode: null,
         onEnter: null,
+        cardDensity: null,
+        visibleCardLimit: null,
         cards: [makeCard({ id: 'c1', labelIds: cardLabelIds })]
       }
     ]
