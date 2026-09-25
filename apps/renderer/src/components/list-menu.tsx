@@ -8,6 +8,7 @@ import type {
   Mutation
 } from '@kanbini/shared'
 import type { Optimistic } from '../hooks/useBoardMutation'
+import { VISIBLE_LIMIT_OPTIONS } from '../lib/list-visibility'
 import { swatchOptions } from '../lib/palette'
 import { cn } from '../lib/utils'
 import { MenuLabel, MenuSep } from './ui/context-menu'
@@ -267,6 +268,43 @@ export function ListEditor({
                     patch: { cardDensity: density }
                   },
                   (b) => patchList(b, list.id, { cardDensity: density })
+                )
+                close()
+              }}
+              className={cn(
+                'rounded px-2 py-1 text-xs',
+                active
+                  ? 'bg-accent text-foreground'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              )}
+            >
+              {label}
+            </button>
+          )
+        })}
+      </div>
+      <MenuLabel>Show at most</MenuLabel>
+      <div className="grid grid-cols-4 gap-1 px-2 py-1">
+        {VISIBLE_LIMIT_OPTIONS.map((limit) => {
+          const label = limit == null ? 'All' : String(limit)
+          const active = list.visibleCardLimit === limit
+          return (
+            <button
+              key={label}
+              aria-pressed={active}
+              aria-label={limit == null ? 'Show all cards' : `Show at most ${limit} cards`}
+              onClick={() => {
+                if (active) {
+                  close()
+                  return
+                }
+                apply(
+                  {
+                    type: 'list.update',
+                    id: list.id,
+                    patch: { visibleCardLimit: limit }
+                  },
+                  (b) => patchList(b, list.id, { visibleCardLimit: limit })
                 )
                 close()
               }}

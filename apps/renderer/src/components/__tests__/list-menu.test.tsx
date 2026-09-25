@@ -398,4 +398,34 @@ describe('<ListEditor>', () => {
       expect.any(Function)
     )
   })
+
+  it('Show at most: All is active by default, and 20 sets the limit', async () => {
+    const apply = vi.fn<(m: Mutation, o: unknown) => void>()
+    render(<ListEditor list={makeList()} apply={apply} close={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'Show all cards' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Show at most 20 cards' }))
+    expect(apply).toHaveBeenCalledWith(
+      { type: 'list.update', id: 'list-1', patch: { visibleCardLimit: 20 } },
+      expect.any(Function)
+    )
+  })
+
+  it('Show at most: All clears a limit back to null', async () => {
+    const apply = vi.fn<(m: Mutation, o: unknown) => void>()
+    render(
+      <ListEditor list={makeList({ visibleCardLimit: 10 })} apply={apply} close={vi.fn()} />
+    )
+    expect(screen.getByRole('button', { name: 'Show at most 10 cards' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Show all cards' }))
+    expect(apply).toHaveBeenCalledWith(
+      { type: 'list.update', id: 'list-1', patch: { visibleCardLimit: null } },
+      expect.any(Function)
+    )
+  })
 })

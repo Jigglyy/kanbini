@@ -42,6 +42,8 @@ import { CSS } from '@dnd-kit/utilities'
 import {
   ArrowDownUp,
   Check,
+  ChevronDown,
+  ChevronUp,
   Globe,
   GripVertical,
   ListPlus,
@@ -89,6 +91,11 @@ import {
   toggledCollapsed,
   withCardCollapsed
 } from '../lib/card-density'
+import {
+  isCardHidden,
+  resolveTruncatedDrop,
+  visibleCards
+} from '../lib/list-visibility'
 import { cn } from '../lib/utils'
 import { ContextMenu } from './ui/context-menu'
 import { CardLabels } from './labels'
@@ -669,6 +676,78 @@ export function Board({
   const selectionAnchorRef = useRef<string | null>(null)
   const boardRef = useRef(board)
   boardRef.current = board
+  // "Show first N" (list.visibleCardLimit) session state - never saved,
+  // so reopening the board shows N again. `revealedLists`: lists showing
+  // everything (Show more, or revealed for you - see ensureCardVisible).
+  // `pinnedCards`: cards moved INTO a list this session; they always
+  // show and don't use up one of the N slots (lib/list-visibility.ts).
+  // Limits are a flat-layout feature: swimlane cells ignore them in v1
+  // (ListColumn only renders in the flat layout, and the helpers below
+  // bail in swimlane mode).
+  const [revealedLists, setRevealedLists] =
+    useState<ReadonlySet<string>>(EMPTY_SELECTION)
+  const [pinnedCards, setPinnedCards] =
+    useState<ReadonlySet<string>>(EMPTY_SELECTION)
+  const revealedRef = useRef(revealedLists)
+  revealedRef.current = revealedLists
+  const pinnedRef = useRef(pinnedCards)
+  pinnedRef.current = pinnedCards
+  const revealList = useCallback((listId: string): void => {
+    setRevealedLists((prev) =>
+      prev.has(listId) ? prev : new Set(prev).add(listId)
+    )
+  }, [])
+  const toggleReveal = useCallback((listId: string): void => {
+    setRevealedLists((prev) => {
+      const next = new Set(prev)
+      if (next.has(listId)) next.delete(listId)
+      else next.add(listId)
+      return next
+    })
+  }, [])
+  /** Reveal a card's list when the card is hidden by the list's limit.
+   *  Called wherever the UI moves you TO a card - keyboard focus, a
+   *  search hit - so a limit never leaves you focused on something that
+   *  isn't on screen. Reads refs, so it's stable. */
+  const ensureCardVisible = useCallback(
+    (cardId: string): void => {
+      if (boardRef.current.board.swimlaneMode) return
+      const list = boardRef.current.lists.find((l) =>
+        l.cards.some((c) => c.id === cardId)
+      )
+      if (!list) return
+      if (
+        isCardHidden(
+          list.cards,
+          cardId,
+          list.visibleCardLimit,
+          revealedRef.current.has(list.id),
+          pinnedRef.current
+        )
+      ) {
+        revealList(list.id)
+      }
+    },
+    [revealList]
+  )
+  /** Visible card ids for a list, or null when nothing is hidden. Used
+   *  to aim a drop on the list itself just below the last card on
+   *  screen (resolveTruncatedDrop) instead of behind the hidden ones. */
+  const shownIdsOf = useCallback(
+    (b: BoardView, listId: string): string[] | null => {
+      if (b.board.swimlaneMode) return null
+      const list = b.lists.find((l) => l.id === listId)
+      if (!list) return null
+      const v = visibleCards(
+        list.cards,
+        list.visibleCardLimit,
+        revealedRef.current.has(list.id),
+        pinnedRef.current
+      )
+      return v.hiddenCount > 0 ? v.shown.map((c) => c.id) : null
+    },
+    []
+  )
   const selectedIdsRef = useRef(selectedIds)
   selectedIdsRef.current = selectedIds
   const clearSelection = useCallback((): void => {
@@ -683,9 +762,12 @@ export function Board({
   useEffect(() => {
     if (initialOpenCardId) {
       setOpenCardId(initialOpenCardId)
+      // A search hit can be a card hidden by its list's limit - reveal
+      // the list so the card is on screen when the detail closes.
+      ensureCardVisible(initialOpenCardId)
       onConsumedOpenCard?.()
     }
-  }, [initialOpenCardId, onConsumedOpenCard])
+  }, [initialOpenCardId, onConsumedOpenCard, ensureCardVisible])
   const sensors = useSensors(
     // Distance constraint so clicking the card buttons still works.
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
@@ -871,6 +953,9 @@ export function Board({
     setFocusedCardId(id)
     setFocusRingVisible(showRing)
     if (!id) return
+    // Keyboard nav / move can land on a card past its list's limit;
+    // reveal the list so the scroll below has a node to land on.
+    ensureCardVisible(id)
     // requestAnimationFrame lets React commit the focused style + any
     // sibling reorder first, so scrollIntoView lands on the final box.
     requestAnimationFrame(() => {
@@ -884,7 +969,7 @@ export function Board({
         node.scrollIntoView({ block: 'nearest', inline: 'nearest' })
       }
     })
-  }, [])
+  }, [ensureCardVisible])
 
   /** Card-move handler (kept local so it can be reused by the keyboard
    *  Alt+arrow actions without going through the dnd-kit path). Same
@@ -1022,9 +1107,21 @@ export function Board({
         const list = boardRef.current.lists.find((l) =>
           l.cards.some((c) => c.id === cardId)
         )
+        // Only cards on screen: a Shift-click range must never pick up
+        // cards hidden behind a list's "Show N more".
+        const onScreen = list
+          ? boardRef.current.board.swimlaneMode
+            ? list.cards
+            : visibleCards(
+                list.cards,
+                list.visibleCardLimit,
+                revealedRef.current.has(list.id),
+                pinnedRef.current
+              ).shown
+          : []
         const ids =
           anchor && list
-            ? rangeWithinList(list.cards.map((c) => c.id), anchor, cardId)
+            ? rangeWithinList(onScreen.map((c) => c.id), anchor, cardId)
             : []
         setSelectedIds((prev) => {
           const next = new Set(prev)
@@ -1547,17 +1644,31 @@ export function Board({
     const aRect = active.rect.current.translated
     const oRect = over.rect
     const below = !!aRect && aRect.top > oRect.top + oRect.height / 2
-    const position: 'before' | 'after' = below ? 'after' : 'before'
+    // Over a truncated list's own droppable (its "Show N more" footer or
+    // the space below the last visible card): aim just below the last
+    // card on screen, not behind the hidden ones.
+    const aimed = resolveTruncatedDrop(
+      overId,
+      below ? 'after' : 'before',
+      activeId,
+      (id) => shownIdsOf(cur, id)
+    )
+    const position = aimed.position
     const pending = pendingCrossRef.current
     if (!pending || pending.toListId !== toId) {
       // Newly over this list: arm the dwell timer from first entry.
-      pendingCrossRef.current = { activeId, overId, toListId: toId, position }
+      pendingCrossRef.current = {
+        activeId,
+        overId: aimed.overId,
+        toListId: toId,
+        position
+      }
       if (dwellTimerRef.current !== null) clearTimeout(dwellTimerRef.current)
       dwellTimerRef.current = setTimeout(commitCrossDwell, CROSS_LIST_DWELL_MS)
     } else {
       // Still over the same list, moving within it: refine the drop slot but
       // let the timer keep counting from when we first entered.
-      pending.overId = overId
+      pending.overId = aimed.overId
       pending.position = position
     }
   }
@@ -1631,8 +1742,14 @@ export function Board({
         const aRect = e.active.rect.current.translated
         const oRect = e.over.rect
         const below = !!aRect && aRect.top > oRect.top + oRect.height / 2
-        const position: 'before' | 'after' = below ? 'after' : 'before'
-        const reordered = reduceCardMove(b, activeId, overId, position)
+        const cur = b
+        const aimed = resolveTruncatedDrop(
+          overId,
+          below ? 'after' : 'before',
+          activeId,
+          (id) => shownIdsOf(cur, id)
+        )
+        const reordered = reduceCardMove(b, activeId, aimed.overId, aimed.position)
         if (reordered !== b) {
           b = reordered
           // A same-list reorder happens here AT drop (onDragOver leaves
@@ -1660,6 +1777,18 @@ export function Board({
     if (isUnchangedMove(snap, b, activeId)) {
       if (snap) qc.setQueryData(key, snap)
       return
+    }
+
+    // A card moved INTO a list stays on screen there for the session,
+    // even past the list's limit, and doesn't take one of its N slots
+    // (so the drop never pushes another card out of view).
+    if (snap && listOf(snap, activeId) !== toId) {
+      setPinnedCards((prev) => {
+        const next = new Set(prev)
+        next.add(activeId)
+        if (isMulti) for (const id of block) next.add(id)
+        return next
+      })
     }
 
     // Multi-card drag: re-cluster the WHOLE selection at the lead's drop
@@ -1975,6 +2104,11 @@ export function Board({
                   key={list.id}
                   list={list}
                   capped={capLists}
+                  revealed={revealedLists.has(list.id)}
+                  pinnedIds={pinnedCards}
+                  activeCardId={dragging?.id ?? null}
+                  onToggleReveal={toggleReveal}
+                  onRevealList={revealList}
                   labels={board.labels}
                   apply={apply}
                   blockCreate={blockCreate}
@@ -2096,6 +2230,8 @@ export function Board({
               showChecklist={showChecklist}
               labelsExpanded={labelsExpanded}
               capped={capLists}
+              revealed={revealedLists.has(draggingList.id)}
+              pinnedIds={pinnedCards}
             />
           </div>
         )}
@@ -2252,6 +2388,11 @@ export function ListHeader({
 const ListColumn = memo(function ListColumn({
   list,
   capped = false,
+  revealed = false,
+  pinnedIds = EMPTY_SELECTION,
+  activeCardId = null,
+  onToggleReveal,
+  onRevealList,
   labels,
   apply,
   blockCreate,
@@ -2279,6 +2420,16 @@ const ListColumn = memo(function ListColumn({
    *  ancestors of whatever is under the pointer) and useSmoothHeight's
    *  above-fold compensation targets it. */
   capped?: boolean
+  /** "Show first N" (list.visibleCardLimit) session state, owned by
+   *  Board: whether this list shows everything right now, the cards
+   *  moved in this session (always shown, don't use a slot), and the
+   *  card in the air (treated as pinned while dragged). See
+   *  lib/list-visibility.ts. */
+  revealed?: boolean
+  pinnedIds?: ReadonlySet<string>
+  activeCardId?: string | null
+  onToggleReveal?: (listId: string) => void
+  onRevealList?: (listId: string) => void
   labels: LabelView[]
   apply: (m: Mutation, o: Optimistic) => void
   blockCreate: boolean
@@ -2386,7 +2537,25 @@ const ListColumn = memo(function ListColumn({
   // `useDerivedTransform` "Maximum update depth exceeded" crash and a
   // source of needless per-frame recompute. `list.cards` only changes
   // identity when the cache actually reorders, so key the memo on it.
-  const itemIds = useMemo(() => list.cards.map((c) => c.id), [list.cards])
+  // Cards on screen under the list's limit. `list.cards` stays the whole
+  // list everywhere else: the header count, the WIP limit, and the drop
+  // math (computeMoveTarget) all use every card.
+  const { shown, hiddenCount } = useMemo(
+    () =>
+      visibleCards(
+        list.cards,
+        list.visibleCardLimit,
+        revealed,
+        pinnedIds,
+        activeCardId
+      ),
+    [list.cards, list.visibleCardLimit, revealed, pinnedIds, activeCardId]
+  )
+  const canShowFewer =
+    revealed &&
+    list.visibleCardLimit != null &&
+    list.cards.length > list.visibleCardLimit
+  const itemIds = useMemo(() => shown.map((c) => c.id), [shown])
   return (
     <section
       ref={setSectionRef}
@@ -2430,7 +2599,7 @@ const ListColumn = memo(function ListColumn({
             capped && 'min-h-0 overflow-y-auto pb-1 [overflow-anchor:none]'
           )}
         >
-          {list.cards.map((card) => (
+          {shown.map((card) => (
             <SortableCard
               key={card.id}
               card={card}
@@ -2453,10 +2622,36 @@ const ListColumn = memo(function ListColumn({
         </ul>
       </SortableContext>
 
+      {(hiddenCount > 0 || canShowFewer) && (
+        // Outside the scroll body so it stays in view with "Add a card".
+        // It sits over the list's own droppable, so a card dropped here
+        // lands just below the last visible card (resolveTruncatedDrop).
+        <button
+          onClick={() => onToggleReveal?.(list.id)}
+          className="mx-2 mt-1 flex items-center gap-1 rounded-md px-3 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          {hiddenCount > 0 ? (
+            <>
+              <ChevronDown className="size-3.5" />
+              Show {hiddenCount} more
+            </>
+          ) : (
+            <>
+              <ChevronUp className="size-3.5" />
+              Show fewer
+            </>
+          )}
+        </button>
+      )}
+
       <AddCard
         listId={list.id}
         full={atLimit && blockCreate}
-        onAdd={(title) =>
+        onAdd={(title) => {
+          // The new card lands at the END of the list - behind the hidden
+          // ones on a truncated list - so show everything, or you'd add a
+          // card and watch nothing happen.
+          if (hiddenCount > 0) onRevealList?.(list.id)
           apply({ type: 'card.create', listId: list.id, title }, (b) =>
             mapLists(b, (l) =>
               l.id === list.id
@@ -2485,7 +2680,7 @@ const ListColumn = memo(function ListColumn({
                 : l
             )
           )
-        }
+        }}
       />
     </section>
   )
@@ -2508,18 +2703,35 @@ function ListColumnPreview({
   labels,
   showChecklist,
   labelsExpanded,
-  capped = false
+  capped = false,
+  revealed = false,
+  pinnedIds = EMPTY_SELECTION
 }: {
   list: BoardView['lists'][number]
   labels: LabelView[]
   showChecklist: boolean
   labelsExpanded?: boolean
+  /** Mirror the source column's "Show first N" state so the clone holds
+   *  the same cards and footer - and so the same height dnd-kit sized
+   *  the overlay box to. */
+  revealed?: boolean
+  pinnedIds?: ReadonlySet<string>
   /** Mirror a capped (scroll-on-its-own) column: fill the overlay box
    *  dnd-kit sized to the source, clip the body, and copy the source
    *  body's scroll position so the lifted column shows the same cards
    *  the user grabbed, not the top of the list. */
   capped?: boolean
 }) {
+  const { shown, hiddenCount } = visibleCards(
+    list.cards,
+    list.visibleCardLimit,
+    revealed,
+    pinnedIds
+  )
+  const canShowFewer =
+    revealed &&
+    list.visibleCardLimit != null &&
+    list.cards.length > list.visibleCardLimit
   const bodyRef = useRef<HTMLUListElement | null>(null)
   useLayoutEffect(() => {
     if (!capped || !bodyRef.current) return
@@ -2560,7 +2772,7 @@ function ListColumnPreview({
           capped && 'min-h-0 flex-1 overflow-hidden pb-1'
         )}
       >
-        {list.cards.map((card) => (
+        {shown.map((card) => (
           <li key={card.id} className="shrink-0">
             <CardFace
               card={card}
@@ -2579,6 +2791,23 @@ function ListColumnPreview({
           its container and the lift shadow wrapped the empty gap below
           the cards. Mirrors AddCard's box metrics (m-2 + px-3 py-2 +
           text-sm) so the preview height matches the real column. */}
+      {(hiddenCount > 0 || canShowFewer) && (
+        // Static stand-in for the "Show N more" / "Show fewer" footer -
+        // same box metrics, so the clone is as tall as the source.
+        <div className="mx-2 mt-1 flex items-center gap-1 rounded-md px-3 py-1.5 text-xs text-muted-foreground">
+          {hiddenCount > 0 ? (
+            <>
+              <ChevronDown className="size-3.5" />
+              Show {hiddenCount} more
+            </>
+          ) : (
+            <>
+              <ChevronUp className="size-3.5" />
+              Show fewer
+            </>
+          )}
+        </div>
+      )}
       <div className="m-2 rounded-md border border-transparent px-3 py-2 text-sm text-muted-foreground">
         + Add a card
       </div>
