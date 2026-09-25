@@ -17,26 +17,28 @@ test.afterEach(async () => {
   await handle?.cleanup()
 })
 
-// A valid 1x1 PNG (same bytes as card-cover.spec). Round-tripped through
-// the OS clipboard it reads back as a non-empty image, which is all the
-// handler needs.
-const PNG_BYTES = [
-  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
-  0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-  0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
-  0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
-  0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
-  0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82
-]
+// The clipboard image is built from a raw 8x8 bitmap, NOT decoded from
+// PNG bytes. The spec used to call nativeImage.createFromBuffer() on a 1x1
+// PNG, and that decode intermittently returned an EMPTY image before any
+// app code ran - so the handler correctly saw "no image on the clipboard"
+// and the spec failed. createFromBitmap involves no decoder; the handler
+// still gets a real image and still writes it out as PNG.
+const BITMAP_SIDE = 8
 
 test('Ctrl+V in an open card attaches the clipboard image', async () => {
   handle = await launchKanbini()
   const { page, app } = handle
 
   // Put a real PNG on the system clipboard via the main process.
-  await app.evaluate(({ clipboard, nativeImage }, bytes) => {
-    clipboard.writeImage(nativeImage.createFromBuffer(Buffer.from(bytes)))
-  }, PNG_BYTES)
+  await app.evaluate(({ clipboard, nativeImage }, side) => {
+    // BGRA, opaque mid-grey.
+    const img = nativeImage.createFromBitmap(Buffer.alloc(side * side * 4, 200), {
+      width: side,
+      height: side
+    })
+    if (img.isEmpty()) throw new Error('test fixture image is empty')
+    clipboard.writeImage(img)
+  }, BITMAP_SIDE)
 
   await page.getByText('Welcome Board', { exact: true }).click()
   await page
