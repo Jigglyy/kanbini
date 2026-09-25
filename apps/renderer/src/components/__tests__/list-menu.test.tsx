@@ -347,4 +347,55 @@ describe('<ListEditor>', () => {
     expect(onSaveAsTemplate).toHaveBeenCalledTimes(1)
     expect(close).toHaveBeenCalledTimes(1)
   })
+
+  it('Cards: Compact sets the list density with an optimistic projection', async () => {
+    const apply = vi.fn<(m: Mutation, o: unknown) => void>()
+    const close = vi.fn()
+    render(<ListEditor list={makeList()} apply={apply} close={close} />)
+    expect(screen.getByRole('button', { name: 'Full' })).toHaveAttribute('aria-pressed', 'true')
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Compact' }))
+    expect(apply).toHaveBeenCalledWith(
+      { type: 'list.update', id: 'list-1', patch: { cardDensity: 'compact' } },
+      expect.any(Function)
+    )
+    // The projection flips the cached list's density.
+    const project = apply.mock.calls[0]![1] as (b: unknown) => {
+      lists: Array<{ cardDensity: string | null }>
+    }
+    const projected = project({
+      project: { id: 'p', name: 'P' },
+      board: { id: 'b', name: 'B', color: null, background: null, swimlaneMode: null },
+      labels: [],
+      lists: [makeList()]
+    })
+    expect(projected.lists[0]!.cardDensity).toBe('compact')
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it('Cards: clicking the active density just closes the menu', async () => {
+    const apply = vi.fn<(m: Mutation, o: unknown) => void>()
+    const close = vi.fn()
+    render(
+      <ListEditor list={makeList({ cardDensity: 'compact' })} apply={apply} close={close} />
+    )
+    expect(screen.getByRole('button', { name: 'Compact' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Compact' }))
+    expect(apply).not.toHaveBeenCalled()
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it('Cards: Full clears a compact list back to null', async () => {
+    const apply = vi.fn<(m: Mutation, o: unknown) => void>()
+    render(
+      <ListEditor list={makeList({ cardDensity: 'compact' })} apply={apply} close={vi.fn()} />
+    )
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Full' }))
+    expect(apply).toHaveBeenCalledWith(
+      { type: 'list.update', id: 'list-1', patch: { cardDensity: null } },
+      expect.any(Function)
+    )
+  })
 })

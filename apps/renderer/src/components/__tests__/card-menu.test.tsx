@@ -277,4 +277,52 @@ describe('<CardMenu>', () => {
     // appear (active state highlights it but the label is in the DOM).
     expect(screen.getByText('High')).toBeInTheDocument()
   })
+
+  it('offers Collapse card when the host supplies a toggle', async () => {
+    const onToggleCollapse = vi.fn()
+    const close = vi.fn()
+    render(
+      <CardMenu
+        card={makeCard()}
+        labels={NO_LABELS}
+        apply={vi.fn()}
+        close={close}
+        onRequestCoverFromUrl={vi.fn()}
+        compact={false}
+        onToggleCollapse={onToggleCollapse}
+      />
+    )
+    await userEvent.setup().click(screen.getByText('Collapse card'))
+    expect(onToggleCollapse).toHaveBeenCalledTimes(1)
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it('says Expand card on a compact card', () => {
+    render(
+      <CardMenu
+        card={makeCard()}
+        labels={NO_LABELS}
+        apply={vi.fn()}
+        close={vi.fn()}
+        onRequestCoverFromUrl={vi.fn()}
+        compact
+        onToggleCollapse={vi.fn()}
+      />
+    )
+    expect(screen.getByText('Expand card')).toBeInTheDocument()
+  })
+
+  it('leaves the item out when there is no toggle', () => {
+    render(
+      <CardMenu
+        card={makeCard()}
+        labels={NO_LABELS}
+        apply={vi.fn()}
+        close={vi.fn()}
+        onRequestCoverFromUrl={vi.fn()}
+      />
+    )
+    expect(screen.queryByText('Collapse card')).not.toBeInTheDocument()
+    expect(screen.queryByText('Expand card')).not.toBeInTheDocument()
+  })
 })

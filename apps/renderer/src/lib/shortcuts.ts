@@ -45,6 +45,7 @@ export type ActionId =
   | 'card.open'
   | 'card.toggleSelect'
   | 'card.toggleComplete'
+  | 'card.toggleCollapse'
   | 'card.delete'
   | 'card.moveUp'
   | 'card.moveDown'
@@ -122,6 +123,13 @@ export const ACTION_REGISTRY: readonly ActionDef[] = [
     label: 'Toggle complete on focused card',
     group: 'Card',
     defaults: [k(' ')]
+  },
+  {
+    // `m` for "minimise" - `c` is already Add a card.
+    id: 'card.toggleCollapse',
+    label: 'Collapse / expand focused card',
+    group: 'Card',
+    defaults: [k('m')]
   },
   {
     id: 'card.delete',

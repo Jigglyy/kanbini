@@ -1,4 +1,10 @@
-import { FileImage, Globe, ImageOff } from 'lucide-react'
+import {
+  ChevronsDownUp,
+  ChevronsUpDown,
+  FileImage,
+  Globe,
+  ImageOff
+} from 'lucide-react'
 import type { BoardView, CardView, LabelView, Mutation } from '@kanbini/shared'
 import type { Optimistic } from '../hooks/useBoardMutation'
 import { ipc } from '../lib/ipc'
@@ -37,7 +43,9 @@ export function CardMenu({
   labels,
   apply,
   close,
-  onRequestCoverFromUrl
+  onRequestCoverFromUrl,
+  compact,
+  onToggleCollapse
 }: {
   card: CardView
   labels: LabelView[]
@@ -46,6 +54,11 @@ export function CardMenu({
   /** Lifted to the parent (SortableCard) so the URL modal survives
    *  this menu closing - ContextMenu unmounts its panel on close. */
   onRequestCoverFromUrl: () => void
+  /** Whether the card currently renders compact, and the toggle that
+   *  flips it (owned by SortableCard, which knows the list's density).
+   *  Optional so hosts without a list context omit the item. */
+  compact?: boolean
+  onToggleCollapse?: () => void
 }) {
   // "Set cover from file" is two awaited IPC calls (upload + set
   // cover). Bypasses the optimistic helper because the new
@@ -112,6 +125,23 @@ export function CardMenu({
       )}
 
       <MenuSep />
+      {onToggleCollapse && (
+        <MenuItem
+          onClick={() => {
+            onToggleCollapse()
+            close()
+          }}
+        >
+          <span className="inline-flex items-center gap-2">
+            {compact ? (
+              <ChevronsUpDown className="size-3.5" />
+            ) : (
+              <ChevronsDownUp className="size-3.5" />
+            )}
+            {compact ? 'Expand card' : 'Collapse card'}
+          </span>
+        </MenuItem>
+      )}
       <MenuItem
         onClick={() => {
           apply(

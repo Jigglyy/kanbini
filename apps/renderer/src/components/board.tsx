@@ -54,6 +54,7 @@ import {
 import emptyBoardSvg from '../assets/empty-board.svg?raw'
 import type {
   BoardView,
+  CardDensity,
   CardPriority,
   CardView,
   LabelView,
@@ -82,12 +83,18 @@ import {
   rangeWithinList,
   toggleSelection
 } from '../lib/card-selection'
+import {
+  isCardCompact,
+  toggledCollapsed,
+  withCardCollapsed
+} from '../lib/card-density'
 import { cn } from '../lib/utils'
 import { ContextMenu } from './ui/context-menu'
 import { CardLabels } from './labels'
 import { CardDetail } from './card-detail'
 import { CardChecklistPreview } from './checklists'
 import { DescriptionBadge } from './description-badge'
+import { CollapseToggle, CompactBadges } from './card-density'
 import { DueBadge } from './due-date'
 import { PriorityBadge } from './priority'
 import { CardMenu } from './card-menu'
@@ -357,7 +364,8 @@ function CardFace({
   selected,
   showChecklist,
   labelsExpanded,
-  resting
+  resting,
+  compact
 }: {
   card: CardView
   labels: LabelView[]
@@ -386,6 +394,10 @@ function CardFace({
    *  clone sets it so the cards inside look exactly like the resting
    *  column, not the hover-expanded state. */
   resting?: boolean
+  /** Mirror of the source card's compact state (collapsed card, or a
+   *  compact list) so the overlay / list-drag clone matches it. Frozen
+   *  at pickup for the drag overlay - see `draggingCompact` in Board. */
+  compact?: boolean
 }) {
   // Replicates `ring-2 ring-ring ring-offset-1 ring-offset-background`
   // as a two-shadow stack: a 1px solid in the background colour right
@@ -434,11 +446,11 @@ function CardFace({
           : ''
       }`}
     >
-      <CardCoverThumb card={card} />
+      {!compact && <CardCoverThumb card={card} />}
       <CardLabels
         labelIds={card.labelIds}
         labels={labels}
-        expanded={labelsExpanded}
+        expanded={compact ? false : labelsExpanded}
       />
       <div className="flex items-start gap-2">
         {/* Resting clone hides the checkbox for an incomplete card (it's
@@ -460,18 +472,19 @@ function CardFace({
             `wrap-anywhere` let unbreakable strings wrap so a long
             title can't blow the card out of the list. */}
         <span
-          className={`min-w-0 flex-1 wrap-anywhere pr-5 ${card.completed ? 'text-muted-foreground line-through' : ''}`}
+          className={`min-w-0 flex-1 wrap-anywhere pr-5 ${compact ? 'line-clamp-2' : ''} ${card.completed ? 'text-muted-foreground line-through' : ''}`}
         >
           {card.title}
         </span>
       </div>
-      <TitleUrlChip title={card.title} />
+      {!compact && <TitleUrlChip title={card.title} />}
       <div className="flex flex-wrap items-center gap-1.5">
         <DescriptionBadge card={card} />
         <PriorityBadge card={card} />
         <DueBadge card={card} />
+        {compact && <CompactBadges card={card} />}
       </div>
-      {showChecklist && (
+      {showChecklist && !compact && (
         // Match SortableCard's hovered-state ml - its wrapper shifts the
         // checklist right (16 px) to clear the now-visible checkbox
         // column. The overlay's CardFace ALWAYS shows the checkbox
@@ -564,6 +577,12 @@ export function Board({
   const key = boardKey(board.board.id)
   const snapshot = useRef<BoardView | null>(null)
   const [dragging, setDragging] = useState<CardView | null>(null)
+  // The grabbed card's compact state, frozen at pickup. A cross-list
+  // drag moves the card into the destination list LIVE, and that list
+  // may have a different density - re-deriving it mid-drag would resize
+  // the overlay under the cursor. dnd-kit sized the overlay to the source
+  // rect at pickup, so the overlay keeps the source look.
+  const [draggingCompact, setDraggingCompact] = useState(false)
   // List-column reorder. Holds the id of the list being
   // dragged so the DragOverlay can render a column preview; null when no
   // list drag is in flight. Card drags leave this null (and list drags
@@ -1235,6 +1254,20 @@ export function Board({
       setSelectedIds((prev) => toggleSelection(prev, id))
       selectionAnchorRef.current = id
     },
+    'card.toggleCollapse': (e) => {
+      if (!focusedCardId) return
+      const card = findCard(focusedCardId)
+      const owner = board.lists.find((l) =>
+        l.cards.some((c) => c.id === focusedCardId)
+      )
+      if (!card || !owner) return
+      consume(e)
+      const next = toggledCollapsed(card.collapsed, owner.cardDensity)
+      apply(
+        { type: 'card.update', id: card.id, patch: { collapsed: next } },
+        (b) => withCardCollapsed(b, card.id, next)
+      )
+    },
     'card.toggleComplete': (e) => {
       if (!focusedCardId) return
       const card = findCard(focusedCardId)
@@ -1387,7 +1420,16 @@ export function Board({
       return
     }
     snapshot.current = qc.getQueryData<BoardView | null>(key) ?? null
-    setDragging(findCard(activeId) ?? null)
+    const grabbed = findCard(activeId) ?? null
+    const sourceList = snapshot.current?.lists.find((l) =>
+      l.cards.some((c) => c.id === activeId)
+    )
+    setDragging(grabbed)
+    setDraggingCompact(
+      grabbed != null &&
+        sourceList != null &&
+        isCardCompact(grabbed.collapsed, sourceList.cardDensity)
+    )
     // Multi-card drag: grabbing one of 2+ selected cards drags the whole
     // selection. Capture the block in pre-drag board order (off the
     // snapshot) so they re-cluster in that order on drop. Swimlane mode
@@ -1880,11 +1922,12 @@ export function Board({
               addList={addList}
               apply={apply}
               blockCreate={blockCreate}
-              renderCards={(_list, _laneKey, cards) =>
+              renderCards={(cellList, _laneKey, cards) =>
                 cards.map((card) => (
                   <SortableCard
                     key={card.id}
                     card={card}
+                    listDensity={cellList.cardDensity}
                     labels={board.labels}
                     apply={apply}
                     showChecklist={showChecklist}
@@ -2007,6 +2050,7 @@ export function Board({
               selected={selectedIds.has(dragging.id)}
               showChecklist={showChecklist}
               labelsExpanded={labelsExpanded}
+              compact={draggingCompact}
             />
             {/* Multi-card drag: a count badge so it's clear the whole
                 selection is moving, not just the grabbed card. */}
@@ -2352,6 +2396,7 @@ const ListColumn = memo(function ListColumn({
             <SortableCard
               key={card.id}
               card={card}
+              listDensity={list.cardDensity}
               labels={labels}
               apply={apply}
               showChecklist={showChecklist}
@@ -2463,6 +2508,7 @@ function ListColumnPreview({
               showChecklist={showChecklist}
               labelsExpanded={labelsExpanded}
               resting
+              compact={isCardCompact(card.collapsed, list.cardDensity)}
             />
           </li>
         ))}
@@ -2482,6 +2528,7 @@ function ListColumnPreview({
 
 const SortableCard = memo(function SortableCard({
   card,
+  listDensity,
   labels,
   apply,
   showChecklist,
@@ -2497,6 +2544,12 @@ const SortableCard = memo(function SortableCard({
   postDropHoverMatch
 }: {
   card: CardView
+  /** The owning list's density. A card renders compact when
+   *  `card.collapsed ?? (listDensity === 'compact')`. Passed as the raw
+   *  value (a string / null, so memo-stable) rather than a resolved
+   *  boolean because the collapse toggle needs it to decide what to
+   *  store (see `toggledCollapsed`). */
+  listDensity: CardDensity | null
   labels: LabelView[]
   apply: (m: Mutation, o: Optimistic) => void
   showChecklist: boolean
@@ -2652,21 +2705,36 @@ const SortableCard = memo(function SortableCard({
   // a real data edit, `labels`/`apply`/`onToggleLabelsExpanded` are
   // referentially stable (board.labels, useBoardMutation, App
   // useCallback).
-  const coverEl = useMemo(() => <CardCoverThumb card={card} />, [card])
+  // Compact: no cover, URL chip, or checklist items; label BARS only
+  // (non-interactive - a bar click can't reveal names on a compact
+  // card, so it just opens the card like the rest of the surface); a
+  // 2-line title; count badges in the meta row for what's hidden.
+  const compact = isCardCompact(card.collapsed, listDensity)
+  const toggleCollapse = useCallback((): void => {
+    const next = toggledCollapsed(card.collapsed, listDensity)
+    apply(
+      { type: 'card.update', id: card.id, patch: { collapsed: next } },
+      (b) => withCardCollapsed(b, card.id, next)
+    )
+  }, [apply, card.id, card.collapsed, listDensity])
+  const coverEl = useMemo(
+    () => (compact ? null : <CardCoverThumb card={card} />),
+    [card, compact]
+  )
   const labelsEl = useMemo(
     () => (
       <CardLabels
         labelIds={card.labelIds}
         labels={labels}
-        expanded={labelsExpanded}
-        onToggleExpand={onToggleLabelsExpanded}
+        expanded={compact ? false : labelsExpanded}
+        onToggleExpand={compact ? undefined : onToggleLabelsExpanded}
       />
     ),
-    [card.labelIds, labels, labelsExpanded, onToggleLabelsExpanded]
+    [card.labelIds, labels, labelsExpanded, onToggleLabelsExpanded, compact]
   )
   const checklistEl = useMemo(
     () =>
-      showChecklist ? (
+      showChecklist && !compact ? (
         <div
           className={cn(
             'transition-[margin-left] duration-200 ease-out',
@@ -2678,7 +2746,7 @@ const SortableCard = memo(function SortableCard({
           <CardChecklistPreview card={card} apply={apply} />
         </div>
       ) : null,
-    [showChecklist, card, apply]
+    [showChecklist, card, apply, compact]
   )
   const metaEl = useMemo(
     () => (
@@ -2686,16 +2754,17 @@ const SortableCard = memo(function SortableCard({
         <DescriptionBadge card={card} />
         <PriorityBadge card={card} />
         <DueBadge card={card} />
+        {compact && <CompactBadges card={card} />}
       </div>
     ),
-    [card]
+    [card, compact]
   )
   // TitleUrlChip runs a URL regex over the title on every render -
   // memoize on the title so a drag's per-frame wrapper renders don't
   // re-scan it.
   const titleChipEl = useMemo(
-    () => <TitleUrlChip title={card.title} />,
-    [card.title]
+    () => (compact ? null : <TitleUrlChip title={card.title} />),
+    [card.title, compact]
   )
 
   return (
@@ -2714,6 +2783,8 @@ const SortableCard = memo(function SortableCard({
             apply={apply}
             close={close}
             onRequestCoverFromUrl={() => setUrlCoverOpen(true)}
+            compact={compact}
+            onToggleCollapse={toggleCollapse}
           />
         )
       }
@@ -2858,6 +2929,7 @@ const SortableCard = memo(function SortableCard({
             <span
               className={cn(
                 'min-w-0 flex-1 wrap-anywhere pr-5',
+                compact && 'line-clamp-2',
                 card.completed && 'text-muted-foreground line-through'
               )}
             >
@@ -2883,17 +2955,24 @@ const SortableCard = memo(function SortableCard({
             </span>
           )}
 
-          {/* Hover edit affordance - same menu as right-click. Hidden
-              while selected so it doesn't collide with the badge. */}
+          {/* Hover affordances - collapse/expand, then edit (same menu
+              as right-click). Hidden while selected so they don't
+              collide with the badge. `bg-card` so, on hover, the pair
+              cleanly covers the end of a long title instead of sitting
+              on top of its letters (the title only reserves room for
+              one button). */}
           {!selected && (
-            <button
-              aria-label="Edit card"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={open}
-              className="absolute right-1.5 top-1.5 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover/card:opacity-100"
-            >
-              <Pencil className="size-3.5" />
-            </button>
+            <div className="absolute right-1.5 top-1.5 flex items-center gap-0.5 rounded bg-card opacity-0 transition-opacity group-hover/card:opacity-100">
+              <CollapseToggle compact={compact} onToggle={toggleCollapse} />
+              <button
+                aria-label="Edit card"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={open}
+                className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <Pencil className="size-3.5" />
+              </button>
+            </div>
           )}
         </li>
       )}

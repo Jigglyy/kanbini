@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type {
   BoardView,
+  CardDensity,
   ListOnEnterRule,
   ListSortMode,
   ListView,
@@ -230,6 +231,47 @@ export function ListEditor({
               className={cn(
                 'rounded px-2 py-1 text-xs',
                 full && 'col-span-2',
+                active
+                  ? 'bg-accent text-foreground'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              )}
+            >
+              {label}
+            </button>
+          )
+        })}
+      </div>
+      <MenuSep />
+      <MenuLabel>Cards</MenuLabel>
+      <div className="grid grid-cols-2 gap-1 px-2 py-1">
+        {(
+          [
+            ['Full', null],
+            ['Compact', 'compact']
+          ] as Array<[string, CardDensity | null]>
+        ).map(([label, density]) => {
+          const active = list.cardDensity === density
+          return (
+            <button
+              key={label}
+              aria-pressed={active}
+              onClick={() => {
+                if (active) {
+                  close()
+                  return
+                }
+                apply(
+                  {
+                    type: 'list.update',
+                    id: list.id,
+                    patch: { cardDensity: density }
+                  },
+                  (b) => patchList(b, list.id, { cardDensity: density })
+                )
+                close()
+              }}
+              className={cn(
+                'rounded px-2 py-1 text-xs',
                 active
                   ? 'bg-accent text-foreground'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
