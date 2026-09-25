@@ -10,6 +10,7 @@ import {
   type ListSortMode,
   type SwimlaneMode,
   firstOrderKey,
+  MAX_VISIBLE_CARD_LIMIT,
   newId,
   orderKeysBetween,
   zBoardBackground,
@@ -264,10 +265,18 @@ export function parseCardDensity(s: string | null): CardDensity | null {
   return r.success ? r.data : null
 }
 
-/** Soft-narrow a stored list.visible_card_limit: anything but a positive
- *  integer (a hand-edited row, a future sentinel) reads as "show all". */
+/** Soft-narrow a stored list.visible_card_limit: anything but an integer
+ *  in 1..MAX_VISIBLE_CARD_LIMIT (a hand-edited row, a future sentinel)
+ *  reads as "show all". The upper bound matters: the view, template and
+ *  mutation schemas all cap at the same value, so passing a larger stored
+ *  value through would make e.g. saving a template of that list throw. */
 export function parseVisibleCardLimit(n: number | null): number | null {
-  return typeof n === 'number' && Number.isInteger(n) && n > 0 ? n : null
+  return typeof n === 'number' &&
+    Number.isInteger(n) &&
+    n > 0 &&
+    n <= MAX_VISIBLE_CARD_LIMIT
+    ? n
+    : null
 }
 
 /** ORDER BY clause for a list's cards under the given sort mode. Manual

@@ -128,6 +128,23 @@ describe('soft-narrowing on read', () => {
     expect(viewList(s.boardId).cardDensity).toBeNull()
   })
 
+  it('a stored limit above the schema cap reads as show-all', () => {
+    const s = seed()
+    sqlite.prepare('UPDATE list SET visible_card_limit = ? WHERE id = ?').run(5000, s.listId)
+    expect(viewList(s.boardId).visibleCardLimit).toBeNull()
+    sqlite.prepare('UPDATE list SET visible_card_limit = ? WHERE id = ?').run(1000, s.listId)
+    expect(viewList(s.boardId).visibleCardLimit).toBe(1000)
+  })
+
+  it('a template can still be saved from a list with an oversize stored limit', () => {
+    // parseVisibleCardLimit used to pass 5000 straight through into the
+    // template schema (capped at 1000), which threw.
+    const s = seed()
+    sqlite.prepare('UPDATE list SET visible_card_limit = ? WHERE id = ?').run(5000, s.listId)
+    expect(() => saveListTemplate(db, s.listId, 'LT')).not.toThrow()
+    expect(() => saveBoardTemplate(db, s.boardId, 'BT')).not.toThrow()
+  })
+
   it('a non-positive stored limit reads as show-all', () => {
     const s = seed()
     sqlite.prepare('UPDATE list SET visible_card_limit = ? WHERE id = ?').run(0, s.listId)

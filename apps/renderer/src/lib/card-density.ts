@@ -39,6 +39,23 @@ export function toggledCollapsed(
   return collapsedFor(!isCardCompact(collapsed, density), density)
 }
 
+/** The mutation + optimistic projection for toggling a card's collapse,
+ *  shared by the hover chevron / card menu (SortableCard) and the `m`
+ *  shortcut (Board) so the two can't drift. */
+export function collapseToggle(
+  card: Pick<CardView, 'id' | 'collapsed'>,
+  density: CardDensity | null
+): {
+  mutation: { type: 'card.update'; id: string; patch: { collapsed: boolean | null } }
+  optimistic: (b: BoardView) => BoardView
+} {
+  const next = toggledCollapsed(card.collapsed, density)
+  return {
+    mutation: { type: 'card.update', id: card.id, patch: { collapsed: next } },
+    optimistic: (b) => withCardCollapsed(b, card.id, next)
+  }
+}
+
 /** Optimistic projection: one card's `collapsed` changes. */
 export function withCardCollapsed(
   b: BoardView,

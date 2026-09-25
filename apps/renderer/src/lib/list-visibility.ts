@@ -13,8 +13,10 @@
 //     dropped always shows, even past the limit, and pinned cards don't
 //     use up one of the N slots, so a drop never makes some other card
 //     vanish from view.
-//   - `activeId`: the card being dragged counts as pinned for the same
-//     reason while it's in the air.
+//   - `activeId`: a card being dragged INTO this list from another one
+//     counts as pinned for the same reason while it's in the air. A card
+//     dragged within its own list is NOT passed here - it keeps its
+//     normal slot, so picking it up doesn't pull a hidden card into view.
 
 export interface ListVisibility<T> {
   shown: T[]
@@ -79,6 +81,26 @@ export function resolveTruncatedDrop(
   if (!shown) return { overId, position }
   const last = [...shown].reverse().find((id) => id !== activeId)
   return last ? { overId: last, position: 'after' } : { overId, position }
+}
+
+/** What the list's footer should offer: "Show N more" when cards are
+ *  hidden, "Show fewer" only when folding back would actually hide
+ *  something (pinned cards never fold away, so a revealed list whose
+ *  extra cards are all pinned has nothing to fold), else nothing. Shared
+ *  by the real column and the list-drag preview so the two can't drift. */
+export function listFooterState<T extends { id: string }>(
+  cards: readonly T[],
+  limit: number | null,
+  revealed: boolean,
+  pinned: ReadonlySet<string>,
+  activeId: string | null = null
+): { kind: 'more'; count: number } | { kind: 'fewer' } | null {
+  const now = visibleCards(cards, limit, revealed, pinned, activeId)
+  if (now.hiddenCount > 0) return { kind: 'more', count: now.hiddenCount }
+  if (revealed && visibleCards(cards, limit, false, pinned, activeId).hiddenCount > 0) {
+    return { kind: 'fewer' }
+  }
+  return null
 }
 
 /** The limits the list menu offers; null = show all. */

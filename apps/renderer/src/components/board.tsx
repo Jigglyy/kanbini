@@ -86,13 +86,10 @@ import {
   rangeWithinList,
   toggleSelection
 } from '../lib/card-selection'
-import {
-  isCardCompact,
-  toggledCollapsed,
-  withCardCollapsed
-} from '../lib/card-density'
+import { collapseToggle, isCardCompact } from '../lib/card-density'
 import {
   isCardHidden,
+  listFooterState,
   resolveTruncatedDrop,
   visibleCards
 } from '../lib/list-visibility'
@@ -697,6 +694,21 @@ export function Board({
       prev.has(listId) ? prev : new Set(prev).add(listId)
     )
   }, [])
+  /** Pin cards moved into a list (idempotent; keeps the Set identity
+   *  when nothing new is added, so memoised columns don't re-render). */
+  const pinCards = useCallback((ids: readonly string[]): void => {
+    setPinnedCards((prev) => {
+      if (ids.every((id) => prev.has(id))) return prev
+      const next = new Set(prev)
+      for (const id of ids) next.add(id)
+      return next
+    })
+  }, [])
+  // The list the dragged card started in. A card dragged within its own
+  // list keeps its normal slot under a limit; one carried into another
+  // list counts as pinned there (see lib/list-visibility.ts).
+  const dragSourceListRef = useRef<string | null>(null)
+  const [dragSourceListId, setDragSourceListId] = useState<string | null>(null)
   const toggleReveal = useCallback((listId: string): void => {
     setRevealedLists((prev) => {
       const next = new Set(prev)
@@ -709,16 +721,22 @@ export function Board({
    *  Called wherever the UI moves you TO a card - keyboard focus, a
    *  search hit - so a limit never leaves you focused on something that
    *  isn't on screen. Reads refs, so it's stable. */
+  /** `without`: a card that's about to leave the list (keyboard delete
+   *  hands focus to its neighbour before the delete lands) - judge
+   *  visibility as if it were already gone, so deleting the last visible
+   *  card doesn't expand the whole list to show a neighbour that would
+   *  have slid into view anyway. Returns true when it revealed. */
   const ensureCardVisible = useCallback(
-    (cardId: string): void => {
-      if (boardRef.current.board.swimlaneMode) return
+    (cardId: string, without?: string | null): boolean => {
+      if (boardRef.current.board.swimlaneMode) return false
       const list = boardRef.current.lists.find((l) =>
         l.cards.some((c) => c.id === cardId)
       )
-      if (!list) return
+      if (!list) return false
+      const cards = without ? list.cards.filter((c) => c.id !== without) : list.cards
       if (
         isCardHidden(
-          list.cards,
+          cards,
           cardId,
           list.visibleCardLimit,
           revealedRef.current.has(list.id),
@@ -726,7 +744,9 @@ export function Board({
         )
       ) {
         revealList(list.id)
+        return true
       }
+      return false
     },
     [revealList]
   )
@@ -734,15 +754,18 @@ export function Board({
    *  to aim a drop on the list itself just below the last card on
    *  screen (resolveTruncatedDrop) instead of behind the hidden ones. */
   const shownIdsOf = useCallback(
-    (b: BoardView, listId: string): string[] | null => {
+    (b: BoardView, listId: string, activeId: string): string[] | null => {
       if (b.board.swimlaneMode) return null
       const list = b.lists.find((l) => l.id === listId)
       if (!list) return null
+      // Same inputs ListColumn renders with - including the incoming
+      // card - so the drop is aimed against the cards actually on screen.
       const v = visibleCards(
         list.cards,
         list.visibleCardLimit,
         revealedRef.current.has(list.id),
-        pinnedRef.current
+        pinnedRef.current,
+        listId !== dragSourceListRef.current ? activeId : null
       )
       return v.hiddenCount > 0 ? v.shown.map((c) => c.id) : null
     },
@@ -949,27 +972,35 @@ export function Board({
   /** Re-focus a card and scroll it into view (smoothly, but cheap -
    *  the browser handles the actual scroll). Uses a data attribute so
    *  the card components don't need to expose refs upward. */
-  const focusCard = useCallback((id: string | null, showRing = true): void => {
-    setFocusedCardId(id)
-    setFocusRingVisible(showRing)
-    if (!id) return
-    // Keyboard nav / move can land on a card past its list's limit;
-    // reveal the list so the scroll below has a node to land on.
-    ensureCardVisible(id)
-    // requestAnimationFrame lets React commit the focused style + any
-    // sibling reorder first, so scrollIntoView lands on the final box.
-    requestAnimationFrame(() => {
-      // Use the browser's CSS.escape via `window` - the imported `CSS`
-      // from @dnd-kit/utilities is a different namespace (transform
-      // helpers only).
-      const node = document.querySelector(
-        `[data-card-id="${window.CSS.escape(id)}"]`
-      )
-      if (node instanceof HTMLElement) {
-        node.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  const focusCard = useCallback(
+    (id: string | null, showRing = true, without: string | null = null): void => {
+      setFocusedCardId(id)
+      setFocusRingVisible(showRing)
+      if (!id) return
+      const scroll = (): void => {
+        // Use the browser's CSS.escape via `window` - the imported `CSS`
+        // from @dnd-kit/utilities is a different namespace (transform
+        // helpers only).
+        const node = document.querySelector(
+          `[data-card-id="${window.CSS.escape(id)}"]`
+        )
+        if (node instanceof HTMLElement) {
+          node.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+        }
       }
-    })
-  }, [ensureCardVisible])
+      // Keyboard nav / move can land on a card past its list's limit;
+      // reveal the list first. When it does, wait one more frame so the
+      // newly mounted card exists before scrolling to it.
+      if (ensureCardVisible(id, without)) {
+        requestAnimationFrame(() => requestAnimationFrame(scroll))
+      } else {
+        // requestAnimationFrame lets React commit the focused style + any
+        // sibling reorder first, so scrollIntoView lands on the final box.
+        requestAnimationFrame(scroll)
+      }
+    },
+    [ensureCardVisible]
+  )
 
   /** Card-move handler (kept local so it can be reused by the keyboard
    *  Alt+arrow actions without going through the dnd-kit path). Same
@@ -977,6 +1008,12 @@ export function Board({
    *  key, broadcastChange triggers the renderer refetch. */
   const moveCardTo = useCallback(
     (cardId: string, toListId: string, beforeId: string | null, afterId: string | null): void => {
+      // Keyboard moves land at a fixed slot (Alt+Left/Right append at the
+      // end); under a list limit that's behind "Show N more". Pin the
+      // card so the one you just moved - and are still focused on - stays
+      // on screen, the same as a drag.
+      const dest = boardRef.current.lists.find((l) => l.id === toListId)
+      if (dest?.visibleCardLimit != null) pinCards([cardId])
       void ipc
         .mutate({
           type: 'card.move',
@@ -990,7 +1027,7 @@ export function Board({
           void qc.invalidateQueries({ queryKey: key })
         })
     },
-    [key, qc]
+    [key, qc, pinCards]
   )
 
   // --- List reorder ------------------------------------------------------
@@ -1211,6 +1248,8 @@ export function Board({
     (toListId: string): void => {
       const cards = currentSelectedCards()
       const target = boardRef.current.lists.find((l) => l.id === toListId)
+      // Appended at the end - behind "Show N more" on a limited list.
+      if (target?.visibleCardLimit != null) pinCards(cards.map((c) => c.id))
       let lastId = target?.cards[target.cards.length - 1]?.id ?? null
       const moves: Mutation[] = []
       for (const c of cards) {
@@ -1361,17 +1400,12 @@ export function Board({
     },
     'card.toggleCollapse': (e) => {
       if (!focusedCardId) return
-      const card = findCard(focusedCardId)
-      const owner = board.lists.find((l) =>
-        l.cards.some((c) => c.id === focusedCardId)
-      )
-      if (!card || !owner) return
+      const loc = locateCard(focusedCardId)
+      const card = loc?.list.cards[loc.cardIdx]
+      if (!loc || !card) return
       consume(e)
-      const next = toggledCollapsed(card.collapsed, owner.cardDensity)
-      apply(
-        { type: 'card.update', id: card.id, patch: { collapsed: next } },
-        (b) => withCardCollapsed(b, card.id, next)
-      )
+      const t = collapseToggle(card, loc.list.cardDensity)
+      apply(t.mutation, t.optimistic)
     },
     'card.toggleComplete': (e) => {
       if (!focusedCardId) return
@@ -1430,8 +1464,9 @@ export function Board({
         })
       // Hand focus to the neighbour now - focusCard scrolls it into
       // view too, so spam-delete keeps the cursor anchored where the
-      // user is reading.
-      focusCard(nextFocus)
+      // user is reading. Judge its visibility as if the deleted card
+      // were already gone (a list limit's freed slot shows it anyway).
+      focusCard(nextFocus, true, focusedCardId)
     },
     'card.moveUp': (e) => {
       if (!focusedCardId) return
@@ -1529,6 +1564,8 @@ export function Board({
     const sourceList = snapshot.current?.lists.find((l) =>
       l.cards.some((c) => c.id === activeId)
     )
+    dragSourceListRef.current = sourceList?.id ?? null
+    setDragSourceListId(sourceList?.id ?? null)
     setDragging(grabbed)
     setDraggingCompact(
       grabbed != null &&
@@ -1651,7 +1688,7 @@ export function Board({
       overId,
       below ? 'after' : 'before',
       activeId,
-      (id) => shownIdsOf(cur, id)
+      (id) => shownIdsOf(cur, id, activeId)
     )
     const position = aimed.position
     const pending = pendingCrossRef.current
@@ -1747,9 +1784,18 @@ export function Board({
           overId,
           below ? 'after' : 'before',
           activeId,
-          (id) => shownIdsOf(cur, id)
+          (id) => shownIdsOf(cur, id, activeId)
         )
         const reordered = reduceCardMove(b, activeId, aimed.overId, aimed.position)
+        // A card landing in a DIFFERENT list is pinned there. Do it BEFORE
+        // the synchronous flush below: that render already has
+        // dragging=null (the pointerup update is SyncLane), so without the
+        // pin in the same pass the card would be hidden by the list's
+        // limit exactly when dnd-kit measures it for the drop animation.
+        const destListId = listOf(reordered, activeId)
+        if (destListId && destListId !== dragSourceListRef.current) {
+          pinCards(isMulti ? [activeId, ...block] : [activeId])
+        }
         if (reordered !== b) {
           b = reordered
           // A same-list reorder happens here AT drop (onDragOver leaves
@@ -1779,16 +1825,13 @@ export function Board({
       return
     }
 
-    // A card moved INTO a list stays on screen there for the session,
-    // even past the list's limit, and doesn't take one of its N slots
-    // (so the drop never pushes another card out of view).
-    if (snap && listOf(snap, activeId) !== toId) {
-      setPinnedCards((prev) => {
-        const next = new Set(prev)
-        next.add(activeId)
-        if (isMulti) for (const id of block) next.add(id)
-        return next
-      })
+    // A card moved INTO a list stays on screen there for the session (see
+    // lib/list-visibility.ts). The fast-drop case was pinned above, before
+    // the synchronous flush; this covers the rest - notably a card the
+    // dwell already committed into a SORTED list, where the at-drop
+    // reorder above is skipped entirely. pinCards is idempotent.
+    if (toId !== dragSourceListRef.current) {
+      pinCards(isMulti ? [activeId, ...block] : [activeId])
     }
 
     // Multi-card drag: re-cluster the WHOLE selection at the lead's drop
@@ -1838,8 +1881,15 @@ export function Board({
     // scroll container to `scroll-behavior: smooth` for the drop
     // window so it glides instead, then clear it so the NEXT drag's
     // autoscroll stays instant (smooth autoscroll feels laggy).
-    const scroller = document.querySelector('main')
-    if (scroller instanceof HTMLElement) {
+    // Both possible scroll containers: <main>, and - when lists scroll on
+    // their own - the list body the card landed in.
+    const scrollers = [
+      document.querySelector('main'),
+      document
+        .querySelector(`[data-card-id="${window.CSS.escape(activeId)}"]`)
+        ?.closest('[data-list-body]') ?? null
+    ].filter((el): el is HTMLElement => el instanceof HTMLElement)
+    for (const scroller of scrollers) {
       scroller.style.scrollBehavior = 'smooth'
       setTimeout(() => {
         scroller.style.scrollBehavior = ''
@@ -2105,8 +2155,18 @@ export function Board({
                   list={list}
                   capped={capLists}
                   revealed={revealedLists.has(list.id)}
-                  pinnedIds={pinnedCards}
-                  activeCardId={dragging?.id ?? null}
+                  // Limit-gated so lists WITHOUT a limit get constant props
+                  // and their memo holds across drag start / end / drops.
+                  pinnedIds={
+                    list.visibleCardLimit != null ? pinnedCards : EMPTY_SELECTION
+                  }
+                  activeCardId={
+                    list.visibleCardLimit != null &&
+                    dragging != null &&
+                    list.id !== dragSourceListId
+                      ? dragging.id
+                      : null
+                  }
                   onToggleReveal={toggleReveal}
                   onRevealList={revealList}
                   labels={board.labels}
@@ -2551,10 +2611,17 @@ const ListColumn = memo(function ListColumn({
       ),
     [list.cards, list.visibleCardLimit, revealed, pinnedIds, activeCardId]
   )
-  const canShowFewer =
-    revealed &&
-    list.visibleCardLimit != null &&
-    list.cards.length > list.visibleCardLimit
+  const footer = useMemo(
+    () =>
+      listFooterState(
+        list.cards,
+        list.visibleCardLimit,
+        revealed,
+        pinnedIds,
+        activeCardId
+      ),
+    [list.cards, list.visibleCardLimit, revealed, pinnedIds, activeCardId]
+  )
   const itemIds = useMemo(() => shown.map((c) => c.id), [shown])
   return (
     <section
@@ -2622,27 +2689,10 @@ const ListColumn = memo(function ListColumn({
         </ul>
       </SortableContext>
 
-      {(hiddenCount > 0 || canShowFewer) && (
-        // Outside the scroll body so it stays in view with "Add a card".
-        // It sits over the list's own droppable, so a card dropped here
-        // lands just below the last visible card (resolveTruncatedDrop).
-        <button
-          onClick={() => onToggleReveal?.(list.id)}
-          className="mx-2 mt-1 flex items-center gap-1 rounded-md px-3 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          {hiddenCount > 0 ? (
-            <>
-              <ChevronDown className="size-3.5" />
-              Show {hiddenCount} more
-            </>
-          ) : (
-            <>
-              <ChevronUp className="size-3.5" />
-              Show fewer
-            </>
-          )}
-        </button>
-      )}
+      {/* Outside the scroll body so it stays in view with "Add a card".
+          It sits over the list's own droppable, so a card dropped here
+          lands just below the last visible card (resolveTruncatedDrop). */}
+      <ListFooter state={footer} onToggle={() => onToggleReveal?.(list.id)} />
 
       <AddCard
         listId={list.id}
@@ -2686,6 +2736,40 @@ const ListColumn = memo(function ListColumn({
   )
 })
 
+/** A list's "Show N more" / "Show fewer" footer. Interactive in the real
+ *  column; a static `div` with identical box metrics when `onToggle` is
+ *  omitted (the list-drag preview), so the two can never drift apart. */
+function ListFooter({
+  state,
+  onToggle
+}: {
+  state: ReturnType<typeof listFooterState>
+  onToggle?: () => void
+}) {
+  if (!state) return null
+  const content =
+    state.kind === 'more' ? (
+      <>
+        <ChevronDown className="size-3.5" />
+        Show {state.count} more
+      </>
+    ) : (
+      <>
+        <ChevronUp className="size-3.5" />
+        Show fewer
+      </>
+    )
+  const cls =
+    'mx-2 mt-1 flex items-center gap-1 rounded-md px-3 py-1.5 text-left text-xs text-muted-foreground'
+  return onToggle ? (
+    <button onClick={onToggle} className={cn(cls, 'hover:bg-muted hover:text-foreground')}>
+      {content}
+    </button>
+  ) : (
+    <div className={cls}>{content}</div>
+  )
+}
+
 /** Static clone of a list column, rendered inside the DragOverlay while a
  *  list is being reordered. No dnd-kit hooks / droppables (the overlay
  *  must not register drag nodes) and no interactive chrome - just the
@@ -2722,16 +2806,18 @@ function ListColumnPreview({
    *  the user grabbed, not the top of the list. */
   capped?: boolean
 }) {
-  const { shown, hiddenCount } = visibleCards(
+  const { shown } = visibleCards(
     list.cards,
     list.visibleCardLimit,
     revealed,
     pinnedIds
   )
-  const canShowFewer =
-    revealed &&
-    list.visibleCardLimit != null &&
-    list.cards.length > list.visibleCardLimit
+  const footer = listFooterState(
+    list.cards,
+    list.visibleCardLimit,
+    revealed,
+    pinnedIds
+  )
   const bodyRef = useRef<HTMLUListElement | null>(null)
   useLayoutEffect(() => {
     if (!capped || !bodyRef.current) return
@@ -2791,23 +2877,9 @@ function ListColumnPreview({
           its container and the lift shadow wrapped the empty gap below
           the cards. Mirrors AddCard's box metrics (m-2 + px-3 py-2 +
           text-sm) so the preview height matches the real column. */}
-      {(hiddenCount > 0 || canShowFewer) && (
-        // Static stand-in for the "Show N more" / "Show fewer" footer -
-        // same box metrics, so the clone is as tall as the source.
-        <div className="mx-2 mt-1 flex items-center gap-1 rounded-md px-3 py-1.5 text-xs text-muted-foreground">
-          {hiddenCount > 0 ? (
-            <>
-              <ChevronDown className="size-3.5" />
-              Show {hiddenCount} more
-            </>
-          ) : (
-            <>
-              <ChevronUp className="size-3.5" />
-              Show fewer
-            </>
-          )}
-        </div>
-      )}
+      {/* Static copy of the footer - same component, so the clone is
+          exactly as tall as the source column. */}
+      <ListFooter state={footer} />
       <div className="m-2 rounded-md border border-transparent px-3 py-2 text-sm text-muted-foreground">
         + Add a card
       </div>
@@ -3000,11 +3072,9 @@ const SortableCard = memo(function SortableCard({
   // 2-line title; count badges in the meta row for what's hidden.
   const compact = isCardCompact(card.collapsed, listDensity)
   const toggleCollapse = useCallback((): void => {
-    const next = toggledCollapsed(card.collapsed, listDensity)
-    apply(
-      { type: 'card.update', id: card.id, patch: { collapsed: next } },
-      (b) => withCardCollapsed(b, card.id, next)
-    )
+    const t = collapseToggle(card, listDensity)
+    apply(t.mutation, t.optimistic)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apply, card.id, card.collapsed, listDensity])
   const coverEl = useMemo(
     () => (compact ? null : <CardCoverThumb card={card} />),

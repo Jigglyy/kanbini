@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   isCardHidden,
+  listFooterState,
   resolveTruncatedDrop,
   visibleCards,
   VISIBLE_LIMIT_OPTIONS
@@ -98,5 +99,39 @@ describe('resolveTruncatedDrop', () => {
 describe('VISIBLE_LIMIT_OPTIONS', () => {
   it('offers 10, 20, 50, and all - the plan defaults', () => {
     expect(VISIBLE_LIMIT_OPTIONS).toEqual([10, 20, 50, null])
+  })
+})
+
+describe('listFooterState', () => {
+  it('offers Show N more while cards are hidden', () => {
+    expect(listFooterState(cards(30), 10, false, NONE)).toEqual({ kind: 'more', count: 20 })
+  })
+
+  it('offers Show fewer on a revealed list that would hide something', () => {
+    expect(listFooterState(cards(30), 10, true, NONE)).toEqual({ kind: 'fewer' })
+  })
+
+  it('offers nothing when folding back would hide nothing (extra cards all pinned)', () => {
+    // Limit 10, 11 cards, the 11th moved in (pinned): revealed or not,
+    // every card shows - a Show fewer button would do nothing.
+    expect(listFooterState(cards(11), 10, true, new Set(['c11']))).toBeNull()
+    expect(listFooterState(cards(11), 10, false, new Set(['c11']))).toBeNull()
+  })
+
+  it('offers nothing without a limit or under it', () => {
+    expect(listFooterState(cards(30), null, false, NONE)).toBeNull()
+    expect(listFooterState(cards(5), 10, true, NONE)).toBeNull()
+  })
+})
+
+describe('a card dragged within its own list', () => {
+  it('keeps its slot, so picking it up reveals nothing (activeId only for incoming cards)', () => {
+    // Board passes activeId ONLY to lists the card is entering. Within its
+    // own list the call is the plain one - the same 10 cards as at rest.
+    const atRest = visibleCards(cards(30), 10, false, NONE)
+    expect(ids(atRest.shown)).toEqual(ids(cards(10)))
+    // Had the card been treated as pinned here, c11 would have popped in.
+    const wrongly = visibleCards(cards(30), 10, false, NONE, 'c1')
+    expect(ids(wrongly.shown)).toContain('c11')
   })
 })

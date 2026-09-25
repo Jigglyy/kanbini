@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { BoardView, CardView } from '@kanbini/shared'
 import {
   checklistProgress,
+  collapseToggle,
   collapsedFor,
   isCardCompact,
   toggledCollapsed,
@@ -150,5 +151,23 @@ describe('card.toggleCollapse shortcut', () => {
       a.defaults.some((b) => b.key === 'm' && !b.ctrl && !b.meta && !b.alt && !b.shift)
     )
     expect(clash).toBe(false)
+  })
+})
+
+describe('collapseToggle', () => {
+  it('builds the mutation and a matching optimistic projection', () => {
+    const b = board()
+    const t = collapseToggle({ id: 'a', collapsed: null }, null)
+    expect(t.mutation).toEqual({ type: 'card.update', id: 'a', patch: { collapsed: true } })
+    expect(t.optimistic(b).lists[0]!.cards[0]!.collapsed).toBe(true)
+  })
+
+  it('in a compact list, expanding stores false and collapsing back stores null', () => {
+    expect(collapseToggle({ id: 'a', collapsed: null }, 'compact').mutation.patch).toEqual({
+      collapsed: false
+    })
+    expect(collapseToggle({ id: 'a', collapsed: false }, 'compact').mutation.patch).toEqual({
+      collapsed: null
+    })
   })
 })

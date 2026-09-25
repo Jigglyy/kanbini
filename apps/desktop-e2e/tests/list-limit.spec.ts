@@ -204,3 +204,58 @@ test('lifting a limited list shows the same cards and footer in the drag preview
   await page.keyboard.press('Escape')
   await page.mouse.up()
 })
+
+// ─── Regressions from the pre-release review ───────────────────────
+
+test('picking up a visible card in a limited list does not reveal an extra card', async () => {
+  const { page } = handle
+  const card = (await page.getByText('Card 3', { exact: true }).boundingBox())!
+  await page.mouse.move(card.x + card.width / 2, card.y + card.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(card.x + card.width / 2 + 12, card.y + card.height / 2 + 12, {
+    steps: 5
+  })
+  // Mid-air, still over its own list: nothing new pops into view.
+  await expect(page.getByRole('button', { name: 'Show 20 more' })).toBeVisible()
+  await expect(page.getByText('Card 11', { exact: true })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await page.mouse.up()
+})
+
+test('a keyboard move into a limited list keeps the moved card on screen', async () => {
+  const { page } = handle
+  // Short sits right of Long, so Alt+Left moves Only card to Long's end.
+  await page.getByText('Only card', { exact: true }).click()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog', { name: 'Only card' })).not.toBeVisible()
+  await page.keyboard.press('Alt+ArrowLeft')
+  await expect.poll(async () => (await savedOrder()).at(-1)).toBe('Only card')
+  await expect(
+    page.locator(`[data-list-body="${ids.longId}"] [data-card-id="${ids.onlyId}"]`)
+  ).toBeVisible()
+  await expect(longCards(page)).toHaveCount(11)
+})
+
+test('deleting the last visible card with the keyboard does not expand the list', async () => {
+  const { page } = handle
+  await page.getByText('Card 10', { exact: true }).click()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog', { name: 'Card 10' })).not.toBeVisible()
+  await page.keyboard.press('Delete')
+  // Card 11 slides into the freed slot; the rest stay folded away.
+  await expect(page.getByRole('button', { name: 'Show 19 more' })).toBeVisible()
+  await expect(longCards(page)).toHaveCount(10)
+  await expect(page.getByText('Card 11', { exact: true })).toBeVisible()
+})
+
+test('a bulk move into a limited list keeps the moved cards on screen', async () => {
+  const { page } = handle
+  await page.getByText('Only card', { exact: true }).click({ modifiers: ['Control'] })
+  await expect(page.getByText('1 selected')).toBeVisible()
+  await page.getByRole('button', { name: 'Move', exact: true }).click()
+  await page.getByRole('button', { name: 'Long', exact: true }).click()
+  await expect.poll(async () => (await savedOrder()).at(-1)).toBe('Only card')
+  await expect(
+    page.locator(`[data-list-body="${ids.longId}"] [data-card-id="${ids.onlyId}"]`)
+  ).toBeVisible()
+})

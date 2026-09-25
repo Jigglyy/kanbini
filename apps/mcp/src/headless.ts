@@ -1,5 +1,6 @@
 import { promises as fsp } from 'node:fs'
 import { join } from 'node:path'
+import { MAX_VISIBLE_CARD_LIMIT } from '@kanbini/shared'
 import type {
   ActivityView,
   ArchivedItemsView,
@@ -264,9 +265,15 @@ function parseCardDensity(s: string | null | undefined): CardDensity | null {
   return s === 'compact' ? s : null
 }
 
-/** Mirror of `parseVisibleCardLimit` in @kanbini/db/data.ts. */
+/** Mirror of `parseVisibleCardLimit` in @kanbini/db/data.ts (same
+ *  1..MAX_VISIBLE_CARD_LIMIT window). */
 function parseVisibleCardLimit(n: number | null | undefined): number | null {
-  return typeof n === 'number' && Number.isInteger(n) && n > 0 ? n : null
+  return typeof n === 'number' &&
+    Number.isInteger(n) &&
+    n > 0 &&
+    n <= MAX_VISIBLE_CARD_LIMIT
+    ? n
+    : null
 }
 
 function parseSwimlaneMode(s: string | null): SwimlaneMode | null {

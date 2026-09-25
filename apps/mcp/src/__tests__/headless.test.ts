@@ -214,7 +214,7 @@ describe('headless readers vs live @kanbini/db', () => {
   })
 
   it('card density settings read identically in both readers', async () => {
-    const { db: db2, close } = openDatabase({
+    const { db: db2, sqlite: sqlite2, close } = openDatabase({
       filePath: ':memory:',
       migrationsFolder: MIGRATIONS
     })
@@ -244,6 +244,14 @@ describe('headless readers vs live @kanbini/db', () => {
         id: cards[1]!.id,
         patch: { collapsed: true }
       })
+      // An out-of-range stored limit (hand-edited row) must narrow to
+      // "show all" the same way in both readers.
+      const third = view.lists[2]
+      if (third) {
+        sqlite2
+          .prepare('UPDATE list SET visible_card_limit = ? WHERE id = ?')
+          .run(5000, third.id)
+      }
       const root = join(tmpRoot, 'density-parity')
       const exDir = join(root, 'export')
       await exportToFolder(db2, root, exDir)
