@@ -127,7 +127,8 @@ main's `mutate` method on the control channel (the same discriminated
 union as the renderer IPC), so adding one is a one-liner:
 
 - **Read:** `kanbini_list_boards`, `kanbini_get_board`,
-  `kanbini_get_card`, `kanbini_search_cards`, `kanbini_list_archived`.
+  `kanbini_get_card`, `kanbini_search_cards`, `kanbini_get_agenda`,
+  `kanbini_list_archived`.
 - **Cards:** `kanbini_create_card` (optional starting `priority`),
   `kanbini_update_card` (incl. `collapsed`), `kanbini_move_card`,
   `kanbini_delete_card`, `kanbini_archive_card`,

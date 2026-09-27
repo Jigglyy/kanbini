@@ -1,8 +1,15 @@
 import { promises as fsp } from 'node:fs'
 import { join } from 'node:path'
-import { MAX_VISIBLE_CARD_LIMIT } from '@kanbini/shared'
+import {
+  AGENDA_COMPLETION_ACTIVITY_TYPES,
+  MAX_VISIBLE_CARD_LIMIT,
+  buildAgendaView,
+  type AgendaCandidate,
+  type AgendaOptions
+} from '@kanbini/shared'
 import type {
   ActivityView,
+  AgendaView,
   ArchivedItemsView,
   AttachmentView,
   BoardBackground,
@@ -27,7 +34,7 @@ import type {
 // closed. Parses the plain-text export at <userData>/export/ - the
 // same snapshot the auto-export-on-quit writes - and exposes the read
 // methods the control channel does (boards.list / board.getView /
-// card.get / search.cards / board.archived) with byte-compatible view
+// card.get / search.cards / agenda.get / board.archived) with byte-compatible view
 // shapes.
 //
 // Drift risk: the view-builders in `@kanbini/db/data.ts` are the
@@ -819,6 +826,56 @@ export function headlessSearchCards(
     return b.updatedAt - a.updatedAt
   })
   return hits.slice(0, cap)
+}
+
+/** Mirror of `getAgenda` in `@kanbini/db/agenda.ts`. The section rules
+ *  and ordering are the SAME function (`buildAgendaView`), so this only
+ *  has to gather the same candidates: every open-list card on a
+ *  non-archived board that isn't archived, with its newest completion
+ *  activity as `completedAt`. buildAgendaView drops the ones that fit no
+ *  section, so no pre-filtering on dates is needed here. */
+export function headlessAgenda(
+  snap: HeadlessSnapshot,
+  opts: AgendaOptions = {}
+): AgendaView {
+  const { dump } = snap
+  const listsById = new Map<string, ExportDump['lists'][number]>()
+  for (const l of dump.lists) listsById.set(l.id, l)
+  const boardsById = new Map<string, ExportDump['boards'][number]>()
+  for (const b of dump.boards) boardsById.set(b.id, b)
+
+  const completionTypes: readonly string[] = AGENDA_COMPLETION_ACTIVITY_TYPES
+  const lastCompleted = new Map<string, number>()
+  for (const a of dump.activities) {
+    if (a.cardId === null || !completionTypes.includes(a.type)) continue
+    const prev = lastCompleted.get(a.cardId)
+    if (prev === undefined || a.createdAt > prev) {
+      lastCompleted.set(a.cardId, a.createdAt)
+    }
+  }
+
+  const candidates: AgendaCandidate[] = []
+  for (const c of dump.cards) {
+    if (c.archived) continue
+    const l = listsById.get(c.listId)
+    if (!l || l.closed) continue
+    const b = boardsById.get(l.boardId)
+    if (!b || b.archived) continue
+    candidates.push({
+      cardId: c.id,
+      title: c.title,
+      boardId: b.id,
+      boardName: b.name,
+      boardColor: b.color,
+      listId: l.id,
+      listName: l.name,
+      dueAt: c.dueAt,
+      priority: parsePriority(c.priority),
+      completed: c.completed,
+      completedAt: lastCompleted.get(c.id) ?? null
+    })
+  }
+  return buildAgendaView(candidates, opts)
 }
 
 /** Mirrors `snippetAround` in `@kanbini/db/search.ts` - centered window

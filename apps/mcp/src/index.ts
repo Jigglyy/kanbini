@@ -10,11 +10,13 @@ import {
   MAX_VISIBLE_CARD_LIMIT,
   decodeEscapedWhitespace,
   resolveAccentColor,
+  AGENDA_MAX_DAYS,
   zListSortMode,
   type Mutation,
   type MutationResult
 } from '@kanbini/shared'
 import {
+  headlessAgenda,
   headlessArchivedItems,
   headlessBoardView,
   headlessCardView,
@@ -31,8 +33,8 @@ import {
 // `<userData>/mcp.json`.
 //
 // Read tools: kanbini_list_boards, kanbini_get_board, kanbini_get_card,
-//   kanbini_search_cards, kanbini_list_archived (all with the headless
-//   export fallback when the app is closed).
+//   kanbini_search_cards, kanbini_get_agenda, kanbini_list_archived (all
+//   with the headless export fallback when the app is closed).
 // Write tools: create / update / move / delete / archive cards; create /
 //   update / move / archive lists (incl. WIP limit, sort mode, colour,
 //   on-enter rule); create / update / archive boards; create / rename /
@@ -379,6 +381,46 @@ server.registerTool(
         (snap) => headlessSearchCards(snap, query, limit)
       )
     )
+)
+
+server.registerTool(
+  'kanbini_get_agenda',
+  {
+    title: "Get the user's agenda across all boards",
+    description:
+      "What's on the user's plate, across every board in one call. Returns " +
+      'four sections: `overdue` (open cards due before today), `today` ' +
+      '(open cards due today), `upcoming` (open cards due in the next ' +
+      '`upcomingDays`, default 7), and `completed` (cards marked complete ' +
+      'today or in the previous `completedDays`, default 7, newest first). ' +
+      'Due sections are ordered soonest first, then by priority. Each item ' +
+      'carries cardId, title, boardId, boardName, listName, dueAt (epoch ms, ' +
+      'local midnight of the due day), priority, and completedAt. `totals` ' +
+      'counts every card per section even when `limit` (default 50 per ' +
+      'section, max 100) trims the arrays. "Today" is the local calendar ' +
+      "day on the user's machine; `dayStart` is its midnight. Archived " +
+      'cards, archived lists, and archived boards are left out. Use this ' +
+      'for "what should I work on", "what is overdue", or "what did I get ' +
+      'done this week" instead of walking every board. When the desktop ' +
+      'app is closed, falls back to the last on-disk export.',
+    inputSchema: {
+      upcomingDays: z.number().int().min(1).max(AGENDA_MAX_DAYS).optional(),
+      completedDays: z.number().int().min(1).max(AGENDA_MAX_DAYS).optional(),
+      limit: z.number().int().positive().max(100).optional()
+    }
+  },
+  ({ upcomingDays, completedDays, limit }) => {
+    const params = {
+      ...(upcomingDays !== undefined ? { upcomingDays } : {}),
+      ...(completedDays !== undefined ? { completedDays } : {}),
+      ...(limit !== undefined ? { limit } : {})
+    }
+    return asReadToolResult(() =>
+      readWithFallback('agenda.get', params, (snap) =>
+        headlessAgenda(snap, params)
+      )
+    )
+  }
 )
 
 // ─── write tools (M3-tail) ───────────────────────────────────────

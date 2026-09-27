@@ -54,7 +54,7 @@ function parseBackground(value: unknown): BoardBackground | null {
  *  expects. Unknown values (older builds, hand-edited DB) parse to
  *  null - the renderer renders an unprioritised card, which is the
  *  safer fail-mode than throwing out the card. ADR-0037. */
-function parsePriority(value: string | null): CardPriority | null {
+export function parsePriority(value: string | null): CardPriority | null {
   if (value == null) return null
   const parsed = zCardPriority.safeParse(value)
   return parsed.success ? parsed.data : null

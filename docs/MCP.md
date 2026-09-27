@@ -236,6 +236,42 @@ board view.
 
 Works for archived cards too. Returns `null` if the id doesn't exist.
 
+#### `kanbini_get_agenda`
+
+What's on the user's plate across **every** board in one call, so the
+AI doesn't have to walk each board to answer "what's overdue?" or "what
+did I finish this week?". The same read powers the Agenda panel on the
+app's home screen.
+
+| Argument        | Type     | Required | Notes                                                  |
+|-----------------|----------|----------|--------------------------------------------------------|
+| `upcomingDays`  | `number` | no       | Days after today that count as upcoming. 1-60, default 7. |
+| `completedDays` | `number` | no       | Days before today (plus today) that count as recently completed. 1-60, default 7. |
+| `limit`         | `number` | no       | Cap per section. 1-100, default 50. `totals` still counts everything. |
+
+Returns `{ dayStart, upcomingDays, completedDays, overdue, today,
+upcoming, completed, totals }`:
+
+- `overdue`: open cards due before today.
+- `today`: open cards due today.
+- `upcoming`: open cards due in the next `upcomingDays`.
+- `completed`: cards marked complete in the window, newest first.
+- The three due sections sort soonest first, then by priority (urgent
+  first).
+- Each item is `{ cardId, title, boardId, boardName, boardColor, listId,
+  listName, dueAt, priority, completedAt }`. `completedAt` is set only
+  in `completed`.
+- `totals` gives each section's full size, even when `limit` trimmed the
+  array.
+
+"Today" is the local calendar day on the user's machine, and `dayStart`
+is its midnight (epoch ms). Due dates are stored as local midnight of
+the due day. Archived cards, archived lists, and archived boards are
+left out, same as search. A card's completion time comes from its
+activity feed, so a card that was already complete when it was imported
+(Trello, a template) never shows under `completed`. Falls back to the
+on-disk export when the app is closed, like the other reads.
+
 #### `kanbini_list_archived`
 
 What a board has put away. Archived cards and lists don't show on the
@@ -531,6 +567,7 @@ Same rules as the MCP hop apply:
 | `GET  /boards/:id/archived` | `board.archived` | -                                |
 | `GET  /cards/:id`        | `card.get`     | -                                     |
 | `GET  /search?query=&limit=` | `search.cards` | query string                      |
+| `GET  /agenda?upcomingDays=&completedDays=&limit=` | `agenda.get` | query string (all optional) |
 | `POST /mutate`           | `mutate`       | one mutation (the `zMutation` union)  |
 | `POST /mutate/batch`     | `mutate.batch` | `zMutation[]` or `{ "mutations": [] }`|
 | `POST /attachments`      | `attachment.add` | `{ cardId, path }` or `{ cardId, filename, content, encoding? }` |

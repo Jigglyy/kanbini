@@ -8,6 +8,7 @@ import {
   addAttachmentFromRequest,
   applyMutationRecorded,
   deleteAttachmentWithFile,
+  getAgenda,
   getArchivedItems,
   getBoardView,
   getCardView,
@@ -23,7 +24,7 @@ import {
 //   - an in-memory SQLite via the real `openDatabase` (same migrations)
 //   - an HTTP server on a random port that mirrors the real
 //     control-channel allow-list (board.getView, card.get, boards.list,
-//     search.cards, board.archived, attachment.add, attachment.delete,
+//     search.cards, agenda.get, board.archived, attachment.add, attachment.delete,
 //     mutate). The attachment methods call the SAME @kanbini/db writers
 //     the desktop channel does, against this fake's temp userData, so
 //     the files they write are real and assertable.
@@ -142,6 +143,12 @@ export async function startFakeChannel(opts?: {
               result = searchCards(db, p.query, p.limit)
               break
             }
+            case 'agenda.get':
+              result = getAgenda(
+                db,
+                (params ?? {}) as Parameters<typeof getAgenda>[1]
+              )
+              break
             case 'board.archived':
               result = getArchivedItems(
                 db,

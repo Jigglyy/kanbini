@@ -6,11 +6,12 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { APP_CODENAME, type Mutation } from '@kanbini/shared'
+import { APP_CODENAME, localDayStart, type Mutation } from '@kanbini/shared'
 import {
   applyMutation,
   applyMutationRecorded,
   exportToFolder,
+  getAgenda,
   getArchivedItems,
   getBoardView,
   getCardView,
@@ -21,6 +22,7 @@ import {
   type Db
 } from '@kanbini/db'
 import {
+  headlessAgenda,
   headlessArchivedItems,
   headlessBoardView,
   headlessCardView,
@@ -265,6 +267,114 @@ describe('headless readers vs live @kanbini/db', () => {
     }
   })
 
+  it('agenda reads identically in both readers', async () => {
+    // Throwaway DB spanning every section and every exclusion: two
+    // boards, due dates on both sides of each window edge, a normal
+    // completion and a list on-enter auto-complete (both write the
+    // activity rows completedAt comes from), a completed card with no
+    // activity row, one completed outside the window, and hidden
+    // surface (archived card, closed list, archived board).
+    const { db: db2, sqlite, close } = openDatabase({
+      filePath: ':memory:',
+      migrationsFolder: MIGRATIONS
+    })
+    try {
+      const now = Date.now()
+      const day = (n: number): number => localDayStart(now, n)
+      const mk = (name: string): { boardId: string; listId: string } => {
+        const boardId = applyMutation(db2, { type: 'board.create', name }).id
+        const listId = applyMutation(db2, {
+          type: 'list.create',
+          boardId,
+          name: `${name} todo`
+        }).id
+        return { boardId, listId }
+      }
+      const card = (
+        listId: string,
+        title: string,
+        patch: Record<string, unknown> = {}
+      ): string => {
+        const id = applyMutation(db2, { type: 'card.create', listId, title }).id
+        if (Object.keys(patch).length > 0) {
+          applyMutation(db2, { type: 'card.update', id, patch } as Mutation)
+        }
+        return id
+      }
+
+      const a = mk('Work')
+      applyMutation(db2, {
+        type: 'board.update',
+        id: a.boardId,
+        patch: { color: 'oklch(0.7 0.15 250)' }
+      })
+      const b = mk('Home')
+      card(a.listId, 'Overdue urgent', { dueAt: day(-2), priority: 'urgent' })
+      card(b.listId, 'Overdue low', { dueAt: day(-2), priority: 'low' })
+      card(a.listId, 'Today', { dueAt: day(0) })
+      card(b.listId, 'Today high', { dueAt: day(0), priority: 'high' })
+      card(a.listId, 'Tomorrow', { dueAt: day(1) })
+      card(b.listId, 'Edge of week', { dueAt: day(8) - 1 })
+      card(a.listId, 'Beyond week', { dueAt: day(8) })
+      card(a.listId, 'Undated')
+      card(a.listId, 'Done', { completed: true })
+      const noActivity = card(b.listId, 'Done no activity', { completed: true })
+      sqlite.prepare('DELETE FROM activity WHERE card_id = ?').run(noActivity)
+      const old = card(b.listId, 'Done long ago', { completed: true })
+      sqlite
+        .prepare('UPDATE activity SET created_at = ? WHERE card_id = ?')
+        .run(day(-20), old)
+
+      const done = applyMutation(db2, {
+        type: 'list.create',
+        boardId: a.boardId,
+        name: 'Done'
+      }).id
+      applyMutation(db2, {
+        type: 'list.update',
+        id: done,
+        patch: { onEnter: { kind: 'complete' } }
+      })
+      const moved = card(a.listId, 'Auto-completed', { dueAt: day(0) })
+      applyMutation(db2, { type: 'card.move', id: moved, toListId: done })
+
+      card(a.listId, 'Archived', { dueAt: day(0), archived: true })
+      const closed = mk('Closed list board')
+      card(closed.listId, 'In closed list', { dueAt: day(0) })
+      applyMutation(db2, {
+        type: 'list.update',
+        id: closed.listId,
+        patch: { closed: true }
+      })
+      const archived = mk('Archived board')
+      card(archived.listId, 'On archived board', { dueAt: day(0) })
+      applyMutation(db2, {
+        type: 'board.update',
+        id: archived.boardId,
+        patch: { archived: true }
+      })
+
+      const root = join(tmpRoot, 'agenda-parity')
+      const exDir = join(root, 'export')
+      await exportToFolder(db2, root, exDir)
+      const snap = await loadHeadlessSnapshot(exDir)
+
+      const live = getAgenda(db2, { now })
+      expect(live.totals).toEqual({
+        overdue: 2,
+        today: 2,
+        upcoming: 2,
+        completed: 2
+      })
+      expect(headlessAgenda(snap!, { now })).toEqual(live)
+
+      const narrow = { now, upcomingDays: 1, completedDays: 30, limit: 1 }
+      expect(headlessAgenda(snap!, narrow)).toEqual(getAgenda(db2, narrow))
+    } finally {
+      close()
+    }
+  })
+
   it('headlessCardView matches getCardView for every seeded card', async () => {
     const snap = await loadHeadlessSnapshot(exportDir)
     const board = getBoardView(db)!
@@ -441,6 +551,24 @@ describe('MCP server falls back to the export when the app is closed', () => {
     const hits = data as Array<{ title: string }>
     expect(hits.length).toBeGreaterThan(0)
     expect(hits[0]!.title.toLowerCase()).toContain('drag')
+  })
+
+  it('kanbini_get_agenda falls back too', async () => {
+    const res = (await client.callTool({
+      name: 'kanbini_get_agenda',
+      arguments: {}
+    })) as { content: Array<{ text: string }>; isError?: boolean }
+    expect(res.isError).toBeFalsy()
+    const { prefix, data } = parseFallback(res.content[0]!.text)
+    expect(prefix).toMatch(/\[NOTE\]/)
+    expect(data).toMatchObject({
+      upcomingDays: 7,
+      completedDays: 7,
+      overdue: expect.any(Array),
+      today: expect.any(Array),
+      upcoming: expect.any(Array),
+      completed: expect.any(Array)
+    })
   })
 
   it('write tools error with a clear "app is not running" message', async () => {

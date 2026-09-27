@@ -4,6 +4,8 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { existsSync } from 'node:fs'
+import { applyMutation, getBoardView } from '@kanbini/db'
+import { localDayStart, type AgendaView } from '@kanbini/shared'
 import { startFakeChannel, type FakeChannel } from './_fake-channel'
 
 // MCP server integration smoke (read tools). Mirrors the manual
@@ -76,7 +78,8 @@ describe('MCP read tools', () => {
       'kanbini_list_boards',
       'kanbini_get_board',
       'kanbini_get_card',
-      'kanbini_search_cards'
+      'kanbini_search_cards',
+      'kanbini_get_agenda'
     ]))
   })
 
@@ -146,6 +149,49 @@ describe('MCP read tools', () => {
     )
     expect(hits.length).toBeGreaterThan(0)
     expect(hits[0]!.title.toLowerCase()).toContain('drag')
+  })
+
+  it('kanbini_get_agenda buckets cards across the whole DB', async () => {
+    // Plant one overdue card and one completed card on the seeded
+    // board, straight through @kanbini/db (the completion writes the
+    // activity row the agenda reads its completedAt from).
+    const board = getBoardView(channel.db)!
+    const [first, second] = board.lists.flatMap((l) => l.cards)
+    const threeDaysAgo = localDayStart(Date.now(), -3)
+    applyMutation(channel.db, {
+      type: 'card.update',
+      id: first!.id,
+      patch: { dueAt: threeDaysAgo, completed: false }
+    })
+    applyMutation(channel.db, {
+      type: 'card.update',
+      id: second!.id,
+      patch: { completed: true }
+    })
+
+    const agenda = unwrap<AgendaView>(
+      await client.callTool({
+        name: 'kanbini_get_agenda',
+        arguments: { upcomingDays: 3, limit: 10 }
+      }),
+      'get_agenda'
+    )
+    expect(agenda.upcomingDays).toBe(3)
+    expect(agenda.completedDays).toBe(7)
+    expect(agenda.overdue.find((c) => c.cardId === first!.id)).toMatchObject({
+      boardId: board.board.id,
+      boardName: board.board.name,
+      dueAt: threeDaysAgo
+    })
+    expect(agenda.completed.map((c) => c.cardId)).toContain(second!.id)
+  })
+
+  it('kanbini_get_agenda rejects an out-of-range window', async () => {
+    const res = (await client.callTool({
+      name: 'kanbini_get_agenda',
+      arguments: { upcomingDays: 0 }
+    })) as { isError?: boolean }
+    expect(res.isError).toBe(true)
   })
 
   it('returns an MCP tool error (not a transport crash) for a missing card', async () => {

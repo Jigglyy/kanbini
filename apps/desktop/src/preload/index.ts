@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@kanbini/shared/channels'
 import type {
+  AgendaRequest,
+  AgendaView,
   AppInfo,
   AttachmentView,
   BoardBackground,
@@ -96,6 +98,9 @@ const api = {
   /** M4-D: global card search across all boards. Empty query → []. */
   searchCards: (req: SearchCardsRequest): Promise<SearchHits> =>
     ipcRenderer.invoke(IPC.searchCards, req),
+  /** Cross-board agenda for the boards home. */
+  agenda: (req: AgendaRequest): Promise<AgendaView> =>
+    ipcRenderer.invoke(IPC.agenda, req),
   /** M4-F: app version + userData paths for Settings → About. */
   appInfo: (): Promise<AppInfo> => ipcRenderer.invoke(IPC.appInfo),
   /** M4-F: MCP control-channel status + paths + copy-paste config

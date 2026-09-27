@@ -51,6 +51,10 @@ export const IPC = {
   /** renderer → main: global card search (M4-D). Returns an array
    *  of SearchHit (capped); empty query short-circuits to []. */
   searchCards: 'search:cards',
+  /** renderer → main: cross-board agenda (overdue / due today /
+   *  upcoming / recently completed) for the boards home. Returns
+   *  AgendaView. */
+  agenda: 'agenda:get',
   /** renderer → main: app version + paths for Settings → About. */
   appInfo: 'app:info',
   /** renderer → main: MCP control-channel status + paths + copy-paste

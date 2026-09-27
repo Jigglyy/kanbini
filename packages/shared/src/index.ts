@@ -10,6 +10,7 @@ export const APP_CODENAME = "Kanbini";
 /** Bumped whenever the persisted SQLite shape changes (schema v1). */
 export const SCHEMA_VERSION = 1 as const;
 
+export * from "./agenda";
 export * from "./channels";
 export * from "./html";
 export * from "./id";

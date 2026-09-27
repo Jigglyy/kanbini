@@ -27,6 +27,8 @@ import {
   zBoardBackground,
   zBoardSetBackgroundImageRequest,
   zBoardsListView,
+  zAgendaRequest,
+  zAgendaView,
   zBoardView,
   zExportSummary,
   zGetBoardViewRequest,
@@ -65,6 +67,7 @@ import {
   deleteAttachmentWithFile,
   deleteTemplate,
   exportToFolder,
+  getAgenda,
   getBoardView,
   importFromFolder,
   importFromTrello,
@@ -335,6 +338,11 @@ function registerIpc(
   ipcMain.handle(IPC.searchCards, (_event, raw: unknown) => {
     const { query, limit } = zSearchCardsRequest.parse(raw ?? {})
     return zSearchHits.parse(searchCards(db, query, limit))
+  })
+
+  ipcMain.handle(IPC.agenda, (_event, raw: unknown) => {
+    const req = zAgendaRequest.parse(raw ?? {})
+    return zAgendaView.parse(getAgenda(db, req))
   })
 
   ipcMain.handle(IPC.mutate, async (_event, raw: unknown) => {

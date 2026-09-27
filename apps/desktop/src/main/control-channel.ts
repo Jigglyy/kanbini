@@ -13,6 +13,7 @@ import {
   applyMutationRecorded,
   applyMutationsRecorded,
   deleteAttachmentWithFile,
+  getAgenda,
   getArchivedItems,
   getBoardView,
   getCardView,
@@ -20,6 +21,8 @@ import {
   searchCards
 } from '@kanbini/db'
 import {
+  zAgendaRequest,
+  zAgendaView,
   zArchivedItemsView,
   zAttachmentAddResult,
   zAttachmentAddViaChannelRequest,
@@ -55,6 +58,7 @@ import {
 //        GET  /boards/:id/archived -> board.archived
 //        GET  /cards/:id         -> card.get
 //        GET  /search?query=&limit= -> search.cards
+//        GET  /agenda?upcomingDays=&completedDays=&limit= -> agenda.get
 //        POST /mutate            -> mutate      (body = a zMutation)
 //        POST /mutate/batch      -> mutate.batch (body = zMutation[] or
 //                                   { mutations: [...] })
@@ -125,6 +129,10 @@ const methods: Record<string, Method> = {
   'search.cards': (db, raw) => {
     const { query, limit } = zSearchCardsRequest.parse(raw ?? {})
     return zSearchHits.parse(searchCards(db, query, limit))
+  },
+  'agenda.get': (db, raw) => {
+    const req = zAgendaRequest.parse(raw ?? {})
+    return zAgendaView.parse(getAgenda(db, req))
   },
   'board.archived': (db, raw) => {
     const { boardId } = zGetArchivedItemsRequest.parse(raw ?? {})
@@ -401,6 +409,16 @@ export async function startControlChannel(
           { query, ...(limitRaw != null ? { limit: Number(limitRaw) } : {}) },
           res
         )
+        return
+      }
+      if (path === '/agenda') {
+        // Numeric query params only; zod rejects anything out of range.
+        const params: Record<string, number> = {}
+        for (const key of ['upcomingDays', 'completedDays', 'limit']) {
+          const v = url.searchParams.get(key)
+          if (v != null) params[key] = Number(v)
+        }
+        await runMethod('agenda.get', params, res)
         return
       }
       send(res, 404, { error: 'not found' })

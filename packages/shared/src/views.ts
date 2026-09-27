@@ -409,6 +409,64 @@ export type SearchHit = z.infer<typeof zSearchHit>
 export const zSearchHits = z.array(zSearchHit)
 export type SearchHits = z.infer<typeof zSearchHits>
 
+/** Longest window (in days) an agenda request may ask for, either way. */
+export const AGENDA_MAX_DAYS = 60
+
+/** Cross-board agenda request. Every field is optional; the defaults
+ *  live in `@kanbini/shared/agenda` (a week each way, 50 per section).
+ *  "Today" is the caller's LOCAL calendar day - main, the MCP server and
+ *  the headless reader all run on the user's machine, so they agree. */
+export const zAgendaRequest = z.object({
+  /** How many days after today count as "upcoming". */
+  upcomingDays: z.number().int().min(1).max(AGENDA_MAX_DAYS).optional(),
+  /** How many days before today (plus today) count as "recently completed". */
+  completedDays: z.number().int().min(1).max(AGENDA_MAX_DAYS).optional(),
+  /** Per-section cap; `totals` still counts everything. */
+  limit: z.number().int().positive().max(100).optional()
+})
+export type AgendaRequest = z.infer<typeof zAgendaRequest>
+
+/** One card on the agenda, with enough board context to render and
+ *  navigate to it without a follow-up fetch. */
+export const zAgendaItem = z.object({
+  cardId: z.string(),
+  title: z.string(),
+  boardId: z.string(),
+  boardName: z.string(),
+  boardColor: z.string().nullable(),
+  listId: z.string(),
+  listName: z.string(),
+  dueAt: z.number().nullable(),
+  priority: zCardPriority.nullable(),
+  /** When the card was last marked complete (from the activity log).
+   *  Set only in the `completed` section. */
+  completedAt: z.number().nullable()
+})
+export type AgendaItem = z.infer<typeof zAgendaItem>
+
+/** "What's on my plate": open cards that are overdue, due today, or due
+ *  in the next `upcomingDays`, plus cards completed in the last
+ *  `completedDays`. Archived cards, closed lists and archived boards are
+ *  left out, same as search. */
+export const zAgendaView = z.object({
+  /** Local midnight at the start of "today", epoch ms. */
+  dayStart: z.number(),
+  upcomingDays: z.number().int(),
+  completedDays: z.number().int(),
+  overdue: z.array(zAgendaItem),
+  today: z.array(zAgendaItem),
+  upcoming: z.array(zAgendaItem),
+  completed: z.array(zAgendaItem),
+  /** Section sizes before the per-section `limit` was applied. */
+  totals: z.object({
+    overdue: z.number().int(),
+    today: z.number().int(),
+    upcoming: z.number().int(),
+    completed: z.number().int()
+  })
+})
+export type AgendaView = z.infer<typeof zAgendaView>
+
 /** What a board has hidden away: closed lists and archived cards.
  *  Neither shows on the board view, in search, or in the home counts,
  *  and the app has no screen for them yet - so this read is the only
