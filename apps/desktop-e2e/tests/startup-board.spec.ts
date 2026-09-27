@@ -38,9 +38,7 @@ test('opens the chosen board on the next launch', async () => {
   await first.app.close()
 
   handle = await launchKanbini({ userDataDir })
-  await expect(
-    handle.page.getByRole('button', { name: /hide completed|new label/i }).first()
-  ).toBeVisible()
+  await expect(handle.page.getByRole('button', { name: /new label/i }).first()).toBeVisible()
   await expect(handle.page.getByText('Morning routine', { exact: true }).first()).toBeVisible()
   await expect(handle.page.getByRole('heading', { name: 'Your boards' })).toHaveCount(0)
 })

@@ -34,9 +34,9 @@ installers and publishes a GitHub Release (see
 - **Start on a specific board.** Settings, Startup has a new "A specific
   board" choice: pick one and Kanbini opens straight into it every time,
   whichever board you used last.
-- **Hide completed cards.** A new button at the end of a board's label
-  bar hides the cards you've finished on that board and shows how many
-  there are. Each board remembers its own choice.
+- **Hide completed cards.** A new eye button in a board's header (beside
+  the zoom) hides the cards you've finished on that board and shows how
+  many there are. Each board remembers its own choice.
 - **Repeating cards.** Right-click a card and pick how often it repeats:
   daily, weekly, every two weeks, monthly, yearly, or your own "every N
   days, weeks, months or years". When you complete it, the next one

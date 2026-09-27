@@ -457,6 +457,37 @@ export function App() {
             the cluster sits flush right regardless of how many items
             it contains. */}
         <div className="ml-auto flex items-center gap-2">
+          {route.kind === 'board' && (completedCount > 0 || hideCompleted) && (
+            <Tooltip
+              label={
+                hideCompleted
+                  ? `Show completed cards (${completedCount})`
+                  : `Hide completed cards (${completedCount})`
+              }
+              side="bottom"
+            >
+              <button
+                type="button"
+                onClick={toggleHideCompleted}
+                aria-pressed={hideCompleted}
+                aria-label={
+                  hideCompleted
+                    ? `Show completed cards (${completedCount})`
+                    : `Hide completed cards (${completedCount})`
+                }
+                className={`inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                  hideCompleted ? 'bg-accent text-foreground' : 'text-muted-foreground'
+                }`}
+              >
+                {hideCompleted ? (
+                  <EyeOff className="size-4" aria-hidden />
+                ) : (
+                  <Eye className="size-4" aria-hidden />
+                )}
+                <span aria-hidden>{completedCount}</span>
+              </button>
+            </Tooltip>
+          )}
           {route.kind === 'board' && (
             <ZoomControl
               value={settings.boardZoom}
@@ -491,43 +522,16 @@ export function App() {
         </div>
 
         {route.kind === 'board' && status === 'success' && data && (
-          <div className="flex w-full items-start gap-2">
-            <div className="min-w-0 flex-1">
-              <LabelBar
-                boardId={data.board.id}
-                labels={orderedLabels}
-                active={activeLabels}
-                onToggle={toggleLabel}
-                onMove={moveLabel}
-                onReorder={reorderLabel}
-                apply={apply}
-              />
-            </div>
-            {(completedCount > 0 || hideCompleted) && (
-              <button
-                type="button"
-                onClick={toggleHideCompleted}
-                aria-pressed={hideCompleted}
-                title={
-                  hideCompleted
-                    ? 'Completed cards are hidden on this board'
-                    : 'Hide completed cards on this board'
-                }
-                className={`inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                  hideCompleted
-                    ? 'border-primary/60 bg-accent text-foreground'
-                    : 'border-input text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {hideCompleted ? (
-                  <EyeOff className="size-3.5" aria-hidden />
-                ) : (
-                  <Eye className="size-3.5" aria-hidden />
-                )}
-                {hideCompleted ? 'Show completed' : 'Hide completed'}
-                <span className="text-muted-foreground">({completedCount})</span>
-              </button>
-            )}
+          <div className="w-full">
+            <LabelBar
+              boardId={data.board.id}
+              labels={orderedLabels}
+              active={activeLabels}
+              onToggle={toggleLabel}
+              onMove={moveLabel}
+              onReorder={reorderLabel}
+              apply={apply}
+            />
           </div>
         )}
       </header>

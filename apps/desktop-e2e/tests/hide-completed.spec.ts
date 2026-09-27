@@ -35,14 +35,14 @@ test('hides completed cards on this board and remembers it', async () => {
   const cardEl = (id: string) => page.locator(`[data-card-id="${id}"]`)
   await expect(cardEl(ids.done)).toBeVisible()
 
-  await page.getByRole('button', { name: /hide completed \(1\)/i }).click()
+  await page.getByRole('button', { name: /hide completed cards \(1\)/i }).click()
   await expect(cardEl(ids.done)).toHaveCount(0)
   await expect(cardEl(ids.open)).toBeVisible()
 
   // Completing another card while hiding makes it disappear too.
   await mutate(d, { type: 'card.update', id: ids.open, patch: { completed: true } })
   await expect(cardEl(ids.open)).toHaveCount(0)
-  await expect(page.getByRole('button', { name: /show completed \(2\)/i })).toBeVisible()
+  await expect(page.getByRole('button', { name: /show completed cards \(2\)/i })).toBeVisible()
 
   // Home and back: still hidden.
   await page.keyboard.press('Escape')
