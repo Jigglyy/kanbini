@@ -63,9 +63,10 @@ that never closes: a board that's yours, local, and always on.
   delete them in bulk from a floating action bar (or a right-click menu) -
   and drag the whole group between lists.
 - **Local MCP server** - a token-gated 127.0.0.1 control channel + stdio
-  server (`@kanbini/mcp`) with 27 read/write tools: cards, lists, boards,
+  server (`@kanbini/mcp`) with 28 read/write tools: cards, lists, boards,
   labels, comments, checklists, attachments, archiving, list settings
-  (card limit, sort, colour, compact cards, how many to show), and search.
+  (card limit, sort, colour, compact cards, how many to show), search,
+  and a cross-board agenda.
   Edits stream into the open UI live. See [`docs/MCP.md`](docs/MCP.md).
 - **Scriptable HTTP API** - the same token-gated 127.0.0.1 control channel
   is also a plain local HTTP API (REST routes for reads + writes, plus a
@@ -74,6 +75,9 @@ that never closes: a board that's yours, local, and always on.
 - **Own your data** - lossless plain-text export/import (`kanbini.json` +
   `cards/*.md` + attachment files); Backup + Restore live in Settings.
 - **Cross-board search** via a Ctrl/Cmd+F command palette.
+- **Agenda** on the home screen - what's overdue, due today, coming up
+  this week, and recently completed, across every board. Tick a card off
+  right there, or click it to jump to the card.
 - **Templates** for boards and lists.
 - **Undo / redo** with full snapshot restore on delete.
 - **Customizable keyboard shortcuts.**

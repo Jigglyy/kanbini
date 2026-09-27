@@ -1,4 +1,6 @@
 import type {
+  AgendaRequest,
+  AgendaView,
   AppInfo,
   AttachmentView,
   BoardBackground,
@@ -68,6 +70,7 @@ export const ipc = {
   undoClear: (): Promise<UndoStatus> => bridge().undoClear(),
   searchCards: (req: SearchCardsRequest): Promise<SearchHits> =>
     bridge().searchCards(req),
+  agenda: (req: AgendaRequest): Promise<AgendaView> => bridge().agenda(req),
   appInfo: (): Promise<AppInfo> => bridge().appInfo(),
   mcpInfo: (): Promise<McpInfo> => bridge().mcpInfo(),
   obsidianPickVault: (): Promise<string | null> => bridge().obsidianPickVault(),

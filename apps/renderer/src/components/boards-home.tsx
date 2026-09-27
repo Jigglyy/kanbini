@@ -47,6 +47,7 @@ import {
 import { loadOpenedMap } from '../lib/last-opened'
 import { backgroundCss, swatchOptions } from '../lib/palette'
 import { cn } from '../lib/utils'
+import { AgendaPanel } from './agenda'
 import { BackgroundPicker } from './background-picker'
 import { TemplatePickerDialog } from './templates'
 import { Button } from './ui/button'
@@ -100,7 +101,9 @@ const CARD_MIN_HEIGHT = '9rem'
 
 interface Props {
   boards: BoardSummary[]
-  onOpen: (id: string) => void
+  /** Open a board; `openCardId` also opens that card's detail (the
+   *  agenda's row click). */
+  onOpen: (id: string, openCardId?: string) => void
 }
 
 type SortMode = 'manual' | 'opened' | 'recent' | 'name' | 'created'
@@ -315,6 +318,7 @@ export function BoardsHome({ boards, onOpen }: Props) {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+      {totalBoards > 0 && <AgendaPanel onOpenCard={onOpen} />}
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-xl font-semibold tracking-tight">Your boards</h2>
         <div className="flex items-center gap-2">

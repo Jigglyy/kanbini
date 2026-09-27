@@ -13,6 +13,7 @@ import { APP_CODENAME } from '@kanbini/shared'
 // by `pnpm --filter @kanbini/desktop run build:icons` (ADR-0051).
 import brandLogo from './assets/logo.png'
 import { boardsRootKey, useBoard } from './hooks/useBoard'
+import { agendaKey } from './hooks/useAgenda'
 import { boardsListKey, useBoardsList } from './hooks/useBoardsList'
 import { useBoardMutation } from './hooks/useBoardMutation'
 import { ipc } from './lib/ipc'
@@ -251,6 +252,7 @@ export function App() {
     return ipc.onChange(() => {
       void qc.invalidateQueries({ queryKey: boardsRootKey })
       void qc.invalidateQueries({ queryKey: boardsListKey })
+      void qc.invalidateQueries({ queryKey: agendaKey })
     })
   }, [qc])
 

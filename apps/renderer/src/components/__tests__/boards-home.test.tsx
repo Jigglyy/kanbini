@@ -332,3 +332,43 @@ describe('<BoardsHome> archived toggle', () => {
     ).toBeInTheDocument()
   })
 })
+
+describe('<BoardsHome> agenda', () => {
+  it('hides the agenda when there are no boards', async () => {
+    renderBoardsHome([])
+    await screen.findByRole('button', { name: /create your first board/i })
+    expect(screen.queryByRole('region', { name: 'Agenda' })).not.toBeInTheDocument()
+  })
+
+  it('opens the board at the clicked agenda card', async () => {
+    const user = userEvent.setup()
+    kanbiniMock().agenda.mockResolvedValue({
+      dayStart: 0,
+      upcomingDays: 7,
+      completedDays: 7,
+      overdue: [],
+      today: [
+        {
+          cardId: 'c-9',
+          title: 'Pay rent',
+          boardId: 'b1',
+          boardName: 'Welcome',
+          boardColor: null,
+          listId: 'l1',
+          listName: 'Todo',
+          dueAt: 0,
+          priority: null,
+          completedAt: null
+        }
+      ],
+      upcoming: [],
+      completed: [],
+      totals: { overdue: 0, today: 1, upcoming: 0, completed: 0 }
+    })
+    const onOpen = vi.fn()
+    renderBoardsHome([makeBoard()], onOpen)
+    expect(await screen.findByRole('region', { name: 'Agenda' })).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: /pay rent/i }))
+    expect(onOpen).toHaveBeenCalledWith('b1', 'c-9')
+  })
+})

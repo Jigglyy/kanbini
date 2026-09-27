@@ -2,6 +2,8 @@
 // imported from apps/desktop) to avoid an app->app coupling; the
 // payload shapes come from the shared contract.
 import type {
+  AgendaRequest,
+  AgendaView,
   AppInfo,
   AttachmentView,
   BoardBackground,
@@ -58,6 +60,7 @@ declare global {
       redoApply: (req: UndoApplyRequest) => Promise<UndoApplyResult>
       undoClear: () => Promise<UndoStatus>
       searchCards: (req: SearchCardsRequest) => Promise<SearchHits>
+      agenda: (req: AgendaRequest) => Promise<AgendaView>
       appInfo: () => Promise<AppInfo>
       mcpInfo: () => Promise<McpInfo>
       obsidianPickVault: () => Promise<string | null>

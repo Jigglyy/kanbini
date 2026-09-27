@@ -11,6 +11,8 @@ import { vi } from 'vitest'
 // silently break with `is not a function`.
 
 import type {
+  AgendaRequest,
+  AgendaView,
   AppInfo,
   AttachmentView,
   BoardBackground,
@@ -42,6 +44,17 @@ import type {
 } from '@kanbini/shared'
 
 const EMPTY_BOARDS_LIST: BoardsListView = []
+
+export const EMPTY_AGENDA: AgendaView = {
+  dayStart: 0,
+  upcomingDays: 7,
+  completedDays: 7,
+  overdue: [],
+  today: [],
+  upcoming: [],
+  completed: [],
+  totals: { overdue: 0, today: 0, upcoming: 0, completed: 0 }
+}
 
 const EMPTY_UNDO_STATUS: UndoStatus = {
   canUndo: false,
@@ -130,6 +143,9 @@ function makeBridge() {
     undoClear: vi.fn(async (): Promise<UndoStatus> => EMPTY_UNDO_STATUS),
     searchCards: vi.fn(
       async (_req: SearchCardsRequest): Promise<SearchHits> => []
+    ),
+    agenda: vi.fn(
+      async (_req: AgendaRequest): Promise<AgendaView> => EMPTY_AGENDA
     ),
     appInfo: vi.fn(
       async (): Promise<AppInfo> => ({

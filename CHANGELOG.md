@@ -9,6 +9,18 @@ Releases are cut by pushing a `v*` tag, which builds the Windows
 installers and publishes a GitHub Release (see
 [`.github/workflows/release.yml`](.github/workflows/release.yml)).
 
+## [Unreleased]
+
+### Added
+
+- **Agenda on the home screen.** See what's overdue, what's due today,
+  what's coming up in the next week, and what you finished recently,
+  across all your boards at once. Tick a card off right from the agenda,
+  or click it to open the card on its board. The agenda folds down to a
+  one-line summary if you'd rather keep it small.
+- **Your AI can read the agenda too,** so asking it "what should I work
+  on today?" or "what did I get done this week?" works in one step.
+
 ## [0.9.0] - 2026-09-25
 
 ### Added

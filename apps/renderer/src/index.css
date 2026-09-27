@@ -27,6 +27,9 @@
      theme darkens it (data-theme block below) so it stays legible on
      a light surface. */
   --color-warning: oklch(0.8 0.14 78);
+  /* Danger accent (red) for overdue dates. Same light-theme darkening
+     as warning so the text keeps its contrast on white. */
+  --color-danger: oklch(0.7 0.18 25);
 }
 
 /* Light theme - overrides the tokens when <html data-theme="light">.
@@ -47,6 +50,7 @@
   --color-muted: oklch(0.93 0 0);
   --color-border: oklch(0.88 0 0);
   --color-warning: oklch(0.52 0.13 70);
+  --color-danger: oklch(0.53 0.19 27);
 }
 
 html,
