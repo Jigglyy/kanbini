@@ -20,6 +20,7 @@ import {
 // Brand mark - see App.tsx import. Same source asset.
 import brandLogo from '../assets/logo.png'
 import { ipc } from '../lib/ipc'
+import { useBoardsList } from '../hooks/useBoardsList'
 import type { WeekStart } from '../lib/due-presets'
 import type { Settings, StartMode, Theme } from '../lib/settings'
 import {
@@ -314,6 +315,9 @@ function StartupSection({
   settings: Settings
   update: (p: Partial<Settings>) => void
 }) {
+  // Archived boards aren't offered: startup skips them anyway.
+  const { data: boards } = useBoardsList()
+  const pickable = (boards ?? []).filter((b) => !b.archived)
   return (
     <Section title="Startup">
       <RadioRow<StartMode>
@@ -329,10 +333,48 @@ function StartupSection({
             value: 'lastBoard',
             label: 'Last opened board',
             hint: 'Reopen the board you last used.'
+          },
+          {
+            value: 'board',
+            label: 'A specific board',
+            hint: 'Always open the board you pick below.'
           }
         ]}
-        onChange={(v) => update({ startMode: v })}
+        onChange={(v) =>
+          update(
+            v === 'board' && !pickable.some((b) => b.id === settings.startBoardId)
+              ? { startMode: v, startBoardId: pickable[0]?.id ?? null }
+              : { startMode: v }
+          )
+        }
       />
+      {settings.startMode === 'board' && (
+        <label className="flex items-center justify-between gap-3 px-1 text-sm">
+          <span className="font-medium text-foreground">Board to open</span>
+          {pickable.length === 0 ? (
+            <span className="text-xs text-muted-foreground">
+              No boards yet. The boards list opens until you make one.
+            </span>
+          ) : (
+            <select
+              value={settings.startBoardId ?? ''}
+              onChange={(e) => update({ startBoardId: e.target.value })}
+              className="max-w-64 rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {!pickable.some((b) => b.id === settings.startBoardId) && (
+                <option value="" disabled>
+                  Pick a board
+                </option>
+              )}
+              {pickable.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </label>
+      )}
     </Section>
   )
 }

@@ -31,6 +31,9 @@ installers and publishes a GitHub Release (see
   day your week starts on under Settings, Cards (it follows your system
   by default). Cards due soon say "Today", "Tomorrow", or "Yesterday"
   instead of a date.
+- **Start on a specific board.** Settings, Startup has a new "A specific
+  board" choice: pick one and Kanbini opens straight into it every time,
+  whichever board you used last.
 - **Hide completed cards.** A new button at the end of a board's label
   bar hides the cards you've finished on that board and shows how many
   there are. Each board remembers its own choice.

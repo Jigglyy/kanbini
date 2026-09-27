@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AppSettings } from '../app-settings'
 import type { Settings } from '../../lib/settings'
+import { kanbiniMock } from '../../__tests__/_kanbini-mock'
 
 // Tests for the Settings screen's sidebar nav - specifically the
 // SECTION_GROUPS structure landed by the recent regroup
@@ -17,6 +18,7 @@ const BASE_SETTINGS: Settings = {
   theme: 'system',
   weekStart: 'locale',
   startMode: 'home',
+  startBoardId: null,
   cardLimitBlocksCreate: false,
   cardLimitBlocksDrag: false,
   showChecklistOnCard: false,
@@ -525,5 +527,52 @@ describe('<AppSettings> Cards - week start', () => {
     expect(select).toHaveValue('locale')
     await user.selectOptions(select, 'sunday')
     expect(update).toHaveBeenCalledWith({ weekStart: 'sunday' })
+  })
+})
+
+describe('<AppSettings> Startup - a specific board', () => {
+  function renderWith(settings: Partial<Settings>, update = vi.fn()) {
+    kanbiniMock().listBoards.mockResolvedValue([
+      { id: 'b-old', name: 'Old', archived: true } as never,
+      { id: 'b1', name: 'Work', archived: false } as never,
+      { id: 'b2', name: 'Home', archived: false } as never
+    ])
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: Infinity } }
+    })
+    render(
+      <QueryClientProvider client={qc}>
+        <AppSettings
+          onClose={vi.fn()}
+          settings={{ ...BASE_SETTINGS, ...settings }}
+          update={update}
+        />
+      </QueryClientProvider>
+    )
+    return { update, qc }
+  }
+
+  it('choosing it pre-picks the first unarchived board', async () => {
+    const user = userEvent.setup()
+    const { update, qc } = renderWith({})
+    await user.click(screen.getByRole('button', { name: 'Startup' }))
+    await waitFor(() => expect(qc.getQueryData(['boardsList'])).toBeDefined())
+    await user.click(screen.getByRole('radio', { name: /a specific board/i }))
+    expect(update).toHaveBeenCalledWith({ startMode: 'board', startBoardId: 'b1' })
+  })
+
+  it('lists only unarchived boards and switches the pick', async () => {
+    const user = userEvent.setup()
+    const { update } = renderWith({ startMode: 'board', startBoardId: 'b1' })
+    await user.click(screen.getByRole('button', { name: 'Startup' }))
+    const select = await screen.findByRole('combobox', { name: /board to open/i })
+    await waitFor(() =>
+      expect(Array.from((select as HTMLSelectElement).options).map((o) => o.text)).toEqual([
+        'Work',
+        'Home'
+      ])
+    )
+    await user.selectOptions(select, 'b2')
+    expect(update).toHaveBeenCalledWith({ startBoardId: 'b2' })
   })
 })

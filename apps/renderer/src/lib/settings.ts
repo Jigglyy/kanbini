@@ -10,7 +10,7 @@ import type { ActionId, Binding } from './shortcuts'
 // If a future setting needs cross-window sync, swap this layer for
 // a tiny IPC-backed store - the public hook surface won't change.
 
-export type StartMode = 'home' | 'lastBoard'
+export type StartMode = 'home' | 'lastBoard' | 'board'
 
 /** App colour theme. `system` follows the OS and updates live. */
 export type Theme = 'dark' | 'light' | 'system'
@@ -34,8 +34,12 @@ export interface Settings {
   /** Which screen the app lands on after launch. Defaults to the
    *  home picker so a multi-board user always sees their full list
    *  first. Set to `lastBoard` to auto-jump into the last-opened
-   *  board (single-board flow). */
+   *  board (single-board flow), or `board` to always open
+   *  `startBoardId`. */
   startMode: StartMode
+  /** The board `startMode: 'board'` opens. null until one is picked;
+   *  a deleted or archived pick falls back to the boards list. */
+  startBoardId: string | null
   /** Opt-in escape hatch from the offline-only rule (ADR-0023).
    *  When true, "Set cover from URL…" lets the user paste a URL
    *  and main fetches OG metadata + the preview image. OFF by
@@ -110,6 +114,7 @@ const DEFAULTS: Settings = {
   hasSeenWelcome: false,
   removeDataOnUninstall: false,
   startMode: 'home',
+  startBoardId: null,
   linkPreviews: false,
   autoCoverFromUrl: false,
   cardLimitBlocksCreate: true,

@@ -29,6 +29,7 @@ import { Tooltip } from './components/ui/tooltip'
 import { useSettings } from './lib/settings'
 import { recordOpened } from './lib/last-opened'
 import { filterByLabels, pruneLabelFilter } from './lib/label-filter'
+import { startupBoardId } from './lib/startup'
 import {
   countCompleted,
   filterCompleted,
@@ -89,13 +90,16 @@ export function App() {
   useEffect(() => {
     if (didAutoJump.current || boardsStatus !== 'success') return
     didAutoJump.current = true
-    if (settings.startMode !== 'lastBoard') return
-    const last = localStorage.getItem(LAST_BOARD_KEY)
-    if (last && boards?.some((b) => b.id === last)) {
-      recordOpened(last)
-      setRoute({ kind: 'board', id: last })
+    const id = startupBoardId(settings.startMode, {
+      startBoardId: settings.startBoardId,
+      lastBoardId: localStorage.getItem(LAST_BOARD_KEY),
+      boards: boards ?? []
+    })
+    if (id) {
+      recordOpened(id)
+      setRoute({ kind: 'board', id })
     }
-  }, [boardsStatus, boards, settings.startMode])
+  }, [boardsStatus, boards, settings.startMode, settings.startBoardId])
 
   const openBoard = useCallback((id: string, openCardId?: string) => {
     localStorage.setItem(LAST_BOARD_KEY, id)
