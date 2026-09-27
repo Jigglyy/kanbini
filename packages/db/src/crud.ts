@@ -14,6 +14,7 @@ import type { Db } from './client'
 // applyMutationRecorded.
 import { applyRestore, type RestorePayload } from './undo'
 import { addBlocker, cardTitle, removeBlocker } from './dependencies'
+import { spawnNextOccurrence, unspawnNextOccurrence } from './repeat'
 import { cardOrdering, parseListSortMode } from './data'
 import {
   activity,
@@ -38,7 +39,7 @@ const now = (): number => Date.now()
 /** Append one row to the activity log. No-op without a boardId, so the
  *  feed never holds dangling cross-board events. Safe to call inside a
  *  transaction (uses the passed `db`, which can be a tx). */
-function logActivity(
+export function logActivity(
   db: Db,
   params: {
     boardId: string | null
@@ -129,7 +130,7 @@ function appendListKey(db: Db, boardId: string): string {
   return orderKeyBetween(last?.p ?? null, null)
 }
 
-function appendCardKey(db: Db, listId: string): string {
+export function appendCardKey(db: Db, listId: string): string {
   const last = db
     .select({ p: card.position })
     .from(card)
@@ -140,7 +141,7 @@ function appendCardKey(db: Db, listId: string): string {
   return orderKeyBetween(last?.p ?? null, null)
 }
 
-function listBoardId(db: Db, listId: string): string | null {
+export function listBoardId(db: Db, listId: string): string | null {
   return (
     db
       .select({ b: list.boardId })
@@ -150,7 +151,7 @@ function listBoardId(db: Db, listId: string): string | null {
   )
 }
 
-function cardBoardId(db: Db, cardId: string): string | null {
+export function cardBoardId(db: Db, cardId: string): string | null {
   const c = db
     .select({ listId: card.listId })
     .from(card)
@@ -561,8 +562,24 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
           type: m.patch.archived ? 'archived' : 'unarchived'
         })
       }
+      if (m.patch.repeat !== undefined) {
+        logActivity(db, {
+          boardId,
+          cardId: m.id,
+          type: m.patch.repeat === null ? 'repeat-cleared' : 'repeat-set',
+          data: m.patch.repeat === null ? null : { repeat: m.patch.repeat }
+        })
+      }
       return { id: m.id, boardId }
     }
+    case 'card.spawnNext':
+      return db.transaction((tx) =>
+        spawnNextOccurrence(tx as unknown as Db, m.id, m.copyId, m.toListId)
+      )
+    case 'card.unspawnNext':
+      return db.transaction((tx) =>
+        unspawnNextOccurrence(tx as unknown as Db, m.id, m.copyId, m.repeat)
+      )
     case 'card.delete': {
       const boardId = cardBoardId(db, m.id)
       db.delete(card).where(eq(card.id, m.id)).run()

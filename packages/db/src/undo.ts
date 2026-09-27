@@ -8,6 +8,7 @@ import {
   hasBlocker,
   restoreDependencyEdges
 } from './dependencies'
+import { parseRepeat, repeatSpawnPlan } from './repeat'
 import {
   activity,
   attachment,
@@ -126,6 +127,8 @@ function entityIdOf(m: Mutation): string | null {
     case 'card.setLabels':
     case 'card.addBlocker':
     case 'card.removeBlocker':
+    case 'card.spawnNext':
+    case 'card.unspawnNext':
     case 'list.create':
     case 'list.update':
     case 'list.delete':
@@ -205,6 +208,8 @@ export interface CardSnapshot {
    *  undo log before the column existed don't carry it, and restore
    *  treats absent as null (follow the list). */
   collapsed?: boolean | null
+  /** Repeat rule (JSON). Optional for snapshots older than the column. */
+  repeat?: unknown
   createdAt: number
   updatedAt: number
   labelIds: string[]
@@ -517,6 +522,7 @@ export function snapshotCard(db: Db, id: string): CardSnapshot | null {
     priority: r.priority,
     listAddedAt: r.listAddedAt,
     collapsed: r.collapsed,
+    repeat: r.repeat,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
     labelIds,
@@ -612,6 +618,7 @@ function restoreCard(db: Db, s: CardSnapshot): void {
       priority: s.priority,
       listAddedAt: s.listAddedAt,
       collapsed: s.collapsed ?? null,
+      repeat: s.repeat ?? null,
       createdAt: s.createdAt,
       updatedAt: s.updatedAt
     })
@@ -922,6 +929,10 @@ function describeMutation(m: Mutation): string {
       return `Add "waiting on" link`
     case 'card.removeBlocker':
       return `Remove "waiting on" link`
+    case 'card.spawnNext':
+      return `Schedule the next repeat`
+    case 'card.unspawnNext':
+      return `Remove the next repeat`
     case 'list.create':
       return `Create list "${m.name}"`
     case 'list.update':
@@ -999,6 +1010,7 @@ export function inverseBefore(db: Db, m: Mutation): Mutation | null {
         patch.coverAttachmentId = old.coverAttachmentId
       if ('priority' in m.patch) patch.priority = old.priority
       if ('archived' in m.patch) patch.archived = old.archived
+      if ('repeat' in m.patch) patch.repeat = parseRepeat(old.repeat)
       // `collapsed` is a view setting - deliberately NOT captured, same
       // as board.swimlaneMode, so Ctrl+Z never un-collapses a card when
       // the user meant to undo an edit. A collapse-only patch has an
@@ -1175,6 +1187,19 @@ export function inverseBefore(db: Db, m: Mutation): Mutation | null {
       }
     }
 
+    // -- Repeats: the spawn's undo drops the copy and restores the rule
+    //    (read now, before the spawn moves it onto the copy). The
+    //    unspawn arm only ever runs AS an inverse, so it's never recorded.
+    case 'card.spawnNext': {
+      const orig = db.select({ repeat: card.repeat }).from(card).where(eq(card.id, m.id)).get()
+      const rule = orig ? parseRepeat(orig.repeat) : null
+      return rule
+        ? { type: 'card.unspawnNext', id: m.id, copyId: m.copyId, repeat: rule }
+        : null
+    }
+    case 'card.unspawnNext':
+      return null
+
     // -- Blocker links: each arm undoes the other. A no-op (adding a
     //    link that exists, removing one that doesn't) records nothing.
     case 'card.addBlocker':
@@ -1344,6 +1369,11 @@ export function applyMutationRecorded(
 
   return db.transaction((tx) => {
     const txDb = tx as unknown as Db
+    // Completing a repeating card also schedules its next occurrence, as
+    // a second entry in the same undo group (repeat.ts explains why it's
+    // not a side effect of applyMutation). Decided before applying.
+    const spawn = repeatSpawnPlan(txDb, m)
+    const groupId = opts.groupId ?? (spawn ? newId() : null)
     const inverseB = inverseBefore(txDb, m)
     const result = applyMutation(txDb, m)
     const inverse = inverseB ?? inverseAfter(m, result)
@@ -1370,7 +1400,7 @@ export function applyMutationRecorded(
           description: describeMutation(m),
           forward: storedForward as unknown,
           inverse: inverse as unknown,
-          groupId: opts.groupId ?? null
+          groupId
         })
         .run()
       const entityId = entityIdOf(storedForward) ?? result.id
@@ -1396,6 +1426,25 @@ export function applyMutationRecorded(
           undoableIds.length - MAX_UNDO_LOG_SIZE
         )
         tx.delete(undoLog).where(inArray(undoLog.id, toDrop)).run()
+      }
+    }
+    if (spawn) {
+      const done = tx
+        .select({ completed: card.completed })
+        .from(card)
+        .where(eq(card.id, spawn.cardId))
+        .get()
+      if (done?.completed) {
+        applyMutationRecorded(
+          txDb,
+          {
+            type: 'card.spawnNext',
+            id: spawn.cardId,
+            copyId: newId(),
+            toListId: spawn.toListId
+          },
+          { groupId: groupId ?? undefined }
+        )
       }
     }
     return result

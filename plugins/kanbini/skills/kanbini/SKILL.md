@@ -31,6 +31,9 @@ Nothing is sent anywhere else.
   user what you archived; `kanbini_list_archived` finds it again.
 - Due dates are epoch milliseconds at LOCAL midnight of the due day.
 - Priority is `low`, `medium`, `high`, `urgent`, or null.
+- Repeating cards: set `repeat: { unit: 'day' | 'week' | 'month' |
+  'year', every }` with `kanbini_update_card`. Completing one makes the
+  app add the next occurrence itself, so don't create it by hand.
 - Colours accept palette names: red, orange, amber, yellow, lime, green,
   teal, cyan, sky, blue, indigo, purple, pink, rose. Use a name, not a
   made-up CSS colour, so it matches the app's colour pickers.

@@ -166,6 +166,10 @@ export const card = sqliteTable(
     // when `collapsed ?? (list.cardDensity === 'compact')`. A VIEW
     // setting: excluded from the undo log and the activity feed.
     collapsed: integer('collapsed', { mode: 'boolean' }),
+    // Repeat rule, JSON `{ unit: 'day'|'week'|'month'|'year', every }`
+    // (zCardRepeat); null = a one-off card. Completing a repeating card
+    // creates the next one and moves this rule onto it (repeat.ts).
+    repeat: text('repeat', { mode: 'json' }),
     ...timestamps
   },
   (t) => [

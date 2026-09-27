@@ -19,6 +19,7 @@ import type {
   CardDensity,
   CardPriority,
   CardRef,
+  CardRepeat,
   CardView,
   ChecklistView,
   CommentView,
@@ -105,6 +106,8 @@ interface ExportDump {
     listAddedAt: number
     /** Absent in exports written before card density existed. */
     collapsed?: boolean | null
+    /** Repeat rule JSON. Absent in exports written before it existed. */
+    repeat?: unknown
     createdAt: number
     updatedAt: number
   }>
@@ -284,6 +287,16 @@ function parseVisibleCardLimit(n: number | null | undefined): number | null {
     n <= MAX_VISIBLE_CARD_LIMIT
     ? n
     : null
+}
+
+/** Mirror of `parseRepeat` in @kanbini/db/repeat.ts. */
+function parseRepeat(v: unknown): CardRepeat | null {
+  if (v === null || typeof v !== 'object') return null
+  const { unit, every } = v as { unit?: unknown; every?: unknown }
+  const unitOk = unit === 'day' || unit === 'week' || unit === 'month' || unit === 'year'
+  const everyOk =
+    typeof every === 'number' && Number.isInteger(every) && every >= 1 && every <= 99
+  return unitOk && everyOk ? { unit, every } : null
 }
 
 function parseSwimlaneMode(s: string | null): SwimlaneMode | null {
@@ -787,6 +800,7 @@ function buildCardView(
     completed: c.completed,
     dueAt: c.dueAt,
     priority: parsePriority(c.priority),
+    repeat: parseRepeat(c.repeat),
     collapsed: c.collapsed ?? null,
     labelIds,
     checklists,

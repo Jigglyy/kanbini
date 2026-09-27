@@ -20,6 +20,7 @@ export * from "./net";
 export * from "./obsidian";
 export * from "./order";
 export * from "./palette";
+export * from "./repeat";
 export * from "./templates";
 export * from "./text";
 export * from "./trello";

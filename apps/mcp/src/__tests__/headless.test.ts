@@ -306,6 +306,11 @@ describe('headless readers vs live @kanbini/db', () => {
       }
       link(a, b)
       link(b, c)
+      applyMutation(db2, {
+        type: 'card.update',
+        id: d,
+        patch: { repeat: { unit: 'week', every: 2 } }
+      })
       applyMutation(db2, { type: 'card.update', id: c, patch: { completed: true } })
       applyMutation(db2, { type: 'card.update', id: b, patch: { archived: true } })
 
@@ -330,6 +335,7 @@ describe('headless readers vs live @kanbini/db', () => {
         dump: { ...snap!.dump, cardDependencies: undefined }
       }
       expect(headlessCardView(legacy, a)!.blockedBy).toEqual([])
+      expect(headlessCardView(snap!, d)!.repeat).toEqual({ unit: 'week', every: 2 })
     } finally {
       close()
     }

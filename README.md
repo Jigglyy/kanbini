@@ -80,6 +80,9 @@ that never closes: a board that's yours, local, and always on.
 - **Own your data** - lossless plain-text export/import (`kanbini.json` +
   `cards/*.md` + attachment files); Backup + Restore live in Settings.
 - **Cross-board search** via a Ctrl/Cmd+F command palette.
+- **Repeating cards** - make a card repeat daily, weekly, monthly, yearly,
+  or every N of those. Completing it adds the next one with its due date
+  moved on, labels and checklist carried over (unticked).
 - **Waiting on** - mark that a card can't start until another is done,
   even one on a different board. The card shows "Blocked" until then.
 - **Agenda** on the home screen - what's overdue, due today, coming up

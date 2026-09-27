@@ -20,7 +20,8 @@ function makeCard(description: string | null): CardView {
     collapsed: null,
     activities: [],
     blockedBy: [],
-    blocking: []
+    blocking: [],
+    repeat: null
   }
 }
 

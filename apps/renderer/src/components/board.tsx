@@ -99,6 +99,7 @@ import { CardLabels } from './labels'
 import { CardDetail } from './card-detail'
 import { CardChecklistPreview } from './checklists'
 import { BlockedBadge } from './dependencies'
+import { RepeatBadge } from './repeat'
 import { DescriptionBadge } from './description-badge'
 import { CollapseToggle, CompactBadges } from './card-density'
 import { DueBadge } from './due-date'
@@ -489,6 +490,7 @@ function CardFace({
         <BlockedBadge card={card} />
         <PriorityBadge card={card} />
         <DueBadge card={card} />
+        <RepeatBadge card={card} />
         {compact && <CompactBadges card={card} />}
       </div>
       {showChecklist && !compact && (
@@ -2739,7 +2741,8 @@ const ListColumn = memo(function ListColumn({
                         collapsed: null,
                         activities: [],
                         blockedBy: [],
-                        blocking: []
+                        blocking: [],
+                        repeat: null
                       }
                     ]
                   }
@@ -3130,6 +3133,7 @@ const SortableCard = memo(function SortableCard({
         <BlockedBadge card={card} />
         <PriorityBadge card={card} />
         <DueBadge card={card} />
+        <RepeatBadge card={card} />
         {compact && <CompactBadges card={card} />}
       </div>
     ),

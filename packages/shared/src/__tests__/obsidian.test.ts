@@ -371,6 +371,7 @@ describe('buildNote (v2 format)', () => {
       activities: [],
       blockedBy: [],
       blocking: [],
+      repeat: null,
       ...overrides
     }
   }

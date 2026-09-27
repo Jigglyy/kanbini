@@ -1,8 +1,10 @@
-import type {
-  ActivityView,
-  CardPriority,
-  CardView,
-  LabelView
+import {
+  describeRepeat,
+  zCardRepeat,
+  type ActivityView,
+  type CardPriority,
+  type CardView,
+  type LabelView
 } from '@kanbini/shared'
 import { accentText } from '../lib/palette'
 import { priorityLabel } from './priority'
@@ -136,6 +138,12 @@ function LabelChip({
   )
 }
 
+/** "Every week" from a logged rule, tolerating a malformed row. */
+function repeatText(v: unknown): string {
+  const parsed = zCardRepeat.safeParse(v)
+  return parsed.success ? describeRepeat(parsed.data) : 'on a schedule'
+}
+
 function describe(
   activity: ActivityView,
   labels: LabelView[]
@@ -259,6 +267,34 @@ function describe(
           <strong className="text-foreground">{String(d.filename)}</strong>
         </>
       )
+    case 'repeat-set':
+      return (
+        <>
+          set this to repeat{' '}
+          <strong className="text-foreground">
+            {repeatText(d.repeat).toLowerCase()}
+          </strong>
+        </>
+      )
+    case 'repeat-cleared':
+      return 'stopped this repeating'
+    case 'repeat-next':
+      return typeof d.dueAt === 'number' ? (
+        <>
+          added the next one, due{' '}
+          <strong className="text-foreground">
+            {new Date(d.dueAt).toLocaleDateString(undefined, {
+              weekday: 'short',
+              month: 'short',
+              day: 'numeric'
+            })}
+          </strong>
+        </>
+      ) : (
+        'added the next one'
+      )
+    case 'repeat-created':
+      return 'added as the next repeat'
     // blockerTitle is captured at link time, so the row still reads
     // right after the other card is renamed or deleted.
     case 'blocker-added':

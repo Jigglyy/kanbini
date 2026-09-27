@@ -36,6 +36,7 @@ function makeCard(
     activities: [],
     blockedBy: [],
     blocking: [],
+    repeat: null,
     ...overrides
   }
 }

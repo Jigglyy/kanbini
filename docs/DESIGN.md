@@ -116,6 +116,9 @@ core piece of design work.
 - `activity` records what changed and when (also feeds AI context).
 - `comment.author` is nullable and tagged `ai` for AI-authored notes.
 - `template` (JSON) - board/list blueprints.
+- `card.repeat` - JSON `{ unit, every }` (null = one-off). Completing a
+  repeating card adds the next one; the undo recorder records that as a
+  second entry in the same group, so one Ctrl+Z undoes both.
 - `card_dependency (card_id, blocker_id)` - "waiting on" links: the card
   is blocked while the blocker is neither completed nor archived. Links
   may cross boards; self-links and cycles are rejected in the service

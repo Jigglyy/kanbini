@@ -383,6 +383,17 @@ Patch one or more card fields. Omit fields you don't want to change.
 | `coverAttachmentId`   | `string \| null` | Set or clear the cover banner.     |
 | `priority`            | `"low" \| "medium" \| "high" \| "urgent" \| null` | `null` clears. |
 | `collapsed`           | `boolean \| null` | How the card is drawn in its list: `true` compact, `false` always full, `null` follows the list's `cardDensity`. Display only. |
+| `repeat`              | `{ unit, every } \| null` | Make the card repeat: `unit` is `day`, `week`, `month`, or `year`; `every` is 1-99. `null` stops it. |
+
+**Repeating cards.** Completing a card that has a `repeat` rule (by
+`completed: true`, a bulk complete, or moving it into a list whose
+on-enter rule completes cards) adds the next one: same title,
+description, labels, priority, and checklists with every item unticked,
+due one repeat after the old due date (stepping on until it's in the
+future; from today if the card had no due date). It goes to the list the
+card was worked in (for a move, the list it came from). The rule moves to
+the new card, so the finished one never repeats twice. In the app, one
+Ctrl+Z undoes the completion and removes the new card together.
 
 #### `kanbini_move_card`
 Move a card between lists, or reorder within its list.

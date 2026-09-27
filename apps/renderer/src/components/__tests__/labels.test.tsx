@@ -41,6 +41,7 @@ function makeCard(overrides: Partial<CardView> = {}): CardView {
     activities: [],
     blockedBy: [],
     blocking: [],
+    repeat: null,
     ...overrides
   }
 }

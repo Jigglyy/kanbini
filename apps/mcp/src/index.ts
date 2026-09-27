@@ -527,7 +527,14 @@ server.registerTool(
       "keeps it full even in a compact list, null follows the list's " +
       '`cardDensity`. It hides nothing from you - every read still ' +
       'returns the full card - so change it only when the user asks for ' +
-      'a tidier board. Omit fields you do not want to change.',
+      'a tidier board. `repeat` makes the card repeat: ' +
+      "{ unit: 'day' | 'week' | 'month' | 'year', every: 1-99 } (e.g. " +
+      "{ unit: 'week', every: 2 } for every two weeks), or null to stop. " +
+      'When a repeating card is completed, the app adds the next one to ' +
+      'the list it was worked in, due one repeat after the old due date ' +
+      '(always in the future), with the same title, description, labels, ' +
+      'priority, and unticked checklists; the rule moves to the new card. ' +
+      'Omit fields you do not want to change.',
     inputSchema: {
       id: z.string(),
       patch: z.object({
@@ -540,7 +547,14 @@ server.registerTool(
           .enum(['low', 'medium', 'high', 'urgent'])
           .nullable()
           .optional(),
-        collapsed: z.boolean().nullable().optional()
+        collapsed: z.boolean().nullable().optional(),
+        repeat: z
+          .object({
+            unit: z.enum(['day', 'week', 'month', 'year']),
+            every: z.number().int().min(1).max(99)
+          })
+          .nullable()
+          .optional()
       })
     }
   },

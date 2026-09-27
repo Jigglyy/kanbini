@@ -25,7 +25,8 @@ function makeCard(id: string, labelIds: string[]): CardView {
     collapsed: null,
     activities: [],
     blockedBy: [],
-    blocking: []
+    blocking: [],
+    repeat: null
   }
 }
 

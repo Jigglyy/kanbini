@@ -346,7 +346,8 @@ function LaneCell({
                           collapsed: null,
                           activities: [],
                           blockedBy: [],
-                          blocking: []
+                          blocking: [],
+                          repeat: null
                         }
                       ]
                     }

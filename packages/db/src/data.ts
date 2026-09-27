@@ -22,6 +22,7 @@ import {
 } from '@kanbini/shared'
 import type { Db } from './client'
 import { dependencyRefs } from './dependencies'
+import { parseRepeat } from './repeat'
 import {
   activity,
   attachment,
@@ -575,6 +576,7 @@ export function getBoardView(db: Db, boardId?: string): BoardView | null {
           completed: c.completed,
           dueAt: c.dueAt,
           priority: parsePriority(c.priority),
+          repeat: parseRepeat(c.repeat),
           collapsed: c.collapsed,
           labelIds: labelIdsFor(c.id),
           checklists: checklistsFor(c.id),
@@ -779,6 +781,7 @@ export function getCardView(db: Db, cardId: string) {
     completed: c.completed,
     dueAt: c.dueAt,
     priority: parsePriority(c.priority),
+    repeat: parseRepeat(c.repeat),
     collapsed: c.collapsed,
     labelIds,
     checklists,

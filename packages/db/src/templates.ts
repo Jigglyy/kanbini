@@ -15,6 +15,7 @@ import {
 } from '@kanbini/shared'
 import type { Db } from './client'
 import { ensureDefaultProjectId } from './crud'
+import { parseRepeat } from './repeat'
 import {
   parseCardDensity,
   parseListSortMode,
@@ -130,7 +131,8 @@ export function saveListTemplate(
       priority: c.priority,
       completed: c.completed,
       checklists: c.checklists,
-      collapsed: c.collapsed
+      collapsed: c.collapsed,
+      repeat: c.repeat
     }))
 
     const payload: TemplateListData = {
@@ -215,7 +217,8 @@ function snapshotCards(
       completed: c.completed,
       labelTmplIds: labelIds,
       checklists,
-      collapsed: c.collapsed
+      collapsed: c.collapsed,
+      repeat: parseRepeat(c.repeat)
     }
   })
 }
@@ -418,6 +421,7 @@ function insertTemplateCards(
     checklists: TemplateBoardData['lists'][number]['cards'][number]['checklists']
     labelTmplIds?: string[]
     collapsed?: boolean | null
+    repeat?: TemplateBoardData['lists'][number]['cards'][number]['repeat']
   }>,
   realLabelIdByTmpl: Map<string, string>
 ): void {
@@ -434,7 +438,8 @@ function insertTemplateCards(
         priority: c.priority ?? undefined,
         completed: c.completed,
         position: cardKeys[i]!,
-        collapsed: c.collapsed ?? null
+        collapsed: c.collapsed ?? null,
+        repeat: c.repeat ?? null
       })
       .run()
 

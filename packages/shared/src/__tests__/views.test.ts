@@ -104,7 +104,8 @@ describe('zCardView / zListView / zBoardView', () => {
     coverAttachmentId: null,
     activities: [],
     blockedBy: [],
-    blocking: []
+    blocking: [],
+    repeat: null
   }
 
   it('round-trips a minimal CardView', () => {

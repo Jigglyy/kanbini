@@ -11,6 +11,7 @@ import { ipc } from '../lib/ipc'
 import { LabelToggleList } from './labels'
 import { DueEditor } from './due-date'
 import { PriorityPicker } from './priority'
+import { RepeatPicker } from './repeat'
 import { MenuItem, MenuLabel, MenuSep } from './ui/context-menu'
 
 // Content of a card's right-click menu: labels + due + cover + complete
@@ -95,6 +96,7 @@ export function CardMenu({
       <MenuSep />
       <MenuLabel>Due date</MenuLabel>
       <DueEditor card={card} apply={apply} close={close} />
+      <RepeatPicker card={card} apply={apply} close={close} />
 
       <MenuSep />
       <PriorityPicker card={card} apply={apply} close={close} />

@@ -11,6 +11,7 @@ import { Comments } from './comments'
 import { BlockedBadge, CardDependencies } from './dependencies'
 import { DueBadge } from './due-date'
 import { PriorityBadge } from './priority'
+import { RepeatBadge } from './repeat'
 import { Modal } from './ui/modal'
 import { MarkdownField } from './ui/markdown-editor'
 import { UrlCoverModal } from './url-cover-modal'
@@ -179,6 +180,7 @@ export function CardDetail({
               <BlockedBadge card={card} />
               <PriorityBadge card={card} />
               <DueBadge card={card} />
+              <RepeatBadge card={card} withText />
             </div>
           </div>
           <button

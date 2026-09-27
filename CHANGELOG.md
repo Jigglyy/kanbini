@@ -26,6 +26,13 @@ installers and publishes a GitHub Release (see
   up what you just did in a session as a finished card. There's no token
   or path to set up: it uses the Kanbini you installed, once you've
   opened it.
+- **Repeating cards.** Right-click a card and pick how often it repeats:
+  daily, weekly, every two weeks, monthly, yearly, or your own "every N
+  days, weeks, months or years". When you complete it, the next one
+  appears in the same list, due one repeat later, with the same labels,
+  priority, and checklist (unticked). If you drop it into a list that
+  completes cards automatically, the next one goes back to the list it
+  came from. Undo takes back both at once. Your AI can set repeats too.
 - **Cards can wait on other cards.** Open a card and, under "Waiting
   on", add the card that has to be done first. It can be on any board.
   The waiting card shows "Blocked" until that card is done, and the

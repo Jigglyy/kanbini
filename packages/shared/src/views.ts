@@ -201,6 +201,16 @@ export type CardPriority = z.infer<typeof zCardPriority>
 export const zSwimlaneMode = z.literal('priority')
 export type SwimlaneMode = z.infer<typeof zSwimlaneMode>
 
+/** A repeating card's rule: every `every` `unit`s. Completing the card
+ *  creates the next one with its due date moved on by that much (see
+ *  `nextDueAt` in ./repeat). Stored as JSON on `card.repeat`; null = the
+ *  card doesn't repeat. */
+export const zCardRepeat = z.object({
+  unit: z.enum(['day', 'week', 'month', 'year']),
+  every: z.number().int().min(1).max(99)
+})
+export type CardRepeat = z.infer<typeof zCardRepeat>
+
 /** The other end of a "blocked by" link, with enough context to show
  *  and navigate to it without another fetch. Either end may be on any
  *  board. */
@@ -224,6 +234,8 @@ export const zCardView = z.object({
   dueAt: z.number().nullable(),
   /** Optional priority (ADR-0037); null = unprioritised. */
   priority: zCardPriority.nullable(),
+  /** Repeat rule; null = one-off card. */
+  repeat: zCardRepeat.nullable(),
   /** Per-card collapse: null = follow the list's `cardDensity`, true =
    *  always compact, false = always full. Display only - a collapsed
    *  card's content is all still here. */

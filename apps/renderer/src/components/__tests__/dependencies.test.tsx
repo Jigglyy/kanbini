@@ -40,6 +40,7 @@ function makeCard(over: Partial<CardView> = {}): CardView {
     activities: [],
     blockedBy: [],
     blocking: [],
+    repeat: null,
     ...over
   }
 }

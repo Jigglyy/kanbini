@@ -43,7 +43,8 @@ function renderActivities(rows: ActivityView[]) {
     collapsed: null,
     activities: rows,
     blockedBy: [],
-    blocking: []
+    blocking: [],
+    repeat: null
   }
   return render(<Activity card={card} labels={labels} />)
 }
@@ -54,6 +55,20 @@ describe('<Activity>', () => {
     vi.setSystemTime(new Date('2026-05-25T12:00:00Z'))
   })
   afterEach(() => vi.useRealTimers())
+
+  it('describes repeat events', () => {
+    renderActivities([
+      makeActivity({ id: 'a1', type: 'repeat-set', data: { repeat: { unit: 'week', every: 2 } } }),
+      makeActivity({ id: 'a2', type: 'repeat-cleared' }),
+      makeActivity({ id: 'a3', type: 'repeat-created', data: { fromCardId: 'x' } }),
+      makeActivity({ id: 'a4', type: 'repeat-next', data: { cardId: 'y', dueAt: new Date(2026, 5, 1).getTime() } })
+    ])
+    const rows = screen.getAllByRole('listitem')
+    expect(rows[0]).toHaveTextContent(/set this to repeat every 2 weeks/)
+    expect(rows[1]).toHaveTextContent(/stopped this repeating/)
+    expect(rows[2]).toHaveTextContent(/added as the next repeat/)
+    expect(rows[3]).toHaveTextContent(/added the next one, due .*Jun/)
+  })
 
   it('describes "waiting on" links by the other card title', () => {
     renderActivities([

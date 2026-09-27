@@ -3,6 +3,7 @@ import {
   zBoardBackground,
   zCardDensity,
   zCardPriority,
+  zCardRepeat,
   zListSortMode,
   zSwimlaneMode,
   zVisibleCardLimit
@@ -56,7 +57,10 @@ const zTplCard = z.object({
   checklists: z.array(zTplChecklist),
   // Card density settings. Optional so templates saved before they
   // existed still parse (same format version - absent = default).
-  collapsed: z.boolean().nullable().optional()
+  collapsed: z.boolean().nullable().optional(),
+  // Repeat rule (a "weekly review" card keeps repeating in every board
+  // made from the template). Optional for the same reason.
+  repeat: zCardRepeat.nullable().optional()
 })
 
 const zTplList = z.object({

@@ -21,6 +21,7 @@ import {
   searchCards
 } from '@kanbini/db'
 import {
+  isInternalMutation,
   zAgendaRequest,
   zAgendaView,
   zArchivedItemsView,
@@ -167,10 +168,10 @@ const methods: Record<string, Method> = {
     // flow goes through `undoOne`/`redoOne` directly and bypasses
     // this method anyway.
     const mutation = zMutation.parse(raw)
-    if (mutation.type === 'restore') {
-      // Belt + braces - refuse `restore` on the control channel even
-      // though no MCP tool exposes it today.
-      throw new Error('restore mutation not allowed via control channel')
+    if (isInternalMutation(mutation)) {
+      // Undo-only arms (`restore`, the repeat spawn pair): the undo
+      // machinery is their only producer, so refuse them here.
+      throw new Error(`${mutation.type} mutation not allowed via control channel`)
     }
     const result = zMutationResult.parse(
       mutation.type === 'attachment.delete'
@@ -193,7 +194,7 @@ const methods: Record<string, Method> = {
       // `restore` is never allowed on the channel (undo owns it); a
       // file-backed `attachment.delete` needs the per-mutation unlink the
       // renderer IPC does, so it can't ride a batch.
-      if (m.type === 'restore' || m.type === 'attachment.delete') {
+      if (isInternalMutation(m) || m.type === 'attachment.delete') {
         throw new Error(`${m.type} not allowed in a mutation batch`)
       }
     }

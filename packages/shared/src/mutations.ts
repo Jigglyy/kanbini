@@ -3,6 +3,7 @@ import {
   zBoardBackground,
   zCardDensity,
   zCardPriority,
+  zCardRepeat,
   zListOnEnterRule,
   zListSortMode,
   zSwimlaneMode,
@@ -180,7 +181,10 @@ export const zMutation = z.discriminatedUnion('type', [
       archived: z.boolean().optional(),
       // Per-card collapse (view setting, excluded from undo): true =
       // compact, false = always full, null = follow the list.
-      collapsed: z.boolean().nullable().optional()
+      collapsed: z.boolean().nullable().optional(),
+      // Repeat rule (null = stop repeating). Completing a repeating card
+      // spawns the next one; see card.spawnNext below.
+      repeat: zCardRepeat.nullable().optional()
     })
   }),
   z.object({ type: z.literal('card.delete'), id: z.string() }),
@@ -296,6 +300,26 @@ export const zMutation = z.discriminatedUnion('type', [
     listAddedAt: z.number().int().optional()
   }),
 
+  // INTERNAL (never from the renderer or MCP; see isInternalMutation).
+  // The undo recorder issues `card.spawnNext` right after a mutation
+  // completes a repeating card, in the same undo group: it creates the
+  // next occurrence as `copyId` in `toListId` and moves the repeat rule
+  // onto it. `card.unspawnNext` is its undo: delete the copy and put the
+  // rule back on the original. A redo replays spawnNext with the same
+  // copyId, so the recreated card keeps its id.
+  z.object({
+    type: z.literal('card.spawnNext'),
+    id: z.string(),
+    copyId: z.string(),
+    toListId: z.string()
+  }),
+  z.object({
+    type: z.literal('card.unspawnNext'),
+    id: z.string(),
+    copyId: z.string(),
+    repeat: zCardRepeat
+  }),
+
   // ADR-0036 · internal restore mutation used by the undo/redo flow.
   // `payload` is a discriminated snapshot of the entity to restore +
   // its dependents (card snapshots include checklists/items/comments/
@@ -325,6 +349,17 @@ export const zMutation = z.discriminatedUnion('type', [
   })
 ])
 export type Mutation = z.infer<typeof zMutation>
+
+/** Arms only the undo machinery may apply. Every external entry point
+ *  (renderer IPC, control channel, batches) refuses them. */
+export const INTERNAL_MUTATION_TYPES: ReadonlySet<Mutation['type']> = new Set([
+  'restore',
+  'card.spawnNext',
+  'card.unspawnNext'
+])
+
+export const isInternalMutation = (m: Pick<Mutation, 'type'>): boolean =>
+  INTERNAL_MUTATION_TYPES.has(m.type)
 
 /** Every mutation returns the affected board (for scoped refetch). */
 export const zMutationResult = z.object({
