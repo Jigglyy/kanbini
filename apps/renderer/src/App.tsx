@@ -7,7 +7,7 @@ import {
   type CSSProperties
 } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { ChevronLeft, Search, Settings } from 'lucide-react'
+import { ChevronLeft, Eye, EyeOff, Search, Settings } from 'lucide-react'
 import { APP_CODENAME } from '@kanbini/shared'
 // Brand mark rendered in the header - generated from images/Image #1
 // by `pnpm --filter @kanbini/desktop run build:icons` (ADR-0051).
@@ -29,6 +29,12 @@ import { Tooltip } from './components/ui/tooltip'
 import { useSettings } from './lib/settings'
 import { recordOpened } from './lib/last-opened'
 import { filterByLabels, pruneLabelFilter } from './lib/label-filter'
+import {
+  countCompleted,
+  filterCompleted,
+  loadHideCompleted,
+  saveHideCompleted
+} from './lib/hide-completed'
 import { applyLabelOrder, commitLabelOrder, moveLabelInOrder } from './lib/label-order'
 import { backgroundCss, tint } from './lib/palette'
 import {
@@ -304,9 +310,25 @@ export function App() {
       return next
     })
 
+  // Per-board "Hide completed" (lib/hide-completed.ts). Re-read when the
+  // board changes; each board remembers its own choice.
+  const [hideCompleted, setHideCompleted] = useState(false)
+  useEffect(() => {
+    if (currentBoardId) setHideCompleted(loadHideCompleted(currentBoardId))
+  }, [currentBoardId])
+  const toggleHideCompleted = (): void => {
+    if (!currentBoardId) return
+    setHideCompleted((v) => {
+      saveHideCompleted(currentBoardId, !v)
+      return !v
+    })
+  }
+  const completedCount = useMemo(() => (data ? countCompleted(data) : 0), [data])
+
   const view = useMemo(
-    () => (data ? filterByLabels(data, activeLabels) : null),
-    [data, activeLabels]
+    () =>
+      data ? filterCompleted(filterByLabels(data, activeLabels), hideCompleted) : null,
+    [data, activeLabels, hideCompleted]
   )
 
   // Header label-bar order: DB gives creation order; this layers the
@@ -465,16 +487,43 @@ export function App() {
         </div>
 
         {route.kind === 'board' && status === 'success' && data && (
-          <div className="w-full">
-            <LabelBar
-              boardId={data.board.id}
-              labels={orderedLabels}
-              active={activeLabels}
-              onToggle={toggleLabel}
-              onMove={moveLabel}
-              onReorder={reorderLabel}
-              apply={apply}
-            />
+          <div className="flex w-full items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <LabelBar
+                boardId={data.board.id}
+                labels={orderedLabels}
+                active={activeLabels}
+                onToggle={toggleLabel}
+                onMove={moveLabel}
+                onReorder={reorderLabel}
+                apply={apply}
+              />
+            </div>
+            {(completedCount > 0 || hideCompleted) && (
+              <button
+                type="button"
+                onClick={toggleHideCompleted}
+                aria-pressed={hideCompleted}
+                title={
+                  hideCompleted
+                    ? 'Completed cards are hidden on this board'
+                    : 'Hide completed cards on this board'
+                }
+                className={`inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                  hideCompleted
+                    ? 'border-primary/60 bg-accent text-foreground'
+                    : 'border-input text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {hideCompleted ? (
+                  <EyeOff className="size-3.5" aria-hidden />
+                ) : (
+                  <Eye className="size-3.5" aria-hidden />
+                )}
+                {hideCompleted ? 'Show completed' : 'Hide completed'}
+                <span className="text-muted-foreground">({completedCount})</span>
+              </button>
+            )}
           </div>
         )}
       </header>

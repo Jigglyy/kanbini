@@ -31,6 +31,9 @@ installers and publishes a GitHub Release (see
   day your week starts on under Settings, Cards (it follows your system
   by default). Cards due soon say "Today", "Tomorrow", or "Yesterday"
   instead of a date.
+- **Hide completed cards.** A new button at the end of a board's label
+  bar hides the cards you've finished on that board and shows how many
+  there are. Each board remembers its own choice.
 - **Repeating cards.** Right-click a card and pick how often it repeats:
   daily, weekly, every two weeks, monthly, yearly, or your own "every N
   days, weeks, months or years". When you complete it, the next one
