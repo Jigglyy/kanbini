@@ -1,6 +1,8 @@
 import { CalendarClock } from 'lucide-react'
 import type { BoardView, CardView, Mutation } from '@kanbini/shared'
 import type { Optimistic } from '../hooks/useBoardMutation'
+import { dueLabel, duePresets, isOverdue, resolveWeekStart } from '../lib/due-presets'
+import { useSettings } from '../lib/settings'
 
 // dueAt is epoch ms (schema v1); we store local midnight of the picked
 // day. Display = DueBadge (on the card); editing = DueEditor (inside
@@ -35,18 +37,21 @@ export const patchDue = (
 /** Read-only chip shown on the card when a due date is set. */
 export function DueBadge({ card }: { card: CardView }) {
   if (card.dueAt == null) return null
-  const overdue = !card.completed && card.dueAt < Date.now()
+  // Late once the due DAY is over; a card due today isn't overdue yet.
+  const overdue = !card.completed && isOverdue(card.dueAt)
   return (
     <span
       className={`flex w-fit items-center gap-1 rounded px-1 text-[11px] ${
-        overdue ? 'text-red-400' : 'text-muted-foreground'
+        overdue ? 'text-danger' : 'text-muted-foreground'
       }`}
+      title={`Due ${new Date(card.dueAt).toLocaleDateString(undefined, {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric'
+      })}${overdue ? ' (overdue)' : ''}`}
     >
       <CalendarClock className="size-3.5" />
-      {new Date(card.dueAt).toLocaleDateString(undefined, {
-        month: 'short',
-        day: 'numeric'
-      })}
+      {dueLabel(card.dueAt)}
     </span>
   )
 }
@@ -61,13 +66,45 @@ export function DueEditor({
   apply: Apply
   close: () => void
 }) {
+  const [settings] = useSettings()
+  const presets = duePresets(Date.now(), resolveWeekStart(settings.weekStart))
   const set = (dueAt: number | null): void => {
+    if (dueAt === card.dueAt) {
+      close()
+      return
+    }
     apply({ type: 'card.update', id: card.id, patch: { dueAt } }, (b) =>
       patchDue(b, card.id, dueAt)
     )
     close()
   }
   return (
+    <>
+    <div className="flex flex-wrap gap-1 px-2 pt-1" role="group" aria-label="Due date shortcuts">
+      {presets.map((p) => {
+        const on = card.dueAt === p.at
+        return (
+          <button
+            key={p.id}
+            type="button"
+            aria-pressed={on}
+            title={new Date(p.at).toLocaleDateString(undefined, {
+              weekday: 'short',
+              month: 'short',
+              day: 'numeric'
+            })}
+            onClick={() => set(p.at)}
+            className={`rounded-md border px-2 py-0.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+              on
+                ? 'border-primary/60 bg-accent text-foreground'
+                : 'border-input text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {p.label}
+          </button>
+        )
+      })}
+    </div>
     <div className="flex items-center gap-2 px-2 py-1">
       <input
         type="date"
@@ -84,5 +121,6 @@ export function DueEditor({
         </button>
       )}
     </div>
+    </>
   )
 }

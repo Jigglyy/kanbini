@@ -162,7 +162,7 @@ describe('<DueBadge>', () => {
       <DueBadge card={makeCard({ dueAt: due, completed: false })} />
     )
     const chip = container.firstChild as HTMLElement
-    expect(chip.className).toContain('text-red-400')
+    expect(chip.className).toContain('text-danger')
   })
 
   it('does NOT mark overdue when the card is completed (even if past due)', () => {
@@ -173,7 +173,7 @@ describe('<DueBadge>', () => {
       <DueBadge card={makeCard({ dueAt: due, completed: true })} />
     )
     const chip = container.firstChild as HTMLElement
-    expect(chip.className).not.toContain('text-red-400')
+    expect(chip.className).not.toContain('text-danger')
     expect(chip.className).toContain('text-muted-foreground')
   })
 
@@ -185,7 +185,7 @@ describe('<DueBadge>', () => {
       <DueBadge card={makeCard({ dueAt: due, completed: false })} />
     )
     const chip = container.firstChild as HTMLElement
-    expect(chip.className).not.toContain('text-red-400')
+    expect(chip.className).not.toContain('text-danger')
   })
 })
 
@@ -262,5 +262,65 @@ describe('<DueEditor>', () => {
       patch: { dueAt: null }
     })
     expect(close).toHaveBeenCalled()
+  })
+})
+
+describe('<DueEditor> shortcuts', () => {
+  const today = (): number => {
+    const n = new Date()
+    return new Date(n.getFullYear(), n.getMonth(), n.getDate()).getTime()
+  }
+
+  it('offers the five shortcuts and sets Tomorrow', async () => {
+    const user = userEvent.setup()
+    const apply = vi.fn<(m: Mutation, o: unknown) => void>()
+    const close = vi.fn()
+    render(<DueEditor card={makeCard()} apply={apply} close={close} />)
+    const group = screen.getByRole('group', { name: 'Due date shortcuts' })
+    expect(
+      Array.from(group.querySelectorAll('button')).map((b) => b.textContent)
+    ).toEqual(['Today', 'Tomorrow', 'End of week', 'Next week', 'End of month'])
+
+    await user.click(screen.getByRole('button', { name: 'Tomorrow' }))
+    const t = new Date(today())
+    expect(apply.mock.calls[0]![0]).toEqual({
+      type: 'card.update',
+      id: 'c1',
+      patch: { dueAt: new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1).getTime() }
+    })
+    expect(close).toHaveBeenCalled()
+  })
+
+  it('marks the matching shortcut and skips a no-op write', async () => {
+    const user = userEvent.setup()
+    const apply = vi.fn<(m: Mutation, o: unknown) => void>()
+    const close = vi.fn()
+    render(<DueEditor card={makeCard({ dueAt: today() })} apply={apply} close={close} />)
+    const btn = screen.getByRole('button', { name: 'Today' })
+    expect(btn).toHaveAttribute('aria-pressed', 'true')
+    await user.click(btn)
+    expect(apply).not.toHaveBeenCalled()
+    expect(close).toHaveBeenCalled()
+  })
+
+  it('uses the week-start setting for End of week', async () => {
+    const user = userEvent.setup()
+    localStorage.setItem('kanbini.settings', JSON.stringify({ weekStart: 'sunday' }))
+    const apply = vi.fn<(m: Mutation, o: unknown) => void>()
+    render(<DueEditor card={makeCard()} apply={apply} close={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'End of week' }))
+    const dueAt = (apply.mock.calls[0]![0] as { patch: { dueAt: number } }).patch.dueAt
+    // A Sunday-start week ends on Saturday.
+    expect(new Date(dueAt).getDay()).toBe(6)
+  })
+})
+
+describe('<DueBadge> wording', () => {
+  it('says Today, and is not overdue while today lasts', () => {
+    const n = new Date()
+    const dueToday = new Date(n.getFullYear(), n.getMonth(), n.getDate()).getTime()
+    const { container } = render(<DueBadge card={makeCard({ dueAt: dueToday })} />)
+    expect(screen.getByText('Today')).toBeInTheDocument()
+    expect((container.firstChild as HTMLElement).className).not.toContain('text-danger')
   })
 })

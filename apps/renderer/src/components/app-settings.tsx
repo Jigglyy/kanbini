@@ -20,6 +20,7 @@ import {
 // Brand mark - see App.tsx import. Same source asset.
 import brandLogo from '../assets/logo.png'
 import { ipc } from '../lib/ipc'
+import type { WeekStart } from '../lib/due-presets'
 import type { Settings, StartMode, Theme } from '../lib/settings'
 import {
   ACTION_REGISTRY,
@@ -358,6 +359,27 @@ function CardsSection({
           checked={settings.cardLimitBlocksDrag}
           onChange={(v) => update({ cardLimitBlocksDrag: v })}
         />
+      </Section>
+
+      <Section title="Due dates">
+        <label className="flex items-center justify-between gap-3 px-1 text-sm">
+          <span className="flex flex-col gap-0.5">
+            <span className="font-medium text-foreground">Week starts on</span>
+            <span className="text-xs text-muted-foreground">
+              Used by the End of week and Next week shortcuts.
+            </span>
+          </span>
+          <select
+            value={settings.weekStart}
+            onChange={(e) => update({ weekStart: e.target.value as WeekStart })}
+            className="rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <option value="locale">System default</option>
+            <option value="monday">Monday</option>
+            <option value="sunday">Sunday</option>
+            <option value="saturday">Saturday</option>
+          </select>
+        </label>
       </Section>
 
       <Section title="Card display">

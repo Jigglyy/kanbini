@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import type { WeekStart } from './due-presets'
 import type { ActionId, Binding } from './shortcuts'
 
 // Renderer-side preferences (M4-G+ - first slice of what will become
@@ -72,6 +73,9 @@ export interface Settings {
   labelsExpanded: boolean
   /** Colour theme. `system` (default) tracks the OS light/dark mode. */
   theme: Theme
+  /** First day of the week for the due-date shortcuts (End of week,
+   *  Next week). `locale` (default) follows the system's convention. */
+  weekStart: WeekStart
   /** Continuous board zoom (CSS `zoom` applied to the board content
    *  only - chrome stays at 100%). 1 = 100%, range 0.5–2.0. Separate
    *  from the window-wide Ctrl/Cmd +/- which uses Electron's
@@ -114,6 +118,7 @@ const DEFAULTS: Settings = {
   listsScrollSeparately: true,
   labelsExpanded: false,
   theme: 'system',
+  weekStart: 'locale',
   boardZoom: 1,
   shortcuts: {},
   obsidian: {

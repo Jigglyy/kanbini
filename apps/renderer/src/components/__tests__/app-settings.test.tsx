@@ -15,6 +15,7 @@ const BASE_SETTINGS: Settings = {
   hasSeenWelcome: true,
   removeDataOnUninstall: false,
   theme: 'system',
+  weekStart: 'locale',
   startMode: 'home',
   cardLimitBlocksCreate: false,
   cardLimitBlocksDrag: false,
@@ -504,5 +505,25 @@ describe('<AppSettings> AI integration - Claude Code plugin', () => {
     ).toHaveTextContent(
       '/plugin marketplace add Jigglyy/kanbini /plugin install kanbini@kanbini'
     )
+  })
+})
+
+describe('<AppSettings> Cards - week start', () => {
+  it('picks the first day of the week for the due-date shortcuts', async () => {
+    const user = userEvent.setup()
+    const update = vi.fn()
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: Infinity } }
+    })
+    render(
+      <QueryClientProvider client={qc}>
+        <AppSettings onClose={vi.fn()} settings={BASE_SETTINGS} update={update} />
+      </QueryClientProvider>
+    )
+    await user.click(screen.getByRole('button', { name: 'Cards' }))
+    const select = screen.getByRole('combobox', { name: /week starts on/i })
+    expect(select).toHaveValue('locale')
+    await user.selectOptions(select, 'sunday')
+    expect(update).toHaveBeenCalledWith({ weekStart: 'sunday' })
   })
 })

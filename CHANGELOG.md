@@ -26,6 +26,11 @@ installers and publishes a GitHub Release (see
   up what you just did in a session as a finished card. There's no token
   or path to set up: it uses the Kanbini you installed, once you've
   opened it.
+- **Due date shortcuts.** The card menu's due date now has one-click
+  Today, Tomorrow, End of week, Next week, and End of month. Choose which
+  day your week starts on under Settings, Cards (it follows your system
+  by default). Cards due soon say "Today", "Tomorrow", or "Yesterday"
+  instead of a date.
 - **Repeating cards.** Right-click a card and pick how often it repeats:
   daily, weekly, every two weeks, monthly, yearly, or your own "every N
   days, weeks, months or years". When you complete it, the next one
@@ -41,6 +46,11 @@ installers and publishes a GitHub Release (see
   links as well.
 - **Ready-made prompts for your AI:** "Plan my day" and "Log work as a
   card" show up in AI apps that list prompts, such as Claude Desktop.
+
+### Fixed
+
+- A card due today no longer turns red as soon as the day starts. It
+  only counts as overdue once its due day is over.
 
 ## [0.9.0] - 2026-09-25
 
