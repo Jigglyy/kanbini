@@ -369,6 +369,8 @@ describe('buildNote (v2 format)', () => {
       coverAttachmentId: null,
       collapsed: null,
       activities: [],
+      blockedBy: [],
+      blocking: [],
       ...overrides
     }
   }

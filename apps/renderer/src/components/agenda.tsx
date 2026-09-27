@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Check, ChevronDown, Flag } from 'lucide-react'
+import { Check, ChevronDown, Flag, Lock } from 'lucide-react'
 import type { AgendaItem, AgendaView } from '@kanbini/shared'
 import { agendaKey, useAgenda } from '../hooks/useAgenda'
 import {
@@ -309,8 +309,18 @@ function AgendaRow({
           </span>
         </span>
       </button>
-      {(item.priority || when) && (
+      {(item.priority || when || item.blocked) && (
         <span className="mt-0.5 flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+          {item.blocked && !done && (
+            <span
+              role="img"
+              aria-label="Blocked: waiting on another card"
+              title="Blocked: waiting on another card"
+              className="flex text-warning"
+            >
+              <Lock className="size-3" aria-hidden />
+            </span>
+          )}
           {item.priority && !done && (
             <Flag
               aria-label={`Priority: ${priorityLabel(item.priority)}`}

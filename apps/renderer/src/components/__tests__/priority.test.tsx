@@ -34,6 +34,8 @@ function makeCard(
     coverAttachmentId: null,
     collapsed: null,
     activities: [],
+    blockedBy: [],
+    blocking: [],
     ...overrides
   }
 }

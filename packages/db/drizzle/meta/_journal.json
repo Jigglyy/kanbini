@@ -99,6 +99,13 @@
       "when": 1790294400000,
       "tag": "0013_card_density",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1790467200000,
+      "tag": "0014_card_dependency",
+      "breakpoints": true
     }
   ]
 }

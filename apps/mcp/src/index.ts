@@ -38,7 +38,8 @@ import {
 // Write tools: create / update / move / delete / archive cards; create /
 //   update / move / archive lists (incl. WIP limit, sort mode, colour,
 //   on-enter rule); create / update / archive boards; create / rename /
-//   recolour / delete labels and set them on cards; post AI-authored
+//   recolour / delete labels and set them on cards; add / remove
+//   "waiting on" links between cards; post AI-authored
 //   comments; manage checklists; add and delete attachments. Every
 //   successful write triggers main's broadcastChange, so an open
 //   renderer reflects AI edits live.
@@ -340,7 +341,11 @@ server.registerTool(
     description:
       'Return one Kanbini card by id, including title, description, ' +
       'priority (low/medium/high/urgent or null), checklists, comments, ' +
-      'attachments, and recent activity feed. Works for archived cards ' +
+      'attachments, recent activity feed, and its "waiting on" links: ' +
+      '`blockedBy` (cards it waits on) and `blocking` (cards waiting on ' +
+      'it), each with title, completed, archived, board, and list. A card ' +
+      'is blocked while any `blockedBy` card is neither completed nor ' +
+      'archived. Works for archived cards ' +
       'too (see kanbini_list_archived). Returns null if the id ' +
       'does not exist. When the desktop app is closed, falls back to ' +
       "the last on-disk export.",
@@ -395,7 +400,8 @@ server.registerTool(
       'today or in the previous `completedDays`, default 7, newest first). ' +
       'Due sections are ordered soonest first, then by priority. Each item ' +
       'carries cardId, title, boardId, boardName, listName, dueAt (epoch ms, ' +
-      'local midnight of the due day), priority, and completedAt. `totals` ' +
+      'local midnight of the due day), priority, completedAt, and `blocked` ' +
+      '(still waiting on an open card, so it cannot really start yet). `totals` ' +
       'counts every card per section even when `limit` (default 50 per ' +
       'section, max 100) trims the arrays. "Today" is the local calendar ' +
       "day on the user's machine; `dayStart` is its midnight. Archived " +
@@ -617,6 +623,43 @@ server.registerTool(
   },
   ({ id, labelIds }) =>
     asToolResult(() => mutate({ type: 'card.setLabels', id, labelIds }))
+)
+
+server.registerTool(
+  'kanbini_add_blocker',
+  {
+    title: 'Mark a card as waiting on another',
+    description:
+      'Record that card `cardId` waits on card `blockerId` (a "blocked by" ' +
+      'link). The card shows as blocked in the app until the blocker is ' +
+      'completed or archived. The two cards may be on different boards. ' +
+      'Adding a link that already exists does nothing. Rejected when both ' +
+      'ids are the same card, or when `blockerId` already waits on ' +
+      '`cardId` directly or through other cards (that would make a loop). ' +
+      "A card's links are in the `blockedBy` and `blocking` arrays of " +
+      'kanbini_get_card / kanbini_get_board. The user can undo in the app.',
+    inputSchema: { cardId: z.string(), blockerId: z.string() }
+  },
+  ({ cardId, blockerId }) =>
+    asToolResult(() =>
+      mutate({ type: 'card.addBlocker', id: cardId, blockerId })
+    )
+)
+
+server.registerTool(
+  'kanbini_remove_blocker',
+  {
+    title: 'Stop a card waiting on another',
+    description:
+      'Remove the link that makes card `cardId` wait on card `blockerId`. ' +
+      "Removing a link that doesn't exist does nothing. Neither card " +
+      'changes otherwise.',
+    inputSchema: { cardId: z.string(), blockerId: z.string() }
+  },
+  ({ cardId, blockerId }) =>
+    asToolResult(() =>
+      mutate({ type: 'card.removeBlocker', id: cardId, blockerId })
+    )
 )
 
 server.registerTool(
@@ -1122,7 +1165,8 @@ server.registerPrompt(
             'Call kanbini_get_agenda and help me plan my day. Start with ' +
             "anything overdue, then what's due today, most urgent first, " +
             'naming the board each card is on. Suggest an order to tackle ' +
-            "today's cards, and point out overdue ones I should reschedule " +
+            "today's cards, putting blocked ones (`blocked: true`) last and " +
+            "saying what they wait on, and point out overdue ones I should reschedule " +
             'or drop. Briefly mention what is coming up in the next few ' +
             "days so nothing surprises me. Don't change anything on my " +
             'boards unless I ask.'

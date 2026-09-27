@@ -76,6 +76,8 @@ function card(id: string, overrides: Partial<CardView> = {}): CardView {
     attachments: [],
     coverAttachmentId: null,
     activities: [],
+    blockedBy: [],
+    blocking: [],
     ...overrides
   }
 }

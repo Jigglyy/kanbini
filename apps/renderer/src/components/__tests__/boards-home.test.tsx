@@ -358,7 +358,8 @@ describe('<BoardsHome> agenda', () => {
           listName: 'Todo',
           dueAt: 0,
           priority: null,
-          completedAt: null
+          completedAt: null,
+          blocked: false
         }
       ],
       upcoming: [],

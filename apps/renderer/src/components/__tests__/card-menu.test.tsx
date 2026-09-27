@@ -37,6 +37,8 @@ function makeCard(overrides: Partial<CardView> = {}): CardView {
     coverAttachmentId: null,
     collapsed: null,
     activities: [],
+    blockedBy: [],
+    blocking: [],
     ...overrides
   }
 }

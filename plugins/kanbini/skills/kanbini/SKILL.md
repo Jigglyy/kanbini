@@ -34,6 +34,10 @@ Nothing is sent anywhere else.
 - Colours accept palette names: red, orange, amber, yellow, lime, green,
   teal, cyan, sky, blue, indigo, purple, pink, rose. Use a name, not a
   made-up CSS colour, so it matches the app's colour pickers.
+- "Waiting on" links: `kanbini_add_blocker` makes a card wait on another
+  (any board). A card is blocked while any of its `blockedBy` cards is
+  still open, so don't suggest starting it; suggest its blocker instead.
+  Loops are rejected. `kanbini_get_agenda` marks blocked cards.
 - Labels belong to one board. Use existing labels when they clearly fit;
   ask before creating new ones.
 - Your comments are marked as written by the AI, so write them in your

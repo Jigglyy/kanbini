@@ -259,6 +259,26 @@ function describe(
           <strong className="text-foreground">{String(d.filename)}</strong>
         </>
       )
+    // blockerTitle is captured at link time, so the row still reads
+    // right after the other card is renamed or deleted.
+    case 'blocker-added':
+      return (
+        <>
+          made this wait on{' '}
+          <strong className="text-foreground">
+            {String(d.blockerTitle ?? 'another card')}
+          </strong>
+        </>
+      )
+    case 'blocker-removed':
+      return (
+        <>
+          stopped this waiting on{' '}
+          <strong className="text-foreground">
+            {String(d.blockerTitle ?? 'another card')}
+          </strong>
+        </>
+      )
     default:
       return activity.type
   }

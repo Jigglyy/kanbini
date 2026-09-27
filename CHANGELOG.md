@@ -26,6 +26,12 @@ installers and publishes a GitHub Release (see
   up what you just did in a session as a finished card. There's no token
   or path to set up: it uses the Kanbini you installed, once you've
   opened it.
+- **Cards can wait on other cards.** Open a card and, under "Waiting
+  on", add the card that has to be done first. It can be on any board.
+  The waiting card shows "Blocked" until that card is done, and the
+  agenda marks it too. The other card lists what's waiting on it, and a
+  click on either takes you there. Your AI can add and remove these
+  links as well.
 - **Ready-made prompts for your AI:** "Plan my day" and "Log work as a
   card" show up in AI apps that list prompts, such as Claude Desktop.
 

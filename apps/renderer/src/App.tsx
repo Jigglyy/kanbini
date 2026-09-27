@@ -562,6 +562,7 @@ export function App() {
                     route.kind === 'board' ? route.openCardId : undefined
                   }
                   onConsumedOpenCard={clearRouteOpenCard}
+                  onOpenBoardCard={openBoard}
                 />
               </div>
             )}

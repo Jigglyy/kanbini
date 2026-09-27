@@ -102,7 +102,9 @@ describe('zCardView / zListView / zBoardView', () => {
     comments: [],
     attachments: [],
     coverAttachmentId: null,
-    activities: []
+    activities: [],
+    blockedBy: [],
+    blocking: []
   }
 
   it('round-trips a minimal CardView', () => {
@@ -342,6 +344,7 @@ describe('zExportSummary / zImportSummary (M4-A/B)', () => {
     cards: 1,
     labels: 0,
     cardLabels: 0,
+    cardDependencies: 0,
     checklists: 0,
     checklistItems: 0,
     comments: 0,

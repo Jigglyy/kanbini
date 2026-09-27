@@ -344,7 +344,9 @@ function LaneCell({
                           attachments: [],
                           coverAttachmentId: null,
                           collapsed: null,
-                          activities: []
+                          activities: [],
+                          blockedBy: [],
+                          blocking: []
                         }
                       ]
                     }

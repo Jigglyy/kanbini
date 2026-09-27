@@ -107,14 +107,19 @@ core piece of design work.
 
 ## 6. Data model
 
-`project`, `board`, `list`, `card`, `label`, `card_label`, `checklist`,
-`checklist_item`, `comment`, `attachment`, `activity`, `template`.
+`project`, `board`, `list`, `card`, `label`, `card_label`,
+`card_dependency`, `checklist`, `checklist_item`, `comment`,
+`attachment`, `activity`, `template`.
 - ids: UUIDv7 (`TEXT`) - sortable, no central sequence.
 - ordering: a `position` fractional-index string on orderable rows -
   O(1) reorder, no renumbering or drift.
 - `activity` records what changed and when (also feeds AI context).
 - `comment.author` is nullable and tagged `ai` for AI-authored notes.
 - `template` (JSON) - board/list blueprints.
+- `card_dependency (card_id, blocker_id)` - "waiting on" links: the card
+  is blocked while the blocker is neither completed nor archived. Links
+  may cross boards; self-links and cycles are rejected in the service
+  layer; both ends cascade on delete (undo snapshots carry the links).
 
 The full schema lives in `/packages/db`.
 
@@ -132,7 +137,8 @@ union as the renderer IPC), so adding one is a one-liner:
 - **Cards:** `kanbini_create_card` (optional starting `priority`),
   `kanbini_update_card` (incl. `collapsed`), `kanbini_move_card`,
   `kanbini_delete_card`, `kanbini_archive_card`,
-  `kanbini_set_card_labels`, `kanbini_post_comment` (forces
+  `kanbini_set_card_labels`, `kanbini_add_blocker`,
+  `kanbini_remove_blocker`, `kanbini_post_comment` (forces
   `author='ai'`), `kanbini_create_checklist`,
   `kanbini_add_checklist_item`, `kanbini_toggle_checklist_item`.
 - **Lists and boards:** `kanbini_create_list`, `kanbini_update_list`

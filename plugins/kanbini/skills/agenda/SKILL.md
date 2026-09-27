@@ -17,7 +17,8 @@ Show the result compactly, in this order, skipping empty sections:
 4. **Recently completed**: just the count, plus the titles if there are
    five or fewer.
 
-Mention a card's priority only when it's high or urgent. If a section was
+Mention a card's priority only when it's high or urgent, and mark cards
+with `blocked: true` as waiting on another card. If a section was
 cut short (`totals` is bigger than what came back), say how many more
 there are.
 

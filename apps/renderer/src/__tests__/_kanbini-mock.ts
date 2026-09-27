@@ -110,6 +110,7 @@ function makeBridge() {
           cards: 0,
           labels: 0,
           cardLabels: 0,
+          cardDependencies: 0,
           checklists: 0,
           checklistItems: 0,
           comments: 0,

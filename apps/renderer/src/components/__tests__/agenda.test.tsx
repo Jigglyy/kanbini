@@ -26,6 +26,7 @@ function item(over: Partial<AgendaItem> = {}): AgendaItem {
     dueAt: DAY0,
     priority: null,
     completedAt: null,
+    blocked: false,
     ...over
   }
 }
@@ -146,5 +147,15 @@ describe('<AgendaPanel>', () => {
       id: 'c-2',
       patch: { completed: false }
     })
+  })
+})
+
+describe('<AgendaPanel> blocked cards', () => {
+  it('marks a blocked card with a lock', async () => {
+    renderPanel(agenda({ today: [item({ title: 'Stuck', blocked: true }), item({ title: 'Free' })] }))
+    const list = await screen.findByRole('list', { name: /due today/i })
+    const [stuck, free] = within(list).getAllByRole('listitem')
+    expect(within(stuck!).getByRole('img', { name: /blocked/i })).toBeInTheDocument()
+    expect(within(free!).queryByRole('img', { name: /blocked/i })).not.toBeInTheDocument()
   })
 })

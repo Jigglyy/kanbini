@@ -208,6 +208,29 @@ export const cardLabel = sqliteTable(
   ]
 )
 
+// "Blocked by" links between cards. A row says card `card_id` waits on
+// card `blocker_id`: it's blocked while the blocker is open (not
+// completed and not archived). Either end may be on any board. Both FKs
+// cascade, so deleting either card drops the link; the undo snapshot of
+// a deleted card carries its links both ways and restores them.
+// Self-links and cycles are rejected in the service layer.
+export const cardDependency = sqliteTable(
+  'card_dependency',
+  {
+    cardId: text('card_id')
+      .notNull()
+      .references(() => card.id, { onDelete: 'cascade' }),
+    blockerId: text('blocker_id')
+      .notNull()
+      .references(() => card.id, { onDelete: 'cascade' }),
+    createdAt: integer('created_at').notNull().default(nowMs)
+  },
+  (t) => [
+    primaryKey({ columns: [t.cardId, t.blockerId] }),
+    index('idx_card_dependency_blocker').on(t.blockerId)
+  ]
+)
+
 export const checklist = sqliteTable(
   'checklist',
   {

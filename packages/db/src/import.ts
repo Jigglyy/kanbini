@@ -7,6 +7,7 @@ import {
   attachment,
   board,
   card,
+  cardDependency,
   cardLabel,
   checklist,
   checklistItem,
@@ -50,6 +51,7 @@ export interface ImportSummary {
     cards: number
     labels: number
     cardLabels: number
+    cardDependencies: number
     checklists: number
     checklistItems: number
     comments: number
@@ -73,6 +75,8 @@ interface ParsedDump {
   cards: Array<typeof card.$inferInsert>
   labels: Array<typeof label.$inferInsert>
   cardLabels: Array<typeof cardLabel.$inferInsert>
+  /** Absent in exports written before "waiting on" links existed. */
+  cardDependencies?: Array<typeof cardDependency.$inferInsert>
   checklists: Array<typeof checklist.$inferInsert>
   checklistItems: Array<typeof checklistItem.$inferInsert>
   comments: Array<typeof comment.$inferInsert>
@@ -130,6 +134,14 @@ export async function importFromFolder(
     'projects', 'boards', 'lists', 'cards', 'labels', 'cardLabels',
     'checklists', 'checklistItems', 'comments', 'attachments', 'activities'
   ] as const
+  // Optional table (newer than the format): absent = none, but if it's
+  // there it must be an array like the rest.
+  if (dump.cardDependencies !== undefined && !Array.isArray(dump.cardDependencies)) {
+    throw new Error(
+      'import: kanbini.json has a malformed "cardDependencies" table - the export looks corrupted'
+    )
+  }
+  const cardDependencies = dump.cardDependencies ?? []
   for (const k of tableKeys) {
     if (!Array.isArray(dump[k])) {
       throw new Error(
@@ -199,6 +211,8 @@ export async function importFromFolder(
     if (dump.cards.length > 0) tx.insert(card).values(dump.cards).run()
     if (dump.cardLabels.length > 0)
       tx.insert(cardLabel).values(dump.cardLabels).run()
+    if (cardDependencies.length > 0)
+      tx.insert(cardDependency).values(cardDependencies).run()
     if (dump.checklists.length > 0)
       tx.insert(checklist).values(dump.checklists).run()
     if (dump.checklistItems.length > 0)
@@ -276,6 +290,7 @@ export async function importFromFolder(
       cards: dump.cards.length,
       labels: dump.labels.length,
       cardLabels: dump.cardLabels.length,
+      cardDependencies: cardDependencies.length,
       checklists: dump.checklists.length,
       checklistItems: dump.checklistItems.length,
       comments: dump.comments.length,

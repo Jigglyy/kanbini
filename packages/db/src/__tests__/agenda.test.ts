@@ -230,3 +230,44 @@ describe('getAgenda', () => {
     expect(v.upcoming).toHaveLength(1)
   })
 })
+
+describe('getAgenda blocked flag', () => {
+  it('flags a card waiting on an open card, not on a done or archived one', () => {
+    const { listId } = seedBoard('W')
+    const waiting = card(listId, 'Waiting', day(0))
+    const free = card(listId, 'Free', day(0))
+    const blocker = card(listId, 'Blocker')
+    const doneBlocker = card(listId, 'Done blocker')
+    const archivedBlocker = card(listId, 'Archived blocker')
+    applyMutation(db, { type: 'card.addBlocker', id: waiting, blockerId: blocker })
+    applyMutation(db, { type: 'card.addBlocker', id: free, blockerId: doneBlocker })
+    applyMutation(db, { type: 'card.addBlocker', id: free, blockerId: archivedBlocker })
+    complete(doneBlocker)
+    applyMutation(db, {
+      type: 'card.update',
+      id: archivedBlocker,
+      patch: { archived: true }
+    })
+
+    const byId = new Map(getAgenda(db, { now: NOW }).today.map((i) => [i.cardId, i]))
+    expect(byId.get(waiting)?.blocked).toBe(true)
+    expect(byId.get(free)?.blocked).toBe(false)
+
+    complete(blocker)
+    expect(
+      getAgenda(db, { now: NOW }).today.find((i) => i.cardId === waiting)?.blocked
+    ).toBe(false)
+  })
+
+  it('never flags a completed card', () => {
+    const { listId } = seedBoard('W')
+    const a = card(listId, 'A')
+    const b = card(listId, 'B')
+    applyMutation(db, { type: 'card.addBlocker', id: a, blockerId: b })
+    complete(a)
+    expect(getAgenda(db, { now: NOW }).completed[0]).toMatchObject({
+      cardId: a,
+      blocked: false
+    })
+  })
+})

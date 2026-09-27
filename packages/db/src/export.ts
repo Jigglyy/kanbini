@@ -7,6 +7,7 @@ import {
   attachment,
   board,
   card,
+  cardDependency,
   cardLabel,
   checklist,
   checklistItem,
@@ -50,6 +51,7 @@ export interface ExportSummary {
     cards: number
     labels: number
     cardLabels: number
+    cardDependencies: number
     checklists: number
     checklistItems: number
     comments: number
@@ -89,6 +91,11 @@ export async function exportToFolder(
     .from(cardLabel)
     .orderBy(asc(cardLabel.cardId), asc(cardLabel.labelId))
     .all()
+  const cardDependencies = db
+    .select()
+    .from(cardDependency)
+    .orderBy(asc(cardDependency.cardId), asc(cardDependency.blockerId))
+    .all()
   const checklists = db
     .select()
     .from(checklist)
@@ -120,6 +127,7 @@ export async function exportToFolder(
     cards: cards.map((c) => ({ ...c, description: null })),
     labels,
     cardLabels,
+    cardDependencies,
     checklists,
     checklistItems,
     comments,
@@ -261,6 +269,7 @@ export async function exportToFolder(
       cards: cards.length,
       labels: labels.length,
       cardLabels: cardLabels.length,
+      cardDependencies: cardDependencies.length,
       checklists: checklists.length,
       checklistItems: checklistItems.length,
       comments: comments.length,

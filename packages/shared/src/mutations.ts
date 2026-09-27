@@ -189,6 +189,19 @@ export const zMutation = z.discriminatedUnion('type', [
     id: z.string(),
     labelIds: z.array(z.string())
   }),
+  // "Blocked by" links: card `id` waits on card `blockerId`. Adding an
+  // existing link or removing a missing one is a no-op. Self-links and
+  // links that would close a cycle are rejected.
+  z.object({
+    type: z.literal('card.addBlocker'),
+    id: z.string(),
+    blockerId: z.string()
+  }),
+  z.object({
+    type: z.literal('card.removeBlocker'),
+    id: z.string(),
+    blockerId: z.string()
+  }),
 
   // label (board-scoped). `id` optional for the undo recorder.
   z.object({

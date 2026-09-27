@@ -8,6 +8,7 @@ import { Attachments, CoverActions, CoverImage } from './attachments'
 import { CardLabels } from './labels'
 import { Checklists } from './checklists'
 import { Comments } from './comments'
+import { BlockedBadge, CardDependencies } from './dependencies'
 import { DueBadge } from './due-date'
 import { PriorityBadge } from './priority'
 import { Modal } from './ui/modal'
@@ -44,11 +45,15 @@ function findCard(b: BoardView | null | undefined, id: string): CardView | null 
 export function CardDetail({
   boardId,
   cardId,
-  onClose
+  onClose,
+  onOpenCard
 }: {
   boardId: string
   cardId: string | null
   onClose: () => void
+  /** Open another card (a "waiting on" link). Omitted = links show but
+   *  their titles aren't clickable targets anywhere new. */
+  onOpenCard?: (boardId: string, cardId: string) => void
 }) {
   const { data } = useBoard(boardId)
   const apply = useBoardMutation(boardId)
@@ -171,6 +176,7 @@ export function CardDetail({
                 />
                 {card.completed ? 'Completed' : 'Mark complete'}
               </label>
+              <BlockedBadge card={card} />
               <PriorityBadge card={card} />
               <DueBadge card={card} />
             </div>
@@ -199,6 +205,12 @@ export function CardDetail({
         </section>
 
         <Checklists card={card} apply={apply} />
+
+        <CardDependencies
+          card={card}
+          boardId={boardId}
+          onOpenCard={onOpenCard ?? (() => {})}
+        />
 
         <CoverActions
           card={card}

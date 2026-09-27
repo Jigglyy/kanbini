@@ -13,6 +13,7 @@ import type { Db } from './client'
 // import is fine since undo.ts only depends on applyMutation INSIDE
 // applyMutationRecorded.
 import { applyRestore, type RestorePayload } from './undo'
+import { addBlocker, cardTitle, removeBlocker } from './dependencies'
 import { cardOrdering, parseListSortMode } from './data'
 import {
   activity,
@@ -683,6 +684,32 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
               })
             }
           }
+        }
+        return { id: m.id, boardId }
+      })
+    }
+    case 'card.addBlocker':
+    case 'card.removeBlocker': {
+      const boardId = cardBoardId(db, m.id)
+      const adding = m.type === 'card.addBlocker'
+      return db.transaction((tx) => {
+        const txDb = tx as unknown as Db
+        const changed = adding
+          ? addBlocker(txDb, m.id, m.blockerId)
+          : removeBlocker(txDb, m.id, m.blockerId)
+        // Logged on the WAITING card only: the blocker's detail already
+        // lists what it's holding up, and one row per link keeps the
+        // feeds quiet.
+        if (changed) {
+          logActivity(txDb, {
+            boardId,
+            cardId: m.id,
+            type: adding ? 'blocker-added' : 'blocker-removed',
+            data: {
+              blockerId: m.blockerId,
+              blockerTitle: cardTitle(txDb, m.blockerId)
+            }
+          })
         }
         return { id: m.id, boardId }
       })

@@ -126,7 +126,8 @@ export function buildAgendaView(
   for (const c of candidates) {
     if (c.completed) {
       if (c.completedAt !== null && c.completedAt >= w.completedSince) {
-        completed.push(toItem(c))
+        // Done is done: whatever it waited on no longer matters.
+        completed.push({ ...toItem(c), blocked: false })
       }
       continue
     }

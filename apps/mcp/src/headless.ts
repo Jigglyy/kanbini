@@ -18,6 +18,7 @@ import type {
   BoardsListView,
   CardDensity,
   CardPriority,
+  CardRef,
   CardView,
   ChecklistView,
   CommentView,
@@ -114,6 +115,8 @@ interface ExportDump {
     color: string
   }>
   cardLabels: Array<{ cardId: string; labelId: string }>
+  /** "Waiting on" links. Absent in exports written before they existed. */
+  cardDependencies?: Array<{ cardId: string; blockerId: string; createdAt: number }>
   checklists: Array<{
     id: string
     cardId: string
@@ -512,6 +515,7 @@ export function headlessBoardView(
     if (arr) arr.push(a)
     else activitiesByCard.set(a.cardId, [a])
   }
+  const deps = dependencyIndex(dump)
 
   const lists: ListView[] = listsForBoard.map((l) => {
     const sortMode = parseSortMode(l.sortMode)
@@ -527,7 +531,8 @@ export function headlessBoardView(
         itemsByChecklist,
         commentsByCard,
         attachmentsByCard,
-        activitiesByCard
+        activitiesByCard,
+        deps
       })
     )
 
@@ -626,8 +631,59 @@ export function headlessCardView(
     itemsByChecklist: groupBy(snap.dump.checklistItems, (it) => it.checklistId),
     commentsByCard: groupBy(snap.dump.comments, (cm) => cm.cardId),
     attachmentsByCard: groupBy(snap.dump.attachments, (at) => at.cardId),
-    activitiesByCard: groupActivitiesByCard(snap.dump.activities)
+    activitiesByCard: groupActivitiesByCard(snap.dump.activities),
+    deps: dependencyIndex(snap.dump)
   })
+}
+
+/** Mirror of `dependencyRefs` in @kanbini/db/dependencies.ts: both
+ *  directions per card, oldest link first, the far end's id breaking
+ *  ties. A link whose far end is missing from the dump is skipped, as
+ *  the live INNER JOIN would. */
+function dependencyIndex(dump: ExportDump): {
+  blockedBy: Map<string, CardRef[]>
+  blocking: Map<string, CardRef[]>
+} {
+  const cardsById = new Map(dump.cards.map((c) => [c.id, c]))
+  const listsById = new Map(dump.lists.map((l) => [l.id, l]))
+  const boardsById = new Map(dump.boards.map((b) => [b.id, b]))
+  const refOf = (id: string): CardRef | null => {
+    const c = cardsById.get(id)
+    const l = c && listsById.get(c.listId)
+    const b = l && boardsById.get(l.boardId)
+    if (!c || !l || !b) return null
+    return {
+      cardId: c.id,
+      title: c.title,
+      completed: c.completed,
+      archived: c.archived,
+      boardId: b.id,
+      boardName: b.name,
+      listName: l.name
+    }
+  }
+  const edges = dump.cardDependencies ?? []
+  const build = (
+    near: (e: (typeof edges)[number]) => string,
+    far: (e: (typeof edges)[number]) => string
+  ): Map<string, CardRef[]> => {
+    const out = new Map<string, CardRef[]>()
+    const sorted = [...edges].sort(
+      (a, b) => a.createdAt - b.createdAt || strcmp(far(a), far(b))
+    )
+    for (const e of sorted) {
+      const ref = refOf(far(e))
+      if (!ref) continue
+      const arr = out.get(near(e))
+      if (arr) arr.push(ref)
+      else out.set(near(e), [ref])
+    }
+    return out
+  }
+  return {
+    blockedBy: build((e) => e.cardId, (e) => e.blockerId),
+    blocking: build((e) => e.blockerId, (e) => e.cardId)
+  }
 }
 
 function groupActivitiesByCard(
@@ -650,6 +706,7 @@ interface CardIndexes {
   commentsByCard: Map<string, ExportDump['comments']>
   attachmentsByCard: Map<string, ExportDump['attachments']>
   activitiesByCard: Map<string, ExportDump['activities']>
+  deps: ReturnType<typeof dependencyIndex>
 }
 
 function buildCardView(
@@ -736,7 +793,9 @@ function buildCardView(
     comments,
     attachments,
     coverAttachmentId: c.coverAttachmentId,
-    activities
+    activities,
+    blockedBy: idx.deps.blockedBy.get(c.id) ?? [],
+    blocking: idx.deps.blocking.get(c.id) ?? []
   }
 }
 
@@ -854,6 +913,14 @@ export function headlessAgenda(
     }
   }
 
+  // Mirror of the live EXISTS: waiting on any card that's still open.
+  const cardsById = new Map(dump.cards.map((c) => [c.id, c]))
+  const blocked = new Set<string>()
+  for (const e of dump.cardDependencies ?? []) {
+    const blocker = cardsById.get(e.blockerId)
+    if (blocker && !blocker.completed && !blocker.archived) blocked.add(e.cardId)
+  }
+
   const candidates: AgendaCandidate[] = []
   for (const c of dump.cards) {
     if (c.archived) continue
@@ -872,7 +939,8 @@ export function headlessAgenda(
       dueAt: c.dueAt,
       priority: parsePriority(c.priority),
       completed: c.completed,
-      completedAt: lastCompleted.get(c.id) ?? null
+      completedAt: lastCompleted.get(c.id) ?? null,
+      blocked: blocked.has(c.id)
     })
   }
   return buildAgendaView(candidates, opts)

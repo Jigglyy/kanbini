@@ -37,6 +37,7 @@ function cand(over: Partial<AgendaCandidate> = {}): AgendaCandidate {
     priority: null,
     completedAt: null,
     completed: false,
+    blocked: false,
     ...over
   }
 }
@@ -112,6 +113,14 @@ describe('buildAgendaView', () => {
     // A completed card never shows as overdue / due, even with a due date.
     expect(v.overdue).toEqual([])
     expect(v.today).toEqual([])
+  })
+
+  it('passes `blocked` through for open cards and clears it once done', () => {
+    const waiting = cand({ dueAt: DAY0, blocked: true })
+    const done = cand({ completed: true, completedAt: NOW - 1000, blocked: true })
+    const v = buildAgendaView([waiting, done], { now: NOW })
+    expect(v.today[0]!.blocked).toBe(true)
+    expect(v.completed[0]!.blocked).toBe(false)
   })
 
   it('never reports a completion time on an open card', () => {

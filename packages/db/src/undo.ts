@@ -3,6 +3,12 @@ import { type Mutation, type MutationResult, newId } from '@kanbini/shared'
 import type { Db } from './client'
 import { applyMutation } from './crud'
 import {
+  type DependencyEdge,
+  dependencyEdgesOf,
+  hasBlocker,
+  restoreDependencyEdges
+} from './dependencies'
+import {
   activity,
   attachment,
   board,
@@ -118,6 +124,8 @@ function entityIdOf(m: Mutation): string | null {
     case 'card.delete':
     case 'card.move':
     case 'card.setLabels':
+    case 'card.addBlocker':
+    case 'card.removeBlocker':
     case 'list.create':
     case 'list.update':
     case 'list.delete':
@@ -210,6 +218,11 @@ export interface CardSnapshot {
    *  card-scoped feed query never finds them again). Without this the
    *  feed came back empty after restoring a deleted card/list/board. */
   activities: ActivitySnapshot[]
+  /** Every "waiting on" link touching the card, either direction. Both
+   *  FKs cascade, so a delete drops them; restore re-adds the ones whose
+   *  other end still exists. Optional: snapshots written before links
+   *  existed don't carry it. */
+  dependencies?: DependencyEdge[]
 }
 
 export interface ActivitySnapshot {
@@ -510,7 +523,8 @@ export function snapshotCard(db: Db, id: string): CardSnapshot | null {
     checklists,
     comments,
     attachments,
-    activities
+    activities,
+    dependencies: dependencyEdgesOf(db, id)
   }
 }
 
@@ -793,6 +807,27 @@ function restoreBoard(db: Db, s: BoardSnapshot): void {
  *  Wrapped in a transaction by the caller (`applyMutation`'s restore
  *  arm) so a half-restore can't leak. */
 export function applyRestore(db: Db, payload: RestorePayload): MutationResult {
+  const result = restorePayload(db, payload)
+  // Links go back LAST: a list or board payload restores many cards,
+  // and a link between two of them needs both rows in place first.
+  restoreDependencyEdges(db, payloadDependencyEdges(payload))
+  return result
+}
+
+/** Every captured link in a card / list / board payload. */
+function payloadDependencyEdges(payload: RestorePayload): DependencyEdge[] {
+  const cards =
+    payload.kind === 'card'
+      ? [payload.card]
+      : payload.kind === 'list'
+        ? payload.list.cards
+        : payload.kind === 'board'
+          ? payload.board.lists.flatMap((l) => l.cards)
+          : []
+  return cards.flatMap((c) => c.dependencies ?? [])
+}
+
+function restorePayload(db: Db, payload: RestorePayload): MutationResult {
   switch (payload.kind) {
     case 'card':
       restoreCard(db, payload.card)
@@ -883,6 +918,10 @@ function describeMutation(m: Mutation): string {
       return `Move card`
     case 'card.setLabels':
       return `Change card labels`
+    case 'card.addBlocker':
+      return `Add "waiting on" link`
+    case 'card.removeBlocker':
+      return `Remove "waiting on" link`
     case 'list.create':
       return `Create list "${m.name}"`
     case 'list.update':
@@ -1135,6 +1174,17 @@ export function inverseBefore(db: Db, m: Mutation): Mutation | null {
         afterId
       }
     }
+
+    // -- Blocker links: each arm undoes the other. A no-op (adding a
+    //    link that exists, removing one that doesn't) records nothing.
+    case 'card.addBlocker':
+      return hasBlocker(db, m.id, m.blockerId)
+        ? null
+        : { type: 'card.removeBlocker', id: m.id, blockerId: m.blockerId }
+    case 'card.removeBlocker':
+      return hasBlocker(db, m.id, m.blockerId)
+        ? { type: 'card.addBlocker', id: m.id, blockerId: m.blockerId }
+        : null
 
     // -- setLabels: capture old labelIds --
     case 'card.setLabels': {

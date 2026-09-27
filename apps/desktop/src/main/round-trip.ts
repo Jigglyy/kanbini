@@ -124,6 +124,20 @@ export async function runRoundTripTest(
       patch: { completed: true }
     })
 
+    // (d2) a "waiting on" link (the card_dependency table)
+    const secondCard = db
+      .select()
+      .from(schema.card)
+      .all()
+      .find((c) => c.id !== firstCard.id)
+    if (secondCard) {
+      applyMutation(db, {
+        type: 'card.addBlocker',
+        id: secondCard.id,
+        blockerId: firstCard.id
+      })
+    }
+
     // (e) attachment row + real file on disk
     const attId = newId()
     const filename = 'round-trip-fixture.txt'
@@ -146,6 +160,7 @@ export async function runRoundTripTest(
     console.log(
       `[round-trip] export A → ${summaryA.counts.cards} cards, ` +
         `${summaryA.counts.activities} activities, ` +
+        `${summaryA.counts.cardDependencies} waiting-on links, ` +
         `${summaryA.counts.attachments} attachments`
     )
 

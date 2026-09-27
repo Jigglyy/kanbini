@@ -201,6 +201,20 @@ export type CardPriority = z.infer<typeof zCardPriority>
 export const zSwimlaneMode = z.literal('priority')
 export type SwimlaneMode = z.infer<typeof zSwimlaneMode>
 
+/** The other end of a "blocked by" link, with enough context to show
+ *  and navigate to it without another fetch. Either end may be on any
+ *  board. */
+export const zCardRef = z.object({
+  cardId: z.string(),
+  title: z.string(),
+  completed: z.boolean(),
+  archived: z.boolean(),
+  boardId: z.string(),
+  boardName: z.string(),
+  listName: z.string()
+})
+export type CardRef = z.infer<typeof zCardRef>
+
 export const zCardView = z.object({
   id: z.string(),
   title: z.string(),
@@ -219,9 +233,24 @@ export const zCardView = z.object({
   comments: z.array(zCommentView),
   attachments: z.array(zAttachmentView),
   coverAttachmentId: z.string().nullable(),
-  activities: z.array(zActivityView)
+  activities: z.array(zActivityView),
+  /** Cards this one waits on, oldest link first. The card counts as
+   *  blocked while any of them is open (see `isBlockedBy`). */
+  blockedBy: z.array(zCardRef),
+  /** Cards waiting on this one, oldest link first. */
+  blocking: z.array(zCardRef)
 })
 export type CardView = z.infer<typeof zCardView>
+
+/** A blocker holds a card up while it's still open: not completed and
+ *  not archived (an archived card is out of play, so it can't hold
+ *  anything up; the link stays so the user can see and remove it). */
+export const isOpenBlocker = (ref: Pick<CardRef, 'completed' | 'archived'>): boolean =>
+  !ref.completed && !ref.archived
+
+/** Whether a card is blocked, given its `blockedBy` list. */
+export const isBlockedBy = (blockedBy: readonly CardRef[]): boolean =>
+  blockedBy.some(isOpenBlocker)
 
 /** Per-list sort override (ADR-0032). null = manual (fractional-index,
  *  today's default). Any non-null mode renders cards in a computed
@@ -440,7 +469,10 @@ export const zAgendaItem = z.object({
   priority: zCardPriority.nullable(),
   /** When the card was last marked complete (from the activity log).
    *  Set only in the `completed` section. */
-  completedAt: z.number().nullable()
+  completedAt: z.number().nullable(),
+  /** Still waiting on an open card ("waiting on" links), so it can't
+   *  really start yet. Always false in the `completed` section. */
+  blocked: z.boolean()
 })
 export type AgendaItem = z.infer<typeof zAgendaItem>
 
@@ -516,6 +548,7 @@ export const zExportSummary = z.object({
     cards: z.number(),
     labels: z.number(),
     cardLabels: z.number(),
+    cardDependencies: z.number(),
     checklists: z.number(),
     checklistItems: z.number(),
     comments: z.number(),
@@ -537,6 +570,7 @@ export const zImportSummary = z.object({
     cards: z.number(),
     labels: z.number(),
     cardLabels: z.number(),
+    cardDependencies: z.number(),
     checklists: z.number(),
     checklistItems: z.number(),
     comments: z.number(),

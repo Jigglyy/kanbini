@@ -11,7 +11,7 @@ import {
 } from '@kanbini/shared'
 import type { Db } from './client'
 import { parsePriority } from './data'
-import { activity, board, card, list } from './schema'
+import { activity, board, card, cardDependency, list } from './schema'
 
 // Cross-board agenda: overdue / due today / upcoming / recently
 // completed, across every board. Section rules + ordering live in
@@ -27,7 +27,8 @@ import { activity, board, card, list } from './schema'
 // recently.
 //
 // Hidden surface stays hidden: archived cards, closed lists and archived
-// boards are excluded, same as search.
+// boards are excluded, same as search. Each open item says whether it's
+// `blocked` (waiting on an open card), so a plan for the day can skip it.
 
 export function getAgenda(db: Db, opts: AgendaOptions = {}): AgendaView {
   const now = opts.now ?? Date.now()
@@ -66,7 +67,14 @@ export function getAgenda(db: Db, opts: AgendaOptions = {}): AgendaView {
       boardId: board.id,
       boardName: board.name,
       boardColor: board.color,
-      completedAt: lastCompleted.at
+      completedAt: lastCompleted.at,
+      // Any "waiting on" link to a card that's still open (not completed,
+      // not archived) - the same rule as isOpenBlocker in the renderer.
+      blocked: sql<number>`exists (
+        select 1 from ${cardDependency} d
+        inner join ${card} bc on bc.id = d.blocker_id
+        where d.card_id = ${card.id} and bc.completed = 0 and bc.archived = 0
+      )`
     })
     .from(card)
     .innerJoin(list, eq(card.listId, list.id))
@@ -100,7 +108,8 @@ export function getAgenda(db: Db, opts: AgendaOptions = {}): AgendaView {
     dueAt: r.dueAt,
     priority: parsePriority(r.priority),
     completed: r.completed,
-    completedAt: r.completedAt ?? null
+    completedAt: r.completedAt ?? null,
+    blocked: Boolean(r.blocked)
   }))
 
   return buildAgendaView(candidates, { ...opts, now, upcomingDays, completedDays })

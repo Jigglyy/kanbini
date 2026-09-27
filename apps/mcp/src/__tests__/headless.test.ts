@@ -267,6 +267,74 @@ describe('headless readers vs live @kanbini/db', () => {
     }
   })
 
+  it('"waiting on" links read identically in both readers', async () => {
+    // Links across two boards, one far end completed and one archived,
+    // two links made in the same millisecond (the far-end id breaks the
+    // tie in both readers), plus an old-format export with no links key.
+    const { db: db2, close } = openDatabase({
+      filePath: ':memory:',
+      migrationsFolder: MIGRATIONS
+    })
+    try {
+      const mk = (name: string): { boardId: string; listId: string } => {
+        const boardId = applyMutation(db2, { type: 'board.create', name }).id
+        const listId = applyMutation(db2, {
+          type: 'list.create',
+          boardId,
+          name: `${name} list`
+        }).id
+        return { boardId, listId }
+      }
+      const card = (listId: string, title: string): string =>
+        applyMutation(db2, { type: 'card.create', listId, title }).id
+      const work = mk('Work')
+      const home = mk('Home')
+      const a = card(work.listId, 'A')
+      const b = card(work.listId, 'B')
+      const c = card(home.listId, 'C')
+      const d = card(home.listId, 'D')
+      const link = (id: string, blockerId: string): void => {
+        applyMutation(db2, { type: 'card.addBlocker', id, blockerId })
+      }
+      const realNow = Date.now
+      Date.now = () => 1_700_000_000_000
+      try {
+        link(a, d)
+        link(a, c)
+      } finally {
+        Date.now = realNow
+      }
+      link(a, b)
+      link(b, c)
+      applyMutation(db2, { type: 'card.update', id: c, patch: { completed: true } })
+      applyMutation(db2, { type: 'card.update', id: b, patch: { archived: true } })
+
+      const root = join(tmpRoot, 'deps-parity')
+      const exDir = join(root, 'export')
+      await exportToFolder(db2, root, exDir)
+      const snap = await loadHeadlessSnapshot(exDir)
+
+      expect(getCardView(db2, a)!.blockedBy.map((r) => r.title)).toEqual(
+        c < d ? ['C', 'D', 'B'] : ['D', 'C', 'B']
+      )
+      for (const id of [a, b, c, d]) {
+        expect(headlessCardView(snap!, id)).toEqual(getCardView(db2, id))
+      }
+      for (const boardId of [work.boardId, home.boardId]) {
+        expect(headlessBoardView(snap!, boardId)).toEqual(getBoardView(db2, boardId))
+      }
+
+      // An export from before links existed has no cardDependencies key.
+      const legacy = {
+        ...snap!,
+        dump: { ...snap!.dump, cardDependencies: undefined }
+      }
+      expect(headlessCardView(legacy, a)!.blockedBy).toEqual([])
+    } finally {
+      close()
+    }
+  })
+
   it('agenda reads identically in both readers', async () => {
     // Throwaway DB spanning every section and every exclusion: two
     // boards, due dates on both sides of each window edge, a normal
@@ -339,6 +407,10 @@ describe('headless readers vs live @kanbini/db', () => {
       applyMutation(db2, { type: 'card.move', id: moved, toListId: done })
 
       card(a.listId, 'Archived', { dueAt: day(0), archived: true })
+      // One due card waiting on an open card, one on a finished card.
+      const waits = card(b.listId, 'Waits (blocked)', { dueAt: day(1) })
+      const openBlocker = card(b.listId, 'Open blocker')
+      applyMutation(db2, { type: 'card.addBlocker', id: waits, blockerId: openBlocker })
       const closed = mk('Closed list board')
       card(closed.listId, 'In closed list', { dueAt: day(0) })
       applyMutation(db2, {
@@ -363,9 +435,10 @@ describe('headless readers vs live @kanbini/db', () => {
       expect(live.totals).toEqual({
         overdue: 2,
         today: 2,
-        upcoming: 2,
+        upcoming: 3,
         completed: 2
       })
+      expect(live.upcoming.find((i) => i.title === 'Waits (blocked)')?.blocked).toBe(true)
       expect(headlessAgenda(snap!, { now })).toEqual(live)
 
       const narrow = { now, upcomingDays: 1, completedDays: 30, limit: 1 }

@@ -264,7 +264,11 @@ match anything.
 #### `kanbini_get_card`
 
 Returns one card by id with the same depth as a card inside the
-board view.
+board view, including its "waiting on" links: `blockedBy` (cards it
+waits on) and `blocking` (cards waiting on it), each
+`{ cardId, title, completed, archived, boardId, boardName, listName }`,
+oldest link first. A card is blocked while any `blockedBy` card is
+neither completed nor archived.
 
 | Argument | Type     | Required | Notes                       |
 |----------|----------|----------|-----------------------------|
@@ -295,8 +299,9 @@ upcoming, completed, totals }`:
 - The three due sections sort soonest first, then by priority (urgent
   first).
 - Each item is `{ cardId, title, boardId, boardName, boardColor, listId,
-  listName, dueAt, priority, completedAt }`. `completedAt` is set only
-  in `completed`.
+  listName, dueAt, priority, completedAt, blocked }`. `completedAt` is
+  set only in `completed`; `blocked` is true while the card waits on a
+  card that's still open (always false in `completed`).
 - `totals` gives each section's full size, even when `limit` trimmed the
   array.
 
@@ -413,6 +418,24 @@ Replace the full label set on a card (idempotent).
 Every id must be a label on the **card's own board**. An unknown id or
 one from another board is rejected and nothing changes. Make a missing
 label with `kanbini_create_label`.
+
+#### `kanbini_add_blocker`
+Make card `cardId` wait on card `blockerId`. The app marks it "Blocked"
+until the blocker is completed or archived.
+
+| Argument    | Type     | Notes                                   |
+|-------------|----------|-----------------------------------------|
+| `cardId`    | `string` | The card that has to wait.              |
+| `blockerId` | `string` | The card that has to be done first.     |
+
+The two cards may be on different boards. Adding a link that exists is a
+no-op. A self-link, or a link that would close a loop (`blockerId`
+already waits on `cardId`, directly or through other cards), is rejected
+and nothing changes. Undoable in the app.
+
+#### `kanbini_remove_blocker`
+Same arguments. Removes the link; removing one that doesn't exist is a
+no-op.
 
 #### `kanbini_post_comment`
 Post a comment **as the AI** - author is forced to `'ai'`, so the

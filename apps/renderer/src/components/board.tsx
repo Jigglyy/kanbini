@@ -98,6 +98,7 @@ import { ContextMenu } from './ui/context-menu'
 import { CardLabels } from './labels'
 import { CardDetail } from './card-detail'
 import { CardChecklistPreview } from './checklists'
+import { BlockedBadge } from './dependencies'
 import { DescriptionBadge } from './description-badge'
 import { CollapseToggle, CompactBadges } from './card-density'
 import { DueBadge } from './due-date'
@@ -485,6 +486,7 @@ function CardFace({
       {!compact && <TitleUrlChip title={card.title} />}
       <div className="flex flex-wrap items-center gap-1.5">
         <DescriptionBadge card={card} />
+        <BlockedBadge card={card} />
         <PriorityBadge card={card} />
         <DueBadge card={card} />
         {compact && <CompactBadges card={card} />}
@@ -533,6 +535,7 @@ export function Board({
   boardZoom,
   initialOpenCardId,
   onConsumedOpenCard,
+  onOpenBoardCard,
   listsScrollSeparately = false
 }: {
   board: BoardView
@@ -572,6 +575,9 @@ export function Board({
    *  (undefined → id again) is then a real prop change that reopens the
    *  detail, instead of a silent no-op (the value never changed). */
   onConsumedOpenCard?: () => void
+  /** Open a card on ANOTHER board (a "waiting on" link can cross
+   *  boards). App navigates there with the card's detail open. */
+  onOpenBoardCard?: (boardId: string, cardId: string) => void
   /** settings.listsScrollSeparately: cap each list to the board height
    *  and scroll its body. Flat layout only - see `capLists`. */
   listsScrollSeparately?: boolean
@@ -2302,6 +2308,14 @@ export function Board({
       boardId={board.board.id}
       cardId={openCardId}
       onClose={() => setOpenCardId(null)}
+      onOpenCard={(targetBoardId, cardId) => {
+        if (targetBoardId === board.board.id) {
+          ensureCardVisible(cardId)
+          setOpenCardId(cardId)
+        } else {
+          onOpenBoardCard?.(targetBoardId, cardId)
+        }
+      }}
     />
     </>
   )
@@ -2723,7 +2737,9 @@ const ListColumn = memo(function ListColumn({
                         attachments: [],
                         coverAttachmentId: null,
                         collapsed: null,
-                        activities: []
+                        activities: [],
+                        blockedBy: [],
+                        blocking: []
                       }
                     ]
                   }
@@ -3111,6 +3127,7 @@ const SortableCard = memo(function SortableCard({
     () => (
       <div className="flex flex-wrap items-center gap-1.5">
         <DescriptionBadge card={card} />
+        <BlockedBadge card={card} />
         <PriorityBadge card={card} />
         <DueBadge card={card} />
         {compact && <CompactBadges card={card} />}

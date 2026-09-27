@@ -21,6 +21,7 @@ import {
   zSwimlaneMode
 } from '@kanbini/shared'
 import type { Db } from './client'
+import { dependencyRefs } from './dependencies'
 import {
   activity,
   attachment,
@@ -524,6 +525,10 @@ export function getBoardView(db: Db, boardId?: string): BoardView | null {
 
   const activitiesFor = (cardId: string) => activitiesByCard.get(cardId) ?? []
 
+  // "Waiting on" links, both directions, for every card on the board in
+  // two queries. The far end may be on another board.
+  const deps = dependencyRefs(db, boardCardIds)
+
   return {
     project: { id: p.id, name: p.name },
     board: {
@@ -576,7 +581,9 @@ export function getBoardView(db: Db, boardId?: string): BoardView | null {
           comments: commentsFor(c.id),
           attachments: attachmentsFor(c.id),
           coverAttachmentId: c.coverAttachmentId,
-          activities: activitiesFor(c.id)
+          activities: activitiesFor(c.id),
+          blockedBy: deps.blockedBy.get(c.id) ?? [],
+          blocking: deps.blocking.get(c.id) ?? []
         }))
       }
     })
@@ -762,6 +769,8 @@ export function getCardView(db: Db, cardId: string) {
       createdAt: a.createdAt
     }))
 
+  const deps = dependencyRefs(db, [cardId])
+
   return {
     id: c.id,
     title: c.title,
@@ -776,6 +785,8 @@ export function getCardView(db: Db, cardId: string) {
     comments,
     attachments,
     coverAttachmentId: c.coverAttachmentId,
-    activities
+    activities,
+    blockedBy: deps.blockedBy.get(cardId) ?? [],
+    blocking: deps.blocking.get(cardId) ?? []
   }
 }

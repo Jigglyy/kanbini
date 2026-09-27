@@ -41,7 +41,9 @@ function renderActivities(rows: ActivityView[]) {
     attachments: [],
     coverAttachmentId: null,
     collapsed: null,
-    activities: rows
+    activities: rows,
+    blockedBy: [],
+    blocking: []
   }
   return render(<Activity card={card} labels={labels} />)
 }
@@ -52,6 +54,24 @@ describe('<Activity>', () => {
     vi.setSystemTime(new Date('2026-05-25T12:00:00Z'))
   })
   afterEach(() => vi.useRealTimers())
+
+  it('describes "waiting on" links by the other card title', () => {
+    renderActivities([
+      makeActivity({
+        id: 'a1',
+        type: 'blocker-added',
+        data: { blockerId: 'x', blockerTitle: 'Design review' }
+      }),
+      makeActivity({
+        id: 'a2',
+        type: 'blocker-removed',
+        data: { blockerId: 'x', blockerTitle: 'Design review' }
+      })
+    ])
+    const rows = screen.getAllByRole('listitem')
+    expect(rows[0]).toHaveTextContent(/made this wait on Design review/)
+    expect(rows[1]).toHaveTextContent(/stopped this waiting on Design review/)
+  })
 
   it('shows the "no activity yet" hint for an empty feed', () => {
     renderActivities([])
