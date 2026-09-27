@@ -1,0 +1,17 @@
+{
+  "name": "kanbini",
+  "owner": {
+    "name": "Jigglyy",
+    "url": "https://github.com/Jigglyy"
+  },
+  "description": "Claude Code plugin for Kanbini, the free, offline kanban desktop app.",
+  "plugins": [
+    {
+      "name": "kanbini",
+      "source": "./plugins/kanbini",
+      "description": "Work with your local Kanbini boards from Claude Code: see your agenda, add cards, and log what you just did.",
+      "category": "productivity",
+      "tags": ["kanban", "tasks", "mcp", "offline"]
+    }
+  ]
+}

@@ -42,13 +42,51 @@ export const MCP_BUNDLE_PLACEHOLDER =
  *  each launch, so both paths in a portable build's snippet go stale
  *  when it's relaunched. Installed builds are stable. */
 export function buildMcpClientSnippet(input: McpSnippetInput): string {
-  const args = [input.bundle ?? MCP_BUNDLE_PLACEHOLDER];
-  const server = input.isPackaged
-    ? {
-        command: input.execPath,
-        args,
-        env: { ELECTRON_RUN_AS_NODE: "1" },
-      }
-    : { command: "node", args };
+  const server = buildMcpServerEntry({
+    ...input,
+    bundle: input.bundle ?? MCP_BUNDLE_PLACEHOLDER,
+  });
   return JSON.stringify({ mcpServers: { kanbini: server } }, null, 2);
+}
+
+/** How to start this app's MCP server: the `{ command, args, env? }`
+ *  entry an MCP client config holds. Shared by the Settings snippet and
+ *  the launch pointer file below so the two can't disagree. */
+export interface McpServerEntry {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+}
+
+export function buildMcpServerEntry(
+  input: McpSnippetInput & { bundle: string },
+): McpServerEntry {
+  const args = [input.bundle];
+  return input.isPackaged
+    ? { command: input.execPath, args, env: { ELECTRON_RUN_AS_NODE: "1" } }
+    : { command: "node", args };
+}
+
+/** File in `<userData>` that tells the Claude Code plugin's launcher
+ *  how to start the INSTALLED app's MCP server. Main rewrites it on
+ *  every launch (so an update or a moved install re-points it) and,
+ *  unlike `mcp.json`, never deletes it on quit: the server's headless
+ *  fallback reads the export while the app is closed. Holds no secret;
+ *  the bearer token stays in `mcp-token`. */
+export const MCP_SERVER_POINTER_FILE = "mcp-server.json";
+
+export interface McpServerPointer extends McpServerEntry {
+  /** App version that wrote the pointer (diagnostics only). */
+  version: string;
+  writtenAt: number;
+}
+
+export function buildMcpServerPointer(
+  input: McpSnippetInput & { bundle: string; version: string; now?: number },
+): McpServerPointer {
+  return {
+    ...buildMcpServerEntry(input),
+    version: input.version,
+    writtenAt: input.now ?? Date.now(),
+  };
 }

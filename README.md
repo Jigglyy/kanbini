@@ -68,6 +68,11 @@ that never closes: a board that's yours, local, and always on.
   (card limit, sort, colour, compact cards, how many to show), search,
   and a cross-board agenda.
   Edits stream into the open UI live. See [`docs/MCP.md`](docs/MCP.md).
+- **Claude Code plugin** - `/plugin marketplace add Jigglyy/kanbini`,
+  then `/plugin install kanbini@kanbini`. Adds `/kanbini:agenda`,
+  `/kanbini:new-card`, and `/kanbini:log` (write up this session's work
+  as a finished card), and needs no token or path: it finds the Kanbini
+  app you installed. See [`plugins/kanbini`](plugins/kanbini/README.md).
 - **Scriptable HTTP API** - the same token-gated 127.0.0.1 control channel
   is also a plain local HTTP API (REST routes for reads + writes, plus a
   batch endpoint that lands as one undo step) for non-MCP tools, scripts,

@@ -18,6 +18,8 @@ import {
 import {
   APP_CODENAME,
   buildMcpClientSnippet,
+  buildMcpServerPointer,
+  MCP_SERVER_POINTER_FILE,
   IPC,
   newId,
   zAppInfo,
@@ -314,6 +316,32 @@ function resolveMcpBundlePath(): string | null {
     }
   }
   return null
+}
+
+/** Record how to start THIS install's MCP server in
+ *  `<userData>/mcp-server.json`, for the Claude Code plugin's launcher
+ *  (plugins/kanbini/server/launch.mjs). Rewritten on every launch so an
+ *  update or a moved install re-points it; kept on quit because the
+ *  server still answers reads from the export while the app is closed.
+ *  Skipped when the bundle isn't built (dev before `pnpm --filter
+ *  @kanbini/mcp run build`) - better no pointer than one to nothing. */
+async function writeMcpServerPointer(userDataDir: string): Promise<void> {
+  const bundle = resolveMcpBundlePath()
+  if (!bundle) return
+  const pointer = buildMcpServerPointer({
+    isPackaged: app.isPackaged,
+    execPath: process.execPath,
+    bundle,
+    version: app.getVersion()
+  })
+  try {
+    await fsp.writeFile(
+      join(userDataDir, MCP_SERVER_POINTER_FILE),
+      JSON.stringify(pointer, null, 2)
+    )
+  } catch (err) {
+    console.warn('[main] could not write the MCP server pointer:', err)
+  }
 }
 
 function registerIpc(
@@ -1070,6 +1098,7 @@ void app.whenReady().then(async () => {
   } catch (err) {
     console.error('[main] failed to start MCP control channel:', err)
   }
+  void writeMcpServerPointer(userDataDir)
 
   applyCsp()
   createWindow()

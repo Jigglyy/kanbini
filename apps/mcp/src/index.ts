@@ -1098,5 +1098,88 @@ server.registerTool(
   ({ id }) => asToolResult(() => rpc('attachment.delete', { id }))
 )
 
+// ─── prompts ─────────────────────────────────────────────────────
+// Canned starting points a client can offer the user (Claude Desktop
+// lists them in its prompt picker; Claude Code as slash commands). They
+// only phrase a request - the tools above do the work, so they need no
+// channel method of their own.
+
+server.registerPrompt(
+  'plan_my_day',
+  {
+    title: 'Plan my day',
+    description:
+      "Review what's overdue, due today, and coming up across all Kanbini " +
+      'boards, and suggest an order to work through it.'
+  },
+  () => ({
+    messages: [
+      {
+        role: 'user',
+        content: {
+          type: 'text',
+          text:
+            'Call kanbini_get_agenda and help me plan my day. Start with ' +
+            "anything overdue, then what's due today, most urgent first, " +
+            'naming the board each card is on. Suggest an order to tackle ' +
+            "today's cards, and point out overdue ones I should reschedule " +
+            'or drop. Briefly mention what is coming up in the next few ' +
+            "days so nothing surprises me. Don't change anything on my " +
+            'boards unless I ask.'
+        }
+      }
+    ]
+  })
+)
+
+server.registerPrompt(
+  'log_work',
+  {
+    title: 'Log work as a card',
+    description:
+      'Record work that was just done as a completed Kanbini card, with a ' +
+      'short write-up in its description.',
+    argsSchema: {
+      summary: z
+        .string()
+        .optional()
+        .describe('What was done, if the conversation does not already say'),
+      board: z
+        .string()
+        .optional()
+        .describe('Board to log it on (name or id)')
+    }
+  },
+  ({ summary, board }) => ({
+    messages: [
+      {
+        role: 'user',
+        content: {
+          type: 'text',
+          text:
+            'Log the work we just did as a card in Kanbini.\n\n' +
+            (summary ? `What was done: ${summary}\n\n` : '') +
+            (board
+              ? `Use the board "${board}" (match it with kanbini_list_boards).\n\n`
+              : 'Pick the board with kanbini_list_boards. If none clearly ' +
+                'fits, ask me which one instead of guessing, and never create ' +
+                'a board without asking.\n\n') +
+            'Put the card in a list named like Done or Complete if the board ' +
+            'has one, otherwise in the list the work belongs to. Give it a ' +
+            'short title, and a Markdown description covering what changed, ' +
+            'why, and any follow-ups. Then mark it complete with ' +
+            'kanbini_update_card. If there are follow-ups, offer to add them ' +
+            'as their own cards. Tell me which board and list you used.'
+        }
+      }
+    ]
+  })
+)
+
 const transport = new StdioServerTransport()
 await server.connect(transport)
+// The client hanging up (stdin EOF) ends the session. Exit explicitly
+// rather than relying on the event loop draining: a pooled keep-alive
+// socket to the control channel can hold it open, and behind the Claude
+// Code plugin's launcher an orphaned server would linger.
+process.stdin.on('end', () => process.exit(0))

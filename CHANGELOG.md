@@ -20,6 +20,14 @@ installers and publishes a GitHub Release (see
   one-line summary if you'd rather keep it small.
 - **Your AI can read the agenda too,** so asking it "what should I work
   on today?" or "what did I get done this week?" works in one step.
+- **Claude Code plugin.** Install it with `/plugin marketplace add
+  Jigglyy/kanbini` and `/plugin install kanbini@kanbini`. You get
+  `/kanbini:agenda`, `/kanbini:new-card`, and `/kanbini:log`, which writes
+  up what you just did in a session as a finished card. There's no token
+  or path to set up: it uses the Kanbini you installed, once you've
+  opened it.
+- **Ready-made prompts for your AI:** "Plan my day" and "Log work as a
+  card" show up in AI apps that list prompts, such as Claude Desktop.
 
 ## [0.9.0] - 2026-09-25
 

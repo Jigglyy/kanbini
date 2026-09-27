@@ -35,6 +35,11 @@ run('node', ['scripts/ensure-electron-abi.mjs'])
 // E2E pretest from staling on stale builds. ~2-3 s incrementally.
 run('pnpm', ['exec', 'electron-vite', 'build'])
 
+// 3. The MCP server bundle (tsup, ~0.1 s). Main only writes the
+// `mcp-server.json` launch pointer when this exists, and the plugin
+// launcher spec drives it through the running app.
+run('pnpm', ['--filter', '@kanbini/mcp', 'run', 'build'])
+
 // Sanity - the launcher needs this entry to exist.
 const mainEntry = resolve(DESKTOP, 'out/main/index.js')
 if (!existsSync(mainEntry)) {

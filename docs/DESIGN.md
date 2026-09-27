@@ -155,6 +155,17 @@ AI edits appear live. Stdio transport means the same server works for any
 MCP client without changes. See [`MCP.md`](MCP.md) for client setup and
 the smoke/explore scripts.
 
+Two MCP prompts (`plan_my_day`, `log_work`) phrase common requests for
+clients that list prompts; they add no channel methods.
+
+**Claude Code plugin.** `plugins/kanbini/` (listed by the repo-root
+`.claude-plugin/marketplace.json`) packages the server for Claude Code
+with slash commands and a conventions skill. It carries no copy of the
+server: main writes `<userData>/mcp-server.json` on every launch with
+the command that runs the installed app's bundled server, and the
+plugin's zero-dependency launcher execs it. The plugin therefore needs
+no token or path and always matches the installed app's version.
+
 ---
 
 ## 8. Feature scope

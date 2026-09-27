@@ -1102,6 +1102,11 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 // user asks their AI where exactly to paste it), and the underlying
 // file paths (mcp.json / mcp-token + the MCP bundle the snippet was
 // templated with). Full guide stays in docs/MCP.md.
+/** What to type in Claude Code to install the Kanbini plugin
+ *  (plugins/kanbini, listed by the repo's .claude-plugin/marketplace.json). */
+const CLAUDE_CODE_PLUGIN_COMMANDS =
+  '/plugin marketplace add Jigglyy/kanbini\n/plugin install kanbini@kanbini'
+
 function McpSection() {
   const { data: info, isLoading } = useQuery({
     queryKey: ['mcpInfo'],
@@ -1141,6 +1146,20 @@ function McpSection() {
             </>
           }
           text={info.snippets.mcpClientJson}
+        />
+      </Section>
+
+      <Section title="Using Claude Code?">
+        <SnippetBlock
+          hint={
+            <>
+              Skip the snippet and install the Kanbini plugin instead. Run
+              these two commands in Claude Code. It finds this app on its
+              own and adds /kanbini:agenda, /kanbini:new-card, and
+              /kanbini:log. Needs Node.js on your computer.
+            </>
+          }
+          text={CLAUDE_CODE_PLUGIN_COMMANDS}
         />
       </Section>
 

@@ -492,3 +492,17 @@ describe('<AppSettings> Cards section', () => {
     expect(update).toHaveBeenCalledWith({ listsScrollSeparately: false })
   })
 })
+
+describe('<AppSettings> AI integration - Claude Code plugin', () => {
+  it('shows the two commands that install the Kanbini plugin', async () => {
+    const user = userEvent.setup()
+    renderAppSettings()
+    await user.click(screen.getByRole('button', { name: 'AI integration' }))
+    expect(await screen.findByText(/using claude code\?/i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/\/plugin marketplace add Jigglyy\/kanbini/)
+    ).toHaveTextContent(
+      '/plugin marketplace add Jigglyy/kanbini /plugin install kanbini@kanbini'
+    )
+  })
+})

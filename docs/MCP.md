@@ -41,6 +41,42 @@ renderer.
   `{ port, token, pid }` on start and removes the file on quit, so
   the MCP server can detect "app offline" cleanly (and surface it
   as a structured tool error instead of hanging).
+- **Launch pointer `mcp-server.json`** - the app also writes how to
+  start ITS OWN bundled server (`{ command, args, env?, version,
+  writtenAt }`, the same entry Settings -> AI integration shows) on
+  every launch, and keeps it on quit. The Claude Code plugin's launcher
+  reads it, so the plugin needs no path or token. It holds no secret.
+
+---
+
+## Claude Code plugin (easiest for Claude Code)
+
+The repo is also a Claude Code plugin marketplace. In Claude Code:
+
+```text
+/plugin marketplace add Jigglyy/kanbini
+/plugin install kanbini@kanbini
+```
+
+The plugin (`plugins/kanbini/`) bundles:
+
+- **The MCP server**, started by a zero-dependency launcher
+  (`server/launch.mjs`) that reads `<userData>/mcp-server.json` and runs
+  the server that ships inside the installed app. So there's nothing to
+  configure, and the tools always match the app's version. Needs Kanbini
+  opened once (to write the pointer) and Node.js 18+ on PATH for the
+  launcher.
+- **Slash commands**: `/kanbini:agenda [days]`, `/kanbini:new-card
+  <text>`, `/kanbini:log [board]` (write up this session's work as a
+  completed card).
+- **A conventions skill** Claude loads on its own when you talk about
+  your boards (find ids, move rather than recreate, archive rather than
+  delete, local-midnight due dates, palette colour names).
+
+Plugin tools are named `mcp__plugin_kanbini_kanbini__<tool>` in
+permission rules. If you configured `kanbini` by hand before, remove
+that entry so the tools don't appear twice. See
+[`plugins/kanbini/README.md`](../plugins/kanbini/README.md).
 
 ---
 
@@ -536,6 +572,19 @@ Returns the stored attachment (`id`, `filename`, `relPath`, `mime`,
 `id`. Deletes the attachment **and its file**, and clears the card's
 cover if it pointed there. Ctrl+Z in the app restores the entry but not
 the file.
+
+---
+
+## Prompts
+
+Two MCP prompts give clients that list prompts (Claude Desktop's prompt
+picker, Claude Code's slash menu) a one-click start:
+
+- `plan_my_day`: reads `kanbini_get_agenda` and suggests an order for
+  today's work, without changing anything.
+- `log_work` (optional `summary`, `board`): records the work just done
+  as a completed card with a short write-up, asking which board when it
+  isn't clear.
 
 ---
 
