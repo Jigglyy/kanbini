@@ -38,6 +38,7 @@ import {
 } from './lib/hide-completed'
 import { applyLabelOrder, commitLabelOrder, moveLabelInOrder } from './lib/label-order'
 import { backgroundCss, tint } from './lib/palette'
+import { cn } from './lib/utils'
 import {
   resolveBindings,
   useShortcutDispatch,
@@ -564,9 +565,18 @@ export function App() {
           anchoring doesn't catch the WAAPI tween). Disabling native
           anchoring here keeps that manual compensation the single source
           of truth so the two don't both adjust scrollTop and fight. */}
+      {/* Settings + boards home are a centered column: without a reserved
+          gutter, a tab or panel tall enough to scroll steals the
+          scrollbar's width and the whole column re-centers a few px.
+          `scrollbar-gutter: stable` holds the space (the track is
+          transparent, so it's invisible). The board route keeps the
+          un-reserved behaviour described above. */}
       <main
         style={mainStyle}
-        className="min-h-0 flex-1 overflow-auto [overflow-anchor:none] p-6"
+        className={cn(
+          'min-h-0 flex-1 overflow-auto [overflow-anchor:none] p-6',
+          route.kind !== 'board' && '[scrollbar-gutter:stable]'
+        )}
       >
         {route.kind === 'settings' ? (
           <AppSettings
