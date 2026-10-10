@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import * as fsSync from 'node:fs'
 import { promises as fsp } from 'node:fs'
 import * as nodePath from 'node:path'
@@ -1059,6 +1059,26 @@ void app.whenReady().then(async () => {
   // No native menu (offline single-user kanban); also removes the
   // default menu's inconsistent zoom accelerators - see attachZoom.
   Menu.setApplicationMenu(null)
+
+  // ADR-0071: Windows ships as a portable folder that shares
+  // %APPDATA%\Kanbini with any copy installed by an older NSIS build.
+  // That installer's uninstaller deletes the data when
+  // HKCU\Software\Kanbini\RemoveDataOnUninstall = 1 (ADR-0049), and
+  // the Settings toggle that could turn it off is gone, so uninstalling
+  // the old copy would wipe the boards the portable app uses. Drop the
+  // value (missing = "leave data" in installer.nsh). `reg delete` only
+  // removes; when the key isn't there it fails harmlessly, so a portable
+  // user who never installed gets nothing written. Fire-and-forget so
+  // it never delays the window.
+  if (process.platform === 'win32') {
+    spawn(
+      'reg',
+      ['delete', 'HKCU\\Software\\Kanbini', '/v', 'RemoveDataOnUninstall', '/f'],
+      { stdio: 'ignore', windowsHide: true }
+    )
+      .on('error', () => {})
+      .unref()
+  }
 
   const userDataDir = app.getPath('userData')
   // Rename-from-Konbini migration before anything reads/writes inside.
