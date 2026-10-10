@@ -6,7 +6,7 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 (pre-1.0: minor versions may still carry user-visible changes).
 
 Releases are cut by pushing a `v*` tag, which builds the Windows
-installers and publishes a GitHub Release (see
+portable app and publishes a GitHub Release (see
 [`.github/workflows/release.yml`](.github/workflows/release.yml)).
 
 ## [Unreleased]
@@ -52,11 +52,32 @@ installers and publishes a GitHub Release (see
   links as well.
 - **Ready-made prompts for your AI:** "Plan my day" and "Log work as a
   card" show up in AI apps that list prompts, such as Claude Desktop.
+- **Card numbers.** Every card now has a short number, like #142, in its
+  bottom-right corner, so you can refer to a card without its title.
+  Type #142 in search (Ctrl+F) to jump straight to it, or ask your AI to
+  "move #142 to Done". Open a card and click its number to copy it.
+  Numbers are never reused, and a card keeps its number when you move
+  it to another board. Prefer clean cards? Turn off Settings, Cards,
+  "Show card numbers" (an open card still shows its number).
+
+### Changed
+
+- **Kanbini is now a portable app instead of an installer.** Download
+  the .zip, extract it anywhere, and run Kanbini.exe. It opens in under
+  a second; the old single-file portable .exe spent about five seconds
+  unpacking itself every time you opened it. Nothing is installed and
+  nothing goes in the registry, and your boards stay right where they
+  were. If you installed an earlier version, you can uninstall it from
+  Windows Settings, Apps: your boards are kept, and the portable app
+  uses the same ones. With no uninstaller anymore, the "Remove my data
+  when uninstalling" setting is gone.
 
 ### Fixed
 
 - A card due today no longer turns red as soon as the day starts. It
   only counts as overdue once its due day is over.
+- Switching between Settings pages no longer nudges the whole page
+  sideways when one of them is long enough to scroll.
 
 ## [0.9.0] - 2026-09-25
 
