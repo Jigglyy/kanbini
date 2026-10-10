@@ -159,11 +159,11 @@ function makeBridge() {
           export: '/mock/export',
           notices: '/mock/NOTICES.md'
         },
-        // Default to 'linux' so the Windows-only UI (M5-B uninstall
-        // toggle) stays hidden by default - tests that care assert
-        // via `setKanbini({ appInfo: vi.fn(async () => ({ ...,
-        // platform: 'win32' })) })`.
-        platform: 'linux'
+        platform: 'linux',
+        // Not an installed copy, so the uninstall toggle (shown only
+        // when the NSIS uninstaller sits next to the app) stays hidden
+        // by default; tests that want it mock `installed: true`.
+        installed: false
       })
     ),
     mcpInfo: vi.fn(

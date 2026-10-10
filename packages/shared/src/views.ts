@@ -627,7 +627,12 @@ export const zAppInfo = z.object({
    *  Lets renderer gate platform-specific UI (e.g. Windows-only
    *  uninstall-data toggle, ADR-0049) without having to wire its own
    *  detection logic. */
-  platform: z.string()
+  platform: z.string(),
+  /** True when this copy was put there by the NSIS installer (its
+   *  uninstaller sits next to the app). False for the portable folder
+   *  (ADR-0071) and in dev. Gates the "Remove my data when
+   *  uninstalling" toggle, which only the uninstaller can act on. */
+  installed: z.boolean()
 })
 export type AppInfo = z.infer<typeof zAppInfo>
 

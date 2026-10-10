@@ -388,7 +388,8 @@ describe('zAppInfo / zMcpInfo (M4-F)', () => {
         export: '/u/export',
         notices: '/u/NOTICES.md'
       },
-      platform: 'win32'
+      platform: 'win32',
+      installed: true
     }
     expect(zAppInfo.parse(v)).toEqual(v)
   })

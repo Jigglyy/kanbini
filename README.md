@@ -98,11 +98,17 @@ that never closes: a board that's yours, local, and always on.
 
 ## Install
 
-**Windows:** download `Kanbini-X.Y.Z-win-x64.zip` from the
-[Releases](https://github.com/Jigglyy/kanbini/releases) page, extract it
-anywhere, and run `Kanbini.exe` inside. It's portable: nothing is
-installed and nothing goes in the registry; your boards live in
-`%APPDATA%\Kanbini`. To update, replace the folder with the new one.
+**Windows:** the [Releases](https://github.com/Jigglyy/kanbini/releases)
+page has two downloads. Both use the same boards, in
+`%APPDATA%\Kanbini`.
+
+- **`Kanbini.Setup.X.Y.Z.exe`** installs Kanbini for your user (no admin
+  rights needed) with a Start menu entry and an uninstaller. To update,
+  run the newer installer.
+- **`Kanbini-X.Y.Z-win-x64.zip`** is the portable version: extract it
+  anywhere and run `Kanbini.exe` inside. Nothing is installed and
+  nothing goes in the registry. To update, replace the folder.
+
 Builds are unsigned, so Windows SmartScreen warns on the first run
 ("More info", then "Run anyway").
 
@@ -121,7 +127,7 @@ pnpm --filter @kanbini/desktop rebuild:native
 ```
 
 To build it yourself, see [`docs/PACKAGING.md`](docs/PACKAGING.md)
-(Windows portable `.zip`; macOS `.dmg`; and a Linux **AppImage**,
+(Windows installer + portable `.zip`; macOS `.dmg`; and a Linux **AppImage**,
 built from a Linux host or WSL2 - see [Building for
 Linux](docs/PACKAGING.md#building-for-linux)). **Windows is the primary
 tested target**; the macOS and Linux recipes build from the same Electron

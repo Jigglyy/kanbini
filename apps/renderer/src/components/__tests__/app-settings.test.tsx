@@ -281,37 +281,74 @@ describe('<AppSettings> Link previews section', () => {
   })
 })
 
-// M5-B / ADR-0049 - the "Remove my data on uninstall" toggle in
-// Settings → Backup & restore. Only the NSIS uninstaller can act on
-// it, so the UI is gated on the appInfo platform field. The mock
-// bridge defaults to 'linux' (see _kanbini-mock.ts); tests that want
-// the Windows-only path override via setKanbini.
-// ADR-0071 - Kanbini ships as a portable folder, so there's no
-// uninstaller and the old "Remove my data when uninstalling" toggle
-// (ADR-0049) would do nothing. It's gone, and so is its HKCU sync.
-describe('<AppSettings> Backup & restore - no uninstall toggle', () => {
-  it('shows no uninstall toggle on Windows and never syncs it to the registry', async () => {
+// M5-B / ADR-0049 - the "Remove my data when uninstalling" toggle in
+// Settings → Backup & restore. Only the NSIS uninstaller can act on it,
+// so it shows only in an INSTALLED copy (appInfo.installed: main sees
+// the uninstaller next to Kanbini.exe). The portable folder (ADR-0071)
+// has no uninstaller: no toggle, and nothing written to the registry.
+// The mock bridge defaults to installed: false.
+function mockAppInfo(installed: boolean) {
+  return {
+    version: '0.0.0',
+    versions: { electron: 'test', chrome: 'test', node: 'test' },
+    paths: {
+      userData: '/mock',
+      db: '/mock/db',
+      attachments: '/mock/att',
+      export: '/mock/export',
+      notices: '/mock/NOTICES.md'
+    },
+    platform: 'win32',
+    installed
+  }
+}
+
+describe('<AppSettings> Backup & restore - uninstall toggle', () => {
+  it('is hidden in the portable app, which never touches the registry', async () => {
     const user = userEvent.setup()
     const { kanbiniMock } = await import('../../__tests__/_kanbini-mock')
     const bridge = kanbiniMock()
-    bridge.appInfo.mockResolvedValue({
-      version: '0.0.0',
-      versions: { electron: 'test', chrome: 'test', node: 'test' },
-      paths: {
-        userData: '/mock',
-        db: '/mock/db',
-        attachments: '/mock/att',
-        export: '/mock/export',
-        notices: '/mock/NOTICES.md'
-      },
-      platform: 'win32'
-    })
+    bridge.appInfo.mockResolvedValue(mockAppInfo(false))
     renderAppSettings()
     await user.click(screen.getByRole('button', { name: 'Backup & restore' }))
-    // Wait for appInfo so a platform-gated section would have rendered.
+    // Wait for appInfo so a gated section would have rendered.
     await screen.findByText(/App data/i)
     expect(screen.queryByLabelText(/Remove my data when uninstalling/i)).toBeNull()
     expect(bridge.uninstallSetRemoveDataOnUninstall).not.toHaveBeenCalled()
+  })
+
+  it('shows in an installed copy and syncs the choice to the registry on mount', async () => {
+    const user = userEvent.setup()
+    const { kanbiniMock } = await import('../../__tests__/_kanbini-mock')
+    const bridge = kanbiniMock()
+    bridge.appInfo.mockResolvedValue(mockAppInfo(true))
+    renderAppSettings()
+    await user.click(screen.getByRole('button', { name: 'Backup & restore' }))
+    expect(
+      await screen.findByLabelText(/Remove my data when uninstalling/i)
+    ).toBeInTheDocument()
+    // The mount-side sync writes the current value to HKCU so a
+    // registry-out-of-sync state self-heals as soon as Settings opens.
+    expect(bridge.uninstallSetRemoveDataOnUninstall).toHaveBeenCalledWith(false)
+  })
+
+  it('clicking it updates the setting', async () => {
+    const user = userEvent.setup()
+    const { kanbiniMock } = await import('../../__tests__/_kanbini-mock')
+    const bridge = kanbiniMock()
+    bridge.appInfo.mockResolvedValue(mockAppInfo(true))
+    const update = vi.fn()
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: Infinity } }
+    })
+    render(
+      <QueryClientProvider client={qc}>
+        <AppSettings onClose={vi.fn()} settings={BASE_SETTINGS} update={update} />
+      </QueryClientProvider>
+    )
+    await user.click(screen.getByRole('button', { name: 'Backup & restore' }))
+    await user.click(await screen.findByLabelText(/Remove my data when uninstalling/i))
+    expect(update).toHaveBeenCalledWith({ removeDataOnUninstall: true })
   })
 })
 
@@ -361,7 +398,8 @@ describe('<AppSettings> About - Third-party software', () => {
         // run + neither the dev nor packaged path resolves.
         notices: ''
       },
-      platform: 'linux'
+      platform: 'linux',
+      installed: false
     })
     const qc = new QueryClient({
       defaultOptions: { queries: { retry: false, gcTime: Infinity } }

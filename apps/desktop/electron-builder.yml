@@ -78,25 +78,29 @@ extraMetadata:
   main: ./out/main/index.js
 
 # --- Windows ---------------------------------------------------------
-# Ships as a PORTABLE FOLDER only (ADR-0071): a .zip of the unpacked app
-# (Kanbini.exe + resources). No installer, no registry, run it from
-# wherever it's extracted. It opens in ~0.4 s.
+# Two release forms (ADR-0071):
+#  - `nsis`: the installer, `Kanbini Setup X.Y.Z.exe` (see `nsis:`).
+#  - `zip`: the PORTABLE FOLDER, `Kanbini-X.Y.Z-win-x64.zip` - the
+#    unpacked app (Kanbini.exe + resources). No install, no registry,
+#    run it from wherever it's extracted. Opens in ~0.4 s.
 #
 # Not the `portable` target: that single .exe is an NSIS wrapper which,
 # on EVERY launch, wipes its temp folder, re-extracts the whole 370 MB
 # app into %TEMP%, runs it, and deletes it on exit (no reuse option in
 # app-builder-lib's portable.nsi). Measured +4.5 s before the app even
 # starts, more on a cold Defender scan, and the MCP server pointer it
-# writes goes stale every launch. Not `nsis` either: the maintainer only
-# wants the portable form. The `nsis:` block and build/installer.nsh
-# below are kept dormant so the installer is one target line away.
+# writes goes stale every launch. The zip replaces it.
 win:
   target:
+    - target: nsis
+      arch:
+        - x64
     - target: zip
       arch:
         - x64
-  # Kanbini-0.10.0-win-x64.zip. Windows' "Extract All" names the folder
-  # after the zip, so the version rides along in the folder name too.
+  # The zip's name (nsis sets its own below). Windows' "Extract All"
+  # names the folder after the zip, so the version rides along in the
+  # folder name too.
   artifactName: ${productName}-${version}-win-${arch}.${ext}
   # Signing intentionally not configured (ADR-0040 - ship unsigned
   # for v1). Windows SmartScreen will warn on first launch; download-
@@ -104,9 +108,10 @@ win:
   # here later if a signing budget materialises (CSC_LINK /
   # CSC_KEY_PASSWORD env-var path is documented in PACKAGING.md too).
 
-# Dormant since v0.10.0 (no `nsis` win target above). Kept so the
-# installer can come back without re-deriving any of this.
 nsis:
+  # Keep the installer's long-standing name (the win-level artifactName
+  # above is for the zip): `Kanbini Setup X.Y.Z.exe`.
+  artifactName: ${productName} Setup ${version}.${ext}
   # Show the install-dir picker instead of a one-click silent install.
   # First-time users want to see where the app is going; subsequent
   # auto-updates can suppress this once update infra exists (post-M5).
