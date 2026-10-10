@@ -923,24 +923,6 @@ function DataSection({
     staleTime: 60_000
   })
 
-  // M5-B / ADR-0049 - keep HKCU in sync with the in-memory toggle.
-  // Fires once on Settings mount AND on every toggle change so a
-  // user who wiped the registry by hand (or installed over an older
-  // version that didn't write the key) gets back to a consistent
-  // state without touching the toggle.
-  useEffect(() => {
-    if (info?.platform !== 'win32') return
-    void ipc
-      .uninstallSetRemoveDataOnUninstall(settings.removeDataOnUninstall)
-      .catch((err) => {
-        // Non-fatal - main logs the actual failure. The toggle UI
-        // still reflects the user's choice; the registry just
-        // didn't update, and at uninstall NSIS will fall back to
-        // "leave data" (the missing-key branch).
-        console.warn('uninstall-toggle sync failed:', err)
-      })
-  }, [info?.platform, settings.removeDataOnUninstall])
-
   const runExport = async (): Promise<void> => {
     setExporting(true)
     setExportError(null)
@@ -1023,23 +1005,6 @@ function DataSection({
           <DetailRow label="App data" value={info.paths.userData} />
           <DetailRow label="Database" value={info.paths.db} />
           <DetailRow label="Attachments" value={info.paths.attachments} />
-        </Section>
-      )}
-
-      {/* M5-B / ADR-0049 - Windows-only opt-in to delete userData on
-          uninstall. macOS and Linux app bundles don't run an
-          uninstaller script we can hook, so the toggle is hidden
-          there (the data lives where the user expects either way:
-          ~/Library/Application Support/Kanbini on macOS,
-          ~/.config/Kanbini on Linux). */}
-      {info?.platform === 'win32' && (
-        <Section title="Uninstall">
-          <ToggleRow
-            label="Remove my data when uninstalling"
-            hint="When you uninstall Kanbini, also delete your boards, attachments, and settings. Off by default - uninstalling leaves your data alone so a reinstall picks up where you left off."
-            checked={settings.removeDataOnUninstall}
-            onChange={(v) => update({ removeDataOnUninstall: v })}
-          />
         </Section>
       )}
 

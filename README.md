@@ -98,7 +98,15 @@ that never closes: a board that's yours, local, and always on.
 
 ## Install
 
-There's no published installer yet - run it from source:
+**Windows:** download `Kanbini-X.Y.Z-win-x64.zip` from the
+[Releases](https://github.com/Jigglyy/kanbini/releases) page, extract it
+anywhere, and run `Kanbini.exe` inside. It's portable: nothing is
+installed and nothing goes in the registry; your boards live in
+`%APPDATA%\Kanbini`. To update, replace the folder with the new one.
+Builds are unsigned, so Windows SmartScreen warns on the first run
+("More info", then "Run anyway").
+
+Or run it from source:
 
 ```sh
 pnpm install
@@ -112,8 +120,8 @@ version bump, run the native rebuild once:
 pnpm --filter @kanbini/desktop rebuild:native
 ```
 
-To build a real installer, see [`docs/PACKAGING.md`](docs/PACKAGING.md)
-(Windows NSIS + portable `.exe`; macOS `.dmg`; and a Linux **AppImage**,
+To build it yourself, see [`docs/PACKAGING.md`](docs/PACKAGING.md)
+(Windows portable `.zip`; macOS `.dmg`; and a Linux **AppImage**,
 built from a Linux host or WSL2 - see [Building for
 Linux](docs/PACKAGING.md#building-for-linux)). **Windows is the primary
 tested target**; the macOS and Linux recipes build from the same Electron

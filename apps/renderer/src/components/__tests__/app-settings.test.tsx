@@ -286,11 +286,15 @@ describe('<AppSettings> Link previews section', () => {
 // it, so the UI is gated on the appInfo platform field. The mock
 // bridge defaults to 'linux' (see _kanbini-mock.ts); tests that want
 // the Windows-only path override via setKanbini.
-describe('<AppSettings> Backup & restore - uninstall opt-in', () => {
-  it('hides the toggle on non-Windows platforms', async () => {
+// ADR-0071 - Kanbini ships as a portable folder, so there's no
+// uninstaller and the old "Remove my data when uninstalling" toggle
+// (ADR-0049) would do nothing. It's gone, and so is its HKCU sync.
+describe('<AppSettings> Backup & restore - no uninstall toggle', () => {
+  it('shows no uninstall toggle on Windows and never syncs it to the registry', async () => {
     const user = userEvent.setup()
     const { kanbiniMock } = await import('../../__tests__/_kanbini-mock')
-    kanbiniMock().appInfo.mockResolvedValue({
+    const bridge = kanbiniMock()
+    bridge.appInfo.mockResolvedValue({
       version: '0.0.0',
       versions: { electron: 'test', chrome: 'test', node: 'test' },
       paths: {
@@ -300,107 +304,14 @@ describe('<AppSettings> Backup & restore - uninstall opt-in', () => {
         export: '/mock/export',
         notices: '/mock/NOTICES.md'
       },
-      platform: 'darwin'
+      platform: 'win32'
     })
-    const qc = new QueryClient({
-      defaultOptions: { queries: { retry: false, gcTime: Infinity } }
-    })
-    render(
-      <QueryClientProvider client={qc}>
-        <AppSettings
-          onClose={vi.fn()}
-          settings={BASE_SETTINGS}
-          update={vi.fn()}
-        />
-      </QueryClientProvider>
-    )
+    renderAppSettings()
     await user.click(screen.getByRole('button', { name: 'Backup & restore' }))
-    // The toggle's label must not appear. await for the appInfo
-    // query to resolve so the conditional has had a chance to render.
+    // Wait for appInfo so a platform-gated section would have rendered.
     await screen.findByText(/App data/i)
-    expect(
-      screen.queryByLabelText(/Remove my data when uninstalling/i)
-    ).toBeNull()
-  })
-
-  it('shows the toggle on Windows + fires the IPC sync on mount', async () => {
-    const user = userEvent.setup()
-    const { kanbiniMock } = await import('../../__tests__/_kanbini-mock')
-    const bridge = kanbiniMock()
-    bridge.appInfo.mockResolvedValue({
-      version: '0.0.0',
-      versions: { electron: 'test', chrome: 'test', node: 'test' },
-      paths: {
-        userData: '/mock',
-        db: '/mock/db',
-        attachments: '/mock/att',
-        export: '/mock/export',
-        notices: '/mock/NOTICES.md'
-      },
-      platform: 'win32'
-    })
-    const qc = new QueryClient({
-      defaultOptions: { queries: { retry: false, gcTime: Infinity } }
-    })
-    render(
-      <QueryClientProvider client={qc}>
-        <AppSettings
-          onClose={vi.fn()}
-          settings={BASE_SETTINGS}
-          update={vi.fn()}
-        />
-      </QueryClientProvider>
-    )
-    await user.click(screen.getByRole('button', { name: 'Backup & restore' }))
-    expect(
-      await screen.findByLabelText(/Remove my data when uninstalling/i)
-    ).toBeInTheDocument()
-    // The mount-side sync writes the current value to HKCU so a
-    // registry-out-of-sync state self-heals as soon as the user
-    // opens Settings.
-    expect(
-      bridge.uninstallSetRemoveDataOnUninstall
-    ).toHaveBeenCalledWith(false)
-  })
-
-  it('clicking the toggle fires update + the IPC write', async () => {
-    const user = userEvent.setup()
-    const { kanbiniMock } = await import('../../__tests__/_kanbini-mock')
-    const bridge = kanbiniMock()
-    bridge.appInfo.mockResolvedValue({
-      version: '0.0.0',
-      versions: { electron: 'test', chrome: 'test', node: 'test' },
-      paths: {
-        userData: '/mock',
-        db: '/mock/db',
-        attachments: '/mock/att',
-        export: '/mock/export',
-        notices: '/mock/NOTICES.md'
-      },
-      platform: 'win32'
-    })
-    const qc = new QueryClient({
-      defaultOptions: { queries: { retry: false, gcTime: Infinity } }
-    })
-    const update = vi.fn()
-    render(
-      <QueryClientProvider client={qc}>
-        <AppSettings
-          onClose={vi.fn()}
-          settings={BASE_SETTINGS}
-          update={update}
-        />
-      </QueryClientProvider>
-    )
-    await user.click(screen.getByRole('button', { name: 'Backup & restore' }))
-    const toggle = await screen.findByLabelText(
-      /Remove my data when uninstalling/i
-    )
-    await user.click(toggle)
-    expect(update).toHaveBeenCalledWith({ removeDataOnUninstall: true })
-    // Effect won't re-fire until parent rerenders with new settings
-    // prop; assert the mount-side call did happen at least.
-    expect(bridge.uninstallSetRemoveDataOnUninstall).toHaveBeenCalled()
+    expect(screen.queryByLabelText(/Remove my data when uninstalling/i)).toBeNull()
+    expect(bridge.uninstallSetRemoveDataOnUninstall).not.toHaveBeenCalled()
   })
 })
 

@@ -1,10 +1,10 @@
 // ADR-0056 - post-package payload guard. Runs after `electron-builder`
-// produces the installer; opens the NSIS payload + asserts every file
-// we expected to ship is actually inside. Catches the "stale-installer
-// trap" documented in ADR-0050 - `electron-builder.yml`'s
-// `extraResources` was edited after the .exe was built, the installer
-// shipped without the new files, and the bug only surfaced when a
-// user installed and the app crashed looking for them.
+// produces the release artifact (the portable .zip since ADR-0071; the
+// NSIS installer before it) and asserts every file we expected to ship
+// is actually inside. Catches the "stale-installer trap" documented in
+// ADR-0050 - `electron-builder.yml`'s `extraResources` was edited after
+// the build, the artifact shipped without the new files, and the bug
+// only surfaced when a user ran it and the app crashed looking for them.
 //
 // electron-builder has no built-in check for missing extraResources
 // source paths (writes nothing + completes happily). This script is
@@ -12,20 +12,12 @@
 //
 // Hooked into `pnpm --filter @kanbini/desktop run package` via the
 // `postpackage` npm lifecycle hook (pnpm respects it). Skipped for
-// `package:dir` since that produces an unpacked folder, not an
-// installer with a payload to inspect.
+// `package:dir` since that produces only the unpacked folder.
 //
 // Usage standalone: `node apps/desktop/scripts/check-payload.mjs`
 
 import { spawnSync } from 'node:child_process'
-import {
-  existsSync,
-  mkdtempSync,
-  readdirSync,
-  rmSync,
-  statSync
-} from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -36,8 +28,8 @@ import {
 const here = dirname(fileURLToPath(import.meta.url))
 const RELEASE_DIR = resolve(here, '../release')
 
-// Required sentinel paths inside the installer payload (relative to
-// the `app-64.7z` root). Each one is something the app would fail
+// Required sentinel paths inside the artifact (relative to the
+// unpacked app's root). Each one is something the app would fail
 // catastrophically without:
 //
 //   - `resources/app.asar` is the main bundle. No app without it.
@@ -76,8 +68,8 @@ const REQUIRED_SENTINELS = [
 // the path the user is almost certain to have (the PACKAGING.md
 // stale-installer payload-sniff snippet hardcodes it there), then a
 // PATH lookup as a fallback for CI / non-default installs. The script
-// is Windows-only today because that's the only platform shipping an
-// installer; Mac/Linux builds use different formats.
+// is Windows-only today because that's the only platform whose
+// artifact it can read; Mac/Linux builds use different formats.
 function find7z() {
   const wellKnown = 'C:\\Program Files\\7-Zip\\7z.exe'
   if (existsSync(wellKnown)) return wellKnown
@@ -91,31 +83,31 @@ function find7z() {
   return null
 }
 
-// Pick the most recently-built `Kanbini Setup *.exe`. There's usually
-// only one but if multiple versions linger in release/ from earlier
-// builds, the freshest one is what just came out of the current
-// `package` run.
-function findInstaller() {
+// Pick the most recently-built `Kanbini-*-win-*.zip` (the portable
+// folder, ADR-0071). There's usually only one but if older versions
+// linger in release/, the freshest one is what the current `package`
+// run just produced.
+function findArtifact() {
   if (!existsSync(RELEASE_DIR)) {
     return {
       error: `release dir not found: ${RELEASE_DIR}. Run \`pnpm --filter @kanbini/desktop run package\` first.`
     }
   }
   const entries = readdirSync(RELEASE_DIR)
-    .filter((n) => /^Kanbini Setup .+\.exe$/.test(n))
+    .filter((n) => /^Kanbini-.+-win-.+\.zip$/.test(n))
   if (entries.length === 0) {
     return {
-      error: `no \`Kanbini Setup *.exe\` in ${RELEASE_DIR}. Run \`pnpm --filter @kanbini/desktop run package\` first.`
+      error: `no \`Kanbini-*-win-*.zip\` in ${RELEASE_DIR}. Run \`pnpm --filter @kanbini/desktop run package\` first.`
     }
   }
-  const installer = entries
+  const artifact = entries
     .map((n) => ({
       name: n,
       full: join(RELEASE_DIR, n),
       mtime: statSync(join(RELEASE_DIR, n)).mtime
     }))
     .sort((a, b) => b.mtime.getTime() - a.mtime.getTime())[0]
-  return { installer }
+  return { artifact }
 }
 
 // Run `7z l -slt <file>` and hand the stdout to `parsePathListing`
@@ -136,15 +128,13 @@ function listPayloadPaths(sevenZ, archive) {
 }
 
 function main() {
-  // Bug-fix: only Windows produces an NSIS Setup .exe today. Mac dmg
-  // + Linux AppImage have different payload formats this script
-  // doesn't know how to inspect. Skip cleanly (exit 0) on those
-  // platforms - the build still succeeds, just without payload
-  // verification. When a Mac/Linux release matters, add
-  // platform-specific inspection paths here.
+  // Only the Windows portable .zip is inspected today. Mac dmg + Linux
+  // AppImage have different payload formats this script doesn't know
+  // how to read. Skip cleanly (exit 0) on those platforms - the build
+  // still succeeds, just without payload verification.
   if (process.platform !== 'win32') {
     console.log(
-      `[check-payload] SKIP - only the Windows NSIS installer is checked (current platform: ${process.platform}).`
+      `[check-payload] SKIP - only the Windows portable .zip is checked (current platform: ${process.platform}).`
     )
     process.exit(0)
   }
@@ -161,106 +151,50 @@ function main() {
     process.exit(1)
   }
 
-  const found = findInstaller()
+  const found = findArtifact()
   if (found.error) {
     console.error(`[check-payload] FAIL - ${found.error}`)
     process.exit(1)
   }
-  const { installer } = found
-  console.log(`[check-payload] inspecting ${installer.name}`)
-  console.log(`[check-payload]   built: ${installer.mtime.toISOString()}`)
+  const { artifact } = found
+  console.log(`[check-payload] inspecting ${artifact.name}`)
+  console.log(`[check-payload]   built: ${artifact.mtime.toISOString()}`)
 
-  const tmpDir = mkdtempSync(join(tmpdir(), 'kanbini-payload-'))
-  // Bug-fix: initialize to 1 so an uncaught exception in the try
-  // block can't silently exit 0 (which would let a script crash
-  // pass through as build success). Only the explicit "OK" path
-  // sets it to 0 before the try ends.
-  let exitCode = 1
-  try {
-    // Step 1 - extract $PLUGINSDIR/app-64.7z from the NSIS installer.
-    // NSIS wraps its payload as a 7z archive inside the .exe; 7z
-    // recognises the .exe as a 7z-format SFX and can extract it.
-    // No shell:true (see listPayloadPaths for the rationale). The
-    // `$PLUGINSDIR/app-64.7z` argument is a path INSIDE the 7z archive,
-    // not a shell variable - 7z interprets the literal string.
-    const extract = spawnSync(
-      sevenZ,
-      ['e', '-y', `-o${tmpDir}`, installer.full, '$PLUGINSDIR/app-64.7z'],
-      { encoding: 'utf8' }
-    )
-    if (extract.status !== 0) {
-      console.error(
-        `[check-payload] FAIL - couldn't extract \`$PLUGINSDIR/app-64.7z\` from ${installer.name}:`
-      )
-      console.error(extract.stderr)
-      exitCode = 1
-      return
-    }
-    const payloadArchive = join(tmpDir, 'app-64.7z')
-    if (!existsSync(payloadArchive)) {
-      console.error(
-        `[check-payload] FAIL - expected ${payloadArchive} after extraction, not found.`
-      )
-      console.error(
-        '[check-payload] The installer may use a different payload format than the NSIS default - investigate.'
-      )
-      exitCode = 1
-      return
-    }
-
-    // Step 2 - list the payload's contents.
-    const listed = listPayloadPaths(sevenZ, payloadArchive)
-    if (listed.error) {
-      console.error('[check-payload] FAIL - couldn\'t list app-64.7z contents:')
-      console.error(listed.error)
-      exitCode = 1
-      return
-    }
-    console.log(`[check-payload]   payload entries: ${listed.present.size}`)
-
-    // Step 3 - check every required sentinel is present.
-    const missing = findMissingSentinels(listed.present, REQUIRED_SENTINELS)
-    if (missing.length > 0) {
-      console.error('')
-      console.error(
-        `[check-payload] FAIL - missing required sentinel${missing.length === 1 ? '' : 's'} in the installer payload:`
-      )
-      for (const m of missing) console.error(`  - ${m}`)
-      console.error('')
-      console.error(
-        'Likely cause: `electron-builder.yml` was edited (extraResources / asarUnpack)'
-      )
-      console.error(
-        'after the .exe was built, so the change never made it into the payload -'
-      )
-      console.error(
-        'the stale-installer trap from ADR-0050. Rebuild:'
-      )
-      console.error(
-        '  pnpm --filter @kanbini/desktop run package'
-      )
-      console.error(
-        'and the guard should pass on the fresh artefact.'
-      )
-      exitCode = 1
-      return
-    }
-
-    console.log(
-      `[check-payload] OK - all ${REQUIRED_SENTINELS.length} required sentinels present.`
-    )
-    exitCode = 0
-  } catch (e) {
-    // Bug-fix: any uncaught exception in the try block should fail
-    // the build, not silently exit 0. Initial exitCode is 1; the
-    // catch keeps it 1 + prints the error so a script crash surfaces
-    // clearly instead of being masked by the finally's process.exit.
-    console.error('[check-payload] FAIL - unexpected error:')
-    console.error(e instanceof Error ? e.stack ?? e.message : String(e))
-  } finally {
-    rmSync(tmpDir, { recursive: true, force: true })
-    process.exit(exitCode)
+  // The zip holds the unpacked app directly (Kanbini.exe, resources/,
+  // ...), so the sentinels are listed straight out of it - no inner
+  // payload archive to extract first, unlike the old NSIS installer.
+  const listed = listPayloadPaths(sevenZ, artifact.full)
+  if (listed.error) {
+    console.error(`[check-payload] FAIL - couldn't list ${artifact.name}:`)
+    console.error(listed.error)
+    process.exit(1)
   }
+  console.log(`[check-payload]   payload entries: ${listed.present.size}`)
+
+  const missing = findMissingSentinels(listed.present, REQUIRED_SENTINELS)
+  if (missing.length > 0) {
+    console.error('')
+    console.error(
+      `[check-payload] FAIL - missing required sentinel${missing.length === 1 ? '' : 's'} in ${artifact.name}:`
+    )
+    for (const m of missing) console.error(`  - ${m}`)
+    console.error('')
+    console.error(
+      'Likely cause: `electron-builder.yml` was edited (extraResources / asarUnpack)'
+    )
+    console.error(
+      'after the build, so the change never made it into the artifact -'
+    )
+    console.error('the stale-build trap from ADR-0050. Rebuild:')
+    console.error('  pnpm --filter @kanbini/desktop run package')
+    console.error('and the guard should pass on the fresh artefact.')
+    process.exit(1)
+  }
+
+  console.log(
+    `[check-payload] OK - all ${REQUIRED_SENTINELS.length} required sentinels present.`
+  )
+  process.exit(0)
 }
 
 main()

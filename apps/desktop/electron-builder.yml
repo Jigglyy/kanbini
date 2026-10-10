@@ -78,23 +78,34 @@ extraMetadata:
   main: ./out/main/index.js
 
 # --- Windows ---------------------------------------------------------
-# NSIS (installer) + portable (no-install single .exe). The portable
-# build is useful for trying the app without writing to Program Files
-# or registry - different userData path, so it's effectively a sandbox.
+# Ships as a PORTABLE FOLDER only (ADR-0071): a .zip of the unpacked app
+# (Kanbini.exe + resources). No installer, no registry, run it from
+# wherever it's extracted. It opens in ~0.4 s.
+#
+# Not the `portable` target: that single .exe is an NSIS wrapper which,
+# on EVERY launch, wipes its temp folder, re-extracts the whole 370 MB
+# app into %TEMP%, runs it, and deletes it on exit (no reuse option in
+# app-builder-lib's portable.nsi). Measured +4.5 s before the app even
+# starts, more on a cold Defender scan, and the MCP server pointer it
+# writes goes stale every launch. Not `nsis` either: the maintainer only
+# wants the portable form. The `nsis:` block and build/installer.nsh
+# below are kept dormant so the installer is one target line away.
 win:
   target:
-    - target: nsis
+    - target: zip
       arch:
         - x64
-    - target: portable
-      arch:
-        - x64
+  # Kanbini-0.10.0-win-x64.zip. Windows' "Extract All" names the folder
+  # after the zip, so the version rides along in the folder name too.
+  artifactName: ${productName}-${version}-win-${arch}.${ext}
   # Signing intentionally not configured (ADR-0040 - ship unsigned
   # for v1). Windows SmartScreen will warn on first launch; download-
   # page guidance lives in docs/PACKAGING.md. Wire `signtoolOptions`
   # here later if a signing budget materialises (CSC_LINK /
   # CSC_KEY_PASSWORD env-var path is documented in PACKAGING.md too).
 
+# Dormant since v0.10.0 (no `nsis` win target above). Kept so the
+# installer can come back without re-deriving any of this.
 nsis:
   # Show the install-dir picker instead of a one-click silent install.
   # First-time users want to see where the app is going; subsequent

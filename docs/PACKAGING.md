@@ -1,6 +1,9 @@
 # Packaging Kanbini
 
-How to produce installers / portable builds from the repo. Builds
+How to produce release builds from the repo. On Windows the release
+is a **portable folder** shipped as a `.zip` (ADR-0071): no installer.
+The NSIS sections further down are kept for reference; the `nsis`
+target is off in `electron-builder.yml`. Builds
 ship **unsigned**: Windows SmartScreen will warn on first launch,
 macOS Gatekeeper will block entirely. See "Shipping unsigned" below
 for what that means in practice and how to prepare the Releases page.
@@ -10,13 +13,13 @@ for what that means in practice and how to prepare the Releases page.
 From the repo root:
 
 ```bash
-# Unpacked app (fastest - no installer, no .exe wrapping).
+# Unpacked app (fastest - no zip).
 # Output: apps/desktop/release/win-unpacked/Kanbini.exe
 pnpm --filter @kanbini/desktop run package:dir
 
-# Full installer + portable for the current platform.
-# Output (Windows): apps/desktop/release/Kanbini Setup X.Y.Z.exe
-#                   apps/desktop/release/Kanbini X.Y.Z.exe (portable)
+# The release artifact for the current platform.
+# Output (Windows): apps/desktop/release/Kanbini-X.Y.Z-win-x64.zip
+#                   (the same app as win-unpacked/, zipped)
 pnpm --filter @kanbini/desktop run package
 ```
 
@@ -31,8 +34,15 @@ Both scripts run `apps/desktop/scripts/prepackage.mjs` first, which:
 3. Builds main + preload + renderer via electron-vite.
 
 After that, `electron-builder` reads `apps/desktop/electron-builder.yml`
-to wrap everything into a Windows NSIS installer + portable .exe (or
-a macOS .dmg / Linux AppImage when run from those platforms).
+to zip the unpacked Windows app (or build a macOS .dmg / Linux AppImage
+when run from those platforms).
+
+**Why a zip and not electron-builder's `portable` .exe:** that single
+.exe is an NSIS wrapper that re-extracts the whole ~370 MB app into
+`%TEMP%` on every launch and deletes it on exit. Measured: +4.5 s before
+the app even starts (the app itself shows its window in ~0.4 s), more
+on a cold Defender scan, and the MCP paths it registers go stale every
+run. The unpacked folder has none of that.
 
 ## Windows: the Developer Mode / elevation gotcha
 
@@ -110,8 +120,8 @@ exists for your platform, compiling from source otherwise (which is why
 step 1 installs a toolchain). So step 2 is usually a fast no-op after the
 first run.
 
-The `postpackage` `check-payload.mjs` guard inspects the NSIS installer
-payload and is Windows-only; on Linux it logs `SKIP` and exits 0, so the
+The `postpackage` `check-payload.mjs` guard inspects the Windows
+portable `.zip` and is Windows-only; on Linux it logs `SKIP` and exits 0, so the
 AppImage build completes without payload verification (there is no
 AppImage equivalent yet).
 
@@ -149,16 +159,16 @@ exists yet.
 
 `apps/desktop/scripts/check-payload.mjs` runs automatically as
 `postpackage` after every `pnpm --filter
-@kanbini/desktop run package`. It opens the produced installer's
-`$PLUGINSDIR/app-64.7z` payload via `7z l` and asserts every
+@kanbini/desktop run package`. It lists the newest
+`Kanbini-*-win-*.zip` in `release/` via `7z l` and asserts every
 required sentinel file is present - `resources/app.asar`,
 `NOTICES.md`, `mcp/index.js`,
 `drizzle/meta/_journal.json`, the asar-unpacked `better_sqlite3.node`.
 If anything's missing the script exits non-zero with a "stale-installer
 trap" diagnostic and rebuild instructions, so a silently-broken
-installer can't escape the build machine.
+build can't escape the build machine.
 
-Run standalone any time against the latest installer in `release/`:
+Run standalone any time against the latest `.zip` in `release/`:
 
 ```bash
 pnpm --filter @kanbini/desktop run check:payload

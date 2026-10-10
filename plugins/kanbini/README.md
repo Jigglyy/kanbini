@@ -58,11 +58,9 @@ the app open.
 
 - **"Kanbini hasn't registered its MCP server"**: open Kanbini once, then
   run `/mcp` and reconnect.
-- **"Couldn't start Kanbini's MCP server"**: Kanbini was moved, updated,
-  or uninstalled since it last ran. Open it once, then reconnect.
-- **The portable Kanbini `.exe`** unpacks to a new temporary folder every
-  time it runs, so the plugin only works while that copy is open. Use the
-  installer for a setup that keeps working.
+- **"Couldn't start Kanbini's MCP server"**: Kanbini's folder was moved,
+  replaced by a newer version, or deleted since it last ran. Open
+  Kanbini once from its new place, then reconnect.
 - **"node" not found**: install Node.js 18+ from nodejs.org, or skip the
   plugin and paste the snippet from Kanbini's Settings, AI integration
   instead. That one needs no Node.js.

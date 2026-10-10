@@ -38,9 +38,10 @@ export const MCP_BUNDLE_PLACEHOLDER =
  *    node_modules Electron dev binary, a worse thing to paste into a
  *    long-lived client config than the `node` a developer already has.
  *
- *  Known limit: the portable .exe unpacks to a fresh temp directory
- *  each launch, so both paths in a portable build's snippet go stale
- *  when it's relaunched. Installed builds are stable. */
+ *  The paths are as stable as the app's folder: the Windows build is a
+ *  portable folder (ADR-0071), so they hold until that folder is moved
+ *  or replaced. (The old single-file portable .exe unpacked to a fresh
+ *  temp directory every launch, which made them go stale each run.) */
 export function buildMcpClientSnippet(input: McpSnippetInput): string {
   const server = buildMcpServerEntry({
     ...input,
