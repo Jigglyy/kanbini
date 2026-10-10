@@ -41,7 +41,7 @@ test('Ctrl+click multi-selects cards and a bulk action hits them all', async () 
   }
 
   const card = (t: string) =>
-    page.locator('[data-card-id]', { hasText: new RegExp(`^${t}$`) })
+    page.locator('[data-card-id]').filter({ has: page.getByText(t, { exact: true }) })
 
   // --- the bug fix: a PLAIN click opens the card detail ---------------
   await page.getByText('Alpha', { exact: true }).click()
@@ -93,7 +93,7 @@ test('a plain click opens a card without leaving it selected', async () => {
   await addCard.press('Enter')
   await expect(page.getByText('Solo', { exact: true })).toBeVisible()
 
-  const solo = page.locator('[data-card-id]', { hasText: /^Solo$/ })
+  const solo = page.locator('[data-card-id]').filter({ has: page.getByText('Solo', { exact: true }) })
 
   // A plain click opens the detail. Closing it must leave NO selection
   // visual on the card: no focus/selection ring (`ring-2`) and no count
@@ -174,23 +174,23 @@ test('dragging one of a multi-selection moves them all', async () => {
     .nth(3)
   await dragBetween(
     page,
-    page.locator('[data-card-id]', { hasText: /^Mover1$/ }),
+    page.locator('[data-card-id]').filter({ has: page.getByText('Mover1', { exact: true }) }),
     doingAddCard
   )
 
   // Both selected cards land in Doing; Stayer stays in To Do.
   const doing = listWith(page, 'Mover1')
   await expect(
-    doing.locator('[data-card-id]', { hasText: /^Mover1$/ })
+    doing.locator('[data-card-id]').filter({ has: page.getByText('Mover1', { exact: true }) })
   ).toBeVisible()
   await expect(
-    doing.locator('[data-card-id]', { hasText: /^Mover2$/ })
+    doing.locator('[data-card-id]').filter({ has: page.getByText('Mover2', { exact: true }) })
   ).toBeVisible()
   const todo = listWith(page, 'Stayer')
   await expect(
-    todo.locator('[data-card-id]', { hasText: /^Mover1$/ })
+    todo.locator('[data-card-id]').filter({ has: page.getByText('Mover1', { exact: true }) })
   ).toHaveCount(0)
   await expect(
-    todo.locator('[data-card-id]', { hasText: /^Mover2$/ })
+    todo.locator('[data-card-id]').filter({ has: page.getByText('Mover2', { exact: true }) })
   ).toHaveCount(0)
 })

@@ -137,6 +137,16 @@ describe('<CardDetail>', () => {
     expect(screen.getByDisplayValue('My card')).toBeInTheDocument()
   })
 
+  it('shows the card number, and copies it on click', async () => {
+    const user = userEvent.setup()
+    renderWithBoard(makeCard({ number: 142 }))
+    const copy = screen.getByRole('button', { name: /copy card number #142/i })
+    expect(copy).toHaveTextContent('#142')
+    await user.click(copy)
+    expect(await navigator.clipboard.readText()).toBe('#142')
+    expect(await screen.findByRole('button', { name: /copied #142/i })).toBeInTheDocument()
+  })
+
   it('renders the description field with the stored body', () => {
     renderWithBoard(makeCard({ description: '# Heading' }))
     expect(

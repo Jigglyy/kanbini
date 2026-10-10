@@ -100,6 +100,7 @@ import { CardDetail } from './card-detail'
 import { CardChecklistPreview } from './checklists'
 import { BlockedBadge } from './dependencies'
 import { RepeatBadge } from './repeat'
+import { CardNumberBadge } from './card-number'
 import { DescriptionBadge } from './description-badge'
 import { CollapseToggle, CompactBadges } from './card-density'
 import { DueBadge } from './due-date'
@@ -370,6 +371,7 @@ function CardFace({
   focused,
   selected,
   showChecklist,
+  showNumber,
   labelsExpanded,
   resting,
   compact
@@ -390,6 +392,8 @@ function CardFace({
    *  precedence over the focus ring. */
   selected?: boolean
   showChecklist?: boolean
+  /** Mirror of the source card's #N badge visibility. */
+  showNumber?: boolean
   /** Mirror of the source card's label display so the overlay matches
    *  (bars vs names). No toggle here - the overlay is a frozen clone. */
   labelsExpanded?: boolean
@@ -492,6 +496,7 @@ function CardFace({
         <DueBadge card={card} />
         <RepeatBadge card={card} />
         {compact && <CompactBadges card={card} />}
+        {showNumber && <CardNumberBadge number={card.number} />}
       </div>
       {showChecklist && !compact && (
         // Match SortableCard's hovered-state ml - its wrapper shifts the
@@ -530,6 +535,7 @@ export function Board({
   blockCreate,
   blockDrag,
   showChecklist,
+  showNumber,
   labelsExpanded,
   onToggleLabelsExpanded,
   linkPreviews,
@@ -544,6 +550,8 @@ export function Board({
   blockCreate: boolean
   blockDrag: boolean
   showChecklist: boolean
+  /** Mirror of settings.showCardNumbers: the #N badge on cards. */
+  showNumber: boolean
   /** Trello-style label display (mirror of settings.labelsExpanded).
    *  When false, in-list cards collapse their label chips to compact
    *  colour bars; when true they show named chips. The card detail
@@ -2129,6 +2137,7 @@ export function Board({
                     labels={board.labels}
                     apply={apply}
                     showChecklist={showChecklist}
+                    showNumber={showNumber}
                     labelsExpanded={labelsExpanded}
                     onToggleLabelsExpanded={onToggleLabelsExpanded}
                     anyDragging={dragging != null}
@@ -2182,6 +2191,7 @@ export function Board({
                   blockCreate={blockCreate}
                   blocked={blockedListId === list.id}
                   showChecklist={showChecklist}
+                  showNumber={showNumber}
                   labelsExpanded={labelsExpanded}
                   onToggleLabelsExpanded={onToggleLabelsExpanded}
                   anyDragging={dragging != null || draggingListId != null}
@@ -2269,6 +2279,7 @@ export function Board({
               focused={ringCardId === dragging.id}
               selected={selectedIds.has(dragging.id)}
               showChecklist={showChecklist}
+              showNumber={showNumber}
               labelsExpanded={labelsExpanded}
               compact={draggingCompact}
             />
@@ -2296,6 +2307,7 @@ export function Board({
               list={draggingList}
               labels={board.labels}
               showChecklist={showChecklist}
+              showNumber={showNumber}
               labelsExpanded={labelsExpanded}
               capped={capLists}
               revealed={revealedLists.has(draggingList.id)}
@@ -2474,6 +2486,7 @@ const ListColumn = memo(function ListColumn({
   blockCreate,
   blocked,
   showChecklist,
+  showNumber,
   labelsExpanded,
   onToggleLabelsExpanded,
   anyDragging,
@@ -2511,6 +2524,8 @@ const ListColumn = memo(function ListColumn({
   blockCreate: boolean
   blocked: boolean
   showChecklist: boolean
+  /** Mirror of settings.showCardNumbers: the #N badge on cards. */
+  showNumber: boolean
   /** Trello-style label display + its board-wide toggle, threaded down
    *  to each SortableCard. See Board's props for the full story. */
   labelsExpanded?: boolean
@@ -2690,6 +2705,7 @@ const ListColumn = memo(function ListColumn({
               labels={labels}
               apply={apply}
               showChecklist={showChecklist}
+              showNumber={showNumber}
               labelsExpanded={labelsExpanded}
               onToggleLabelsExpanded={onToggleLabelsExpanded}
               anyDragging={anyDragging}
@@ -2807,6 +2823,7 @@ function ListColumnPreview({
   list,
   labels,
   showChecklist,
+  showNumber,
   labelsExpanded,
   capped = false,
   revealed = false,
@@ -2815,6 +2832,8 @@ function ListColumnPreview({
   list: BoardView['lists'][number]
   labels: LabelView[]
   showChecklist: boolean
+  /** Mirror of settings.showCardNumbers: the #N badge on cards. */
+  showNumber: boolean
   labelsExpanded?: boolean
   /** Mirror the source column's "Show first N" state so the clone holds
    *  the same cards and footer - and so the same height dnd-kit sized
@@ -2885,6 +2904,7 @@ function ListColumnPreview({
               card={card}
               labels={labels}
               showChecklist={showChecklist}
+              showNumber={showNumber}
               labelsExpanded={labelsExpanded}
               resting
               compact={isCardCompact(card.collapsed, list.cardDensity)}
@@ -2914,6 +2934,7 @@ const SortableCard = memo(function SortableCard({
   labels,
   apply,
   showChecklist,
+  showNumber,
   labelsExpanded,
   onToggleLabelsExpanded,
   anyDragging,
@@ -2935,6 +2956,8 @@ const SortableCard = memo(function SortableCard({
   labels: LabelView[]
   apply: (m: Mutation, o: Optimistic) => void
   showChecklist: boolean
+  /** Mirror of settings.showCardNumbers: the #N badge on cards. */
+  showNumber: boolean
   /** Trello-style label display + the board-wide toggle. Forwarded to
    *  the in-list `<CardLabels>` so a bar-click reveals names everywhere. */
   labelsExpanded?: boolean
@@ -3137,9 +3160,10 @@ const SortableCard = memo(function SortableCard({
         <DueBadge card={card} />
         <RepeatBadge card={card} />
         {compact && <CompactBadges card={card} />}
+        {showNumber && <CardNumberBadge number={card.number} />}
       </div>
     ),
-    [card, compact]
+    [card, compact, showNumber]
   )
   // TitleUrlChip runs a URL regex over the title on every render -
   // memoize on the title so a drag's per-frame wrapper renders don't

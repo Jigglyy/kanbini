@@ -443,6 +443,12 @@ function CardsSection({
           checked={settings.labelsExpanded}
           onChange={(v) => update({ labelsExpanded: v })}
         />
+        <ToggleRow
+          label="Show card numbers"
+          hint="Each card's #number, so you can refer to it. A card's details always show it."
+          checked={settings.showCardNumbers}
+          onChange={(v) => update({ showCardNumbers: v })}
+        />
       </Section>
     </>
   )

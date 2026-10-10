@@ -620,6 +620,7 @@ export function App() {
                   blockCreate={settings.cardLimitBlocksCreate}
                   blockDrag={settings.cardLimitBlocksDrag}
                   showChecklist={settings.showChecklistOnCard}
+                  showNumber={settings.showCardNumbers}
                   labelsExpanded={settings.labelsExpanded}
                   onToggleLabelsExpanded={toggleLabelsExpanded}
                   linkPreviews={settings.linkPreviews}

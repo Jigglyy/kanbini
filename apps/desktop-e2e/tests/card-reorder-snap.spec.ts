@@ -84,7 +84,7 @@ test('reordering a card within a list does not snap it back to its origin', asyn
   const first = list.locator('[data-card-id]', {
     hasText: 'Drag a card to another list'
   })
-  const last = list.locator('[data-card-id]', { hasText: /^Snap3$/ })
+  const last = list.locator('[data-card-id]').filter({ has: page.getByText('Snap3', { exact: true }) })
   const fbox = await first.boundingBox()
   const lbox = await last.boundingBox()
   if (!fbox || !lbox) throw new Error('card bounding boxes unavailable')

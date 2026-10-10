@@ -36,7 +36,10 @@ async function addCard(page: E2EHandle['page'], title: string) {
  *  auto/scroll ancestor), so the same check covers both layouts: the
  *  list body when lists scroll on their own, <main> when they don't. */
 async function measureExcursion(page: E2EHandle['page']) {
-  await page.setViewportSize({ width: 760, height: 300 })
+  // Tall enough that, scrolled to the bottom, at least one whole card
+  // fits in the scroll container as the visible reference (cards carry
+  // a #number row, so 300px no longer fit one).
+  await page.setViewportSize({ width: 760, height: 380 })
   await page.getByText('Welcome Board', { exact: true }).click()
   await expect(page.getByRole('heading', { name: /^To Do\b/ })).toBeVisible()
 

@@ -8,6 +8,7 @@ import { Attachments, CoverActions, CoverImage } from './attachments'
 import { CardLabels } from './labels'
 import { Checklists } from './checklists'
 import { Comments } from './comments'
+import { CardNumberCopy } from './card-number'
 import { BlockedBadge, CardDependencies } from './dependencies'
 import { DueBadge } from './due-date'
 import { PriorityBadge } from './priority'
@@ -181,6 +182,7 @@ export function CardDetail({
               <PriorityBadge card={card} />
               <DueBadge card={card} />
               <RepeatBadge card={card} withText />
+              <CardNumberCopy number={card.number} />
             </div>
           </div>
           <button

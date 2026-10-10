@@ -24,6 +24,7 @@ const BASE_SETTINGS: Settings = {
   showChecklistOnCard: false,
   listsScrollSeparately: true,
   labelsExpanded: false,
+  showCardNumbers: true,
   linkPreviews: false,
   autoCoverFromUrl: false,
   boardZoom: 1,
@@ -493,6 +494,30 @@ describe('<AppSettings> Cards section', () => {
     expect(toggle).toBeChecked()
     await user.click(toggle)
     expect(update).toHaveBeenCalledWith({ listsScrollSeparately: false })
+  })
+})
+
+describe('<AppSettings> Cards - card numbers', () => {
+  it('offers "Show card numbers", reflecting and updating the setting', async () => {
+    const user = userEvent.setup()
+    const update = vi.fn()
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: Infinity } }
+    })
+    render(
+      <QueryClientProvider client={qc}>
+        <AppSettings
+          onClose={vi.fn()}
+          settings={{ ...BASE_SETTINGS, showCardNumbers: true }}
+          update={update}
+        />
+      </QueryClientProvider>
+    )
+    await user.click(screen.getByRole('button', { name: 'Cards' }))
+    const toggle = screen.getByRole('checkbox', { name: /Show card numbers/ })
+    expect(toggle).toBeChecked()
+    await user.click(toggle)
+    expect(update).toHaveBeenCalledWith({ showCardNumbers: false })
   })
 })
 

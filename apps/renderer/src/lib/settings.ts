@@ -75,6 +75,10 @@ export interface Settings {
    *  toggle is the non-click way back. The card detail always shows
    *  names regardless. */
   labelsExpanded: boolean
+  /** Show each card's #number (its short global id) at the end of the
+   *  in-list card's meta row. On by default. The card detail always
+   *  shows it (with a copy button) regardless. */
+  showCardNumbers: boolean
   /** Colour theme. `system` (default) tracks the OS light/dark mode. */
   theme: Theme
   /** First day of the week for the due-date shortcuts (End of week,
@@ -122,6 +126,7 @@ const DEFAULTS: Settings = {
   showChecklistOnCard: true,
   listsScrollSeparately: true,
   labelsExpanded: false,
+  showCardNumbers: true,
   theme: 'system',
   weekStart: 'locale',
   boardZoom: 1,

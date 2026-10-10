@@ -18,6 +18,7 @@ describe('useSettings', () => {
     expect(s.cardLimitBlocksCreate).toBe(true)
     expect(s.cardLimitBlocksDrag).toBe(true)
     expect(s.showChecklistOnCard).toBe(true)
+    expect(s.showCardNumbers).toBe(true)
     expect(s.shortcuts).toEqual({})
     expect(s.obsidian).toEqual({
       enabled: false,
@@ -44,6 +45,8 @@ describe('useSettings', () => {
     expect(s.theme).toBe('dark')
     expect(s.boardZoom).toBe(1.25)
     expect(s.hasSeenWelcome).toBe(false)
+    // Existing users get card numbers too (on by default).
+    expect(s.showCardNumbers).toBe(true)
     expect(s.removeDataOnUninstall).toBe(false)
   })
 

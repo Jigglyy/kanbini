@@ -20,10 +20,13 @@ test.afterEach(async () => {
 })
 
 /** In-DOM order of the card titles in the (single) list. These cards
- *  carry no priority/labels, so a card's innerText is just its title. */
+ *  carry no priority/labels, so a card's innerText is its title on the
+ *  first line (then the #number on the meta row below it). */
 async function cardOrder(page: Page): Promise<string[]> {
   const cards = page.locator('[data-card-id]')
-  return (await cards.allInnerTexts()).map((t) => t.trim()).filter(Boolean)
+  return (await cards.allInnerTexts())
+    .map((t) => t.trim().split('\n')[0]!.trim())
+    .filter(Boolean)
 }
 
 /** Open the list pencil menu and click a "Sort cards" chip. `which`
