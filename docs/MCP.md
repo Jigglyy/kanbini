@@ -270,11 +270,18 @@ waits on) and `blocking` (cards waiting on it), each
 oldest link first. A card is blocked while any `blockedBy` card is
 neither completed nor archived.
 
-| Argument | Type     | Required | Notes                       |
-|----------|----------|----------|-----------------------------|
-| `id`     | `string` | yes      | UUIDv7 from `get_board`.    |
+| Argument | Type     | Required | Notes                                                        |
+|----------|----------|----------|--------------------------------------------------------------|
+| `id`     | `string` | yes      | UUIDv7 from `get_board`, or the card's number (`#142` / `142`). |
 
-Works for archived cards too. Returns `null` if the id doesn't exist.
+Every card carries `number`: the short `#N` the app shows on it, one
+counter across all boards, never reused. Users refer to cards that
+way, so passing `#142` here is how the AI turns a number into the id
+the write tools take. `kanbini_search_cards` also matches a `#142`
+query (that card first, `matchKind: "number"`).
+
+Works for archived cards too. Returns `null` if the id or number
+doesn't exist.
 
 #### `kanbini_get_agenda`
 

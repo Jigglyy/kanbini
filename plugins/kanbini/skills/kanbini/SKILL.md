@@ -16,6 +16,11 @@ Nothing is sent anywhere else.
 - Never guess an id. Board ids come from `kanbini_list_boards`, list and
   card ids from `kanbini_get_board`, and `kanbini_search_cards` finds a
   card by words in its title, description, or label names.
+- Every card has a short number the app shows on it, like #142 (`number`
+  in reads). Users refer to cards that way. `kanbini_get_card` takes
+  `#142` in place of an id: use it to get the card's `id`, since the
+  write tools take the id, not the number. When you mention a card to
+  the user, add its number, e.g. "Fix login redirect (#142)".
 - For "what's due", "what's overdue", "what should I work on", or "what
   did I get done", call `kanbini_get_agenda` once. It covers every board,
   so don't walk the boards one by one.

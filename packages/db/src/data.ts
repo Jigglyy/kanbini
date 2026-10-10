@@ -13,6 +13,7 @@ import {
   MAX_VISIBLE_CARD_LIMIT,
   newId,
   orderKeysBetween,
+  parseCardNumberRef,
   zBoardBackground,
   zCardDensity,
   zCardPriority,
@@ -689,10 +690,22 @@ export function listCardIds(db: Db): string[] {
     .map((r) => r.id)
 }
 
+/** The card id `ref` names: the id itself, or - when `ref` reads like a
+ *  card number ("#142" / "142") - the id of the card with that number.
+ *  null when no card has that number. Mirrored by the headless reader. */
+export function resolveCardRef(db: Db, ref: string): string | null {
+  const n = parseCardNumberRef(ref)
+  if (n === null) return ref
+  return db.select({ id: card.id }).from(card).where(eq(card.number, n)).get()?.id ?? null
+}
+
 /** Single-card view - used by the MCP control channel so the AI can
- *  zoom in on a card without pulling the entire board. Returns null
- *  when the id doesn't match anything. */
-export function getCardView(db: Db, cardId: string) {
+ *  zoom in on a card without pulling the entire board. `ref` is the
+ *  card's id or its number (#142 / 142, see `resolveCardRef`). Returns
+ *  null when it doesn't match anything. */
+export function getCardView(db: Db, ref: string) {
+  const cardId = resolveCardRef(db, ref)
+  if (cardId === null) return null
   const c = db.select().from(card).where(eq(card.id, cardId)).get()
   if (!c) return null
 

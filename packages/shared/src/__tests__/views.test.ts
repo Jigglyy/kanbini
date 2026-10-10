@@ -308,6 +308,7 @@ describe('zSearchCardsRequest / zSearchHit', () => {
   it('round-trips a hit with each matchKind', () => {
     const base = {
       cardId: 'c1',
+      number: 1,
       title: 'T',
       descriptionSnippet: null,
       boardId: 'b1',
@@ -316,7 +317,7 @@ describe('zSearchCardsRequest / zSearchHit', () => {
       matchedLabels: [],
       updatedAt: 1
     }
-    for (const matchKind of ['title', 'label', 'description'] as const) {
+    for (const matchKind of ['number', 'title', 'label', 'description'] as const) {
       expect(zSearchHit.parse({ ...base, matchKind }).matchKind).toBe(matchKind)
     }
   })

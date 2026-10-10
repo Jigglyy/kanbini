@@ -438,6 +438,8 @@ export type SearchCardsRequest = z.infer<typeof zSearchCardsRequest>
  *  a follow-up fetch. */
 export const zSearchHit = z.object({
   cardId: z.string(),
+  /** The card's #N (see card-number.ts). */
+  number: z.number().int(),
   title: z.string(),
   /** Short window around the first match - only when description matched. */
   descriptionSnippet: z.string().nullable(),
@@ -446,7 +448,9 @@ export const zSearchHit = z.object({
   listName: z.string(),
   /** Names of labels on the card that matched (may be empty). */
   matchedLabels: z.array(z.string()),
-  matchKind: z.enum(['title', 'label', 'description']),
+  /** Strongest match, which also sets the sort tier: 'number' = the
+   *  query was this card's #N, then title, label, description. */
+  matchKind: z.enum(['number', 'title', 'label', 'description']),
   updatedAt: z.number()
 })
 export type SearchHit = z.infer<typeof zSearchHit>

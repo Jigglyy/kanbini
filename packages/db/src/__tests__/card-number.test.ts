@@ -319,3 +319,20 @@ describe('migration 0016', () => {
     }
   })
 })
+
+describe('looking a card up by number', () => {
+  it('getCardView accepts #N or N as well as the id', () => {
+    const { todo } = board()
+    create(todo, 'One')
+    const id = create(todo, 'Two')
+    expect(getCardView(db, '#2')?.id).toBe(id)
+    expect(getCardView(db, '2')?.id).toBe(id)
+    expect(getCardView(db, id)?.number).toBe(2)
+  })
+
+  it('returns null for a number no card has', () => {
+    const { todo } = board()
+    create(todo, 'One')
+    expect(getCardView(db, '#9')).toBeNull()
+  })
+})

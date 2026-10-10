@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { ArrowRight, LayoutGrid, Search } from 'lucide-react'
-import type { BoardSummary, SearchHit } from '@kanbini/shared'
+import { formatCardNumber, type BoardSummary, type SearchHit } from '@kanbini/shared'
 import { ipc } from '../lib/ipc'
 import { cn } from '../lib/utils'
 import { Modal } from './ui/modal'
@@ -267,6 +267,12 @@ function CardHit({ hit }: { hit: SearchHit }) {
           ))}
         </div>
         <div className="mt-0.5 truncate text-xs text-muted-foreground">
+          {hit.number > 0 && (
+            <>
+              <span className="tabular-nums">{formatCardNumber(hit.number)}</span>
+              {' · '}
+            </>
+          )}
           {hit.boardName} · {hit.listName}
         </div>
         {hit.descriptionSnippet && (

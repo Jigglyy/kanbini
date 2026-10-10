@@ -35,6 +35,7 @@ function makeBoard(overrides: Partial<BoardSummary> = {}): BoardSummary {
 function makeHit(overrides: Partial<SearchHit> = {}): SearchHit {
   return {
     cardId: 'c1',
+    number: 1,
     title: 'A card',
     descriptionSnippet: null,
     boardId: 'b1',
@@ -98,6 +99,20 @@ describe('<CommandPalette>', () => {
     expect(await screen.findByText('fix the dragon')).toBeInTheDocument()
     expect(await screen.findByText('draft the docs')).toBeInTheDocument()
     expect(screen.getByText(/^cards$/i)).toBeInTheDocument()
+  })
+
+  it("shows each card hit's #number", async () => {
+    const user = userEvent.setup()
+    kanbiniMock().searchCards.mockResolvedValue([
+      makeHit({ cardId: 'c7', number: 142, title: 'Fix login', matchKind: 'number' })
+    ])
+    renderWithQuery(
+      <CommandPalette open onClose={vi.fn()} boards={[]} onActivate={vi.fn()} />
+    )
+    const input = await screen.findByPlaceholderText(/search cards/i)
+    await user.type(input, '#142')
+    expect(await screen.findByText('Fix login')).toBeInTheDocument()
+    expect(screen.getByText('#142')).toBeInTheDocument()
   })
 
   it('clicking a card hit calls onActivate(boardId, cardId) + onClose', async () => {

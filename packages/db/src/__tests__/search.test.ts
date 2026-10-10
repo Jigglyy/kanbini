@@ -242,3 +242,53 @@ describe('searchCards', () => {
     expect(searchCards(db, 'UpP')).toHaveLength(1)
   })
 })
+
+describe('searchCards by card number', () => {
+  function cards(): { list: string; ids: string[] } {
+    const projectId = ensureDefaultProjectId(db)
+    const b = applyMutation(db, { type: 'board.create', projectId, name: 'B' }).id
+    const list = applyMutation(db, { type: 'list.create', boardId: b, name: 'L' }).id
+    // #1 .. #3; #3's title mentions "2" so a bare "2" also substring-hits it.
+    const ids = ['Alpha', 'Beta', 'Version 2 notes'].map(
+      (title) => applyMutation(db, { type: 'card.create', listId: list, title }).id
+    )
+    return { list, ids }
+  }
+
+  it('puts the numbered card first, as a number hit, for #N and bare N', () => {
+    const { ids } = cards()
+    for (const q of ['#2', '2', ' #2 ']) {
+      const hits = searchCards(db, q)
+      expect(hits[0]).toMatchObject({ cardId: ids[1], number: 2, matchKind: 'number' })
+    }
+    // "2" still finds the title mention, after the number hit.
+    expect(searchCards(db, '2').map((h) => h.cardId)).toEqual([ids[1], ids[2]])
+    // "#2" is a number lookup only - no title says "#2".
+    expect(searchCards(db, '#2').map((h) => h.cardId)).toEqual([ids[1]])
+  })
+
+  it('carries the number on every hit', () => {
+    const { ids } = cards()
+    const hit = searchCards(db, 'alpha')[0]!
+    expect(hit).toMatchObject({ cardId: ids[0], number: 1, matchKind: 'title' })
+  })
+
+  it('a card whose title and number both match counts as a number hit once', () => {
+    const { ids } = cards()
+    applyMutation(db, { type: 'card.update', id: ids[2]!, patch: { title: 'Card 3' } })
+    expect(searchCards(db, '3')).toEqual([
+      expect.objectContaining({ cardId: ids[2], matchKind: 'number' })
+    ])
+  })
+
+  it('hides an archived card even when asked for by number', () => {
+    const { ids } = cards()
+    applyMutation(db, { type: 'card.update', id: ids[0]!, patch: { archived: true } })
+    expect(searchCards(db, '#1')).toEqual([])
+  })
+
+  it('an unknown number finds nothing', () => {
+    cards()
+    expect(searchCards(db, '#99')).toEqual([])
+  })
+})

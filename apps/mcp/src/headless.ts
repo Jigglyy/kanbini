@@ -5,6 +5,7 @@ import {
   MAX_VISIBLE_CARD_LIMIT,
   buildAgendaView,
   fillMissingCardNumbers,
+  parseCardNumberRef,
   type AgendaCandidate,
   type AgendaOptions
 } from '@kanbini/shared'
@@ -644,11 +645,14 @@ export function headlessArchivedItems(
   }
 }
 
+/** Mirror of `getCardView`: `ref` is the card's id or its number
+ *  (#142 / 142, see `resolveCardRef` in @kanbini/db/data.ts). */
 export function headlessCardView(
   snap: HeadlessSnapshot,
-  cardId: string
+  ref: string
 ): CardView | null {
-  const c = snap.dump.cards.find((x) => x.id === cardId)
+  const n = parseCardNumberRef(ref)
+  const c = snap.dump.cards.find((x) => (n === null ? x.id === ref : x.number === n))
   if (!c) return null
   return buildCardView(c, snap, {
     labelIdsByCard: groupBy(snap.dump.cardLabels, (cl) => cl.cardId),
@@ -835,6 +839,7 @@ export function headlessSearchCards(
   const q = query.trim().toLowerCase()
   if (q.length === 0) return []
   const cap = Math.min(Math.max(1, limit), SEARCH_HARD_LIMIT)
+  const asNumber = parseCardNumberRef(q)
 
   // Indexes for resolving each hit's surrounding context.
   const labelsById = new Map<string, ExportDump['labels'][number]>()
@@ -863,6 +868,7 @@ export function headlessSearchCards(
     const board = boardsById.get(list.boardId)
     if (!board) continue
 
+    const numberHit = asNumber !== null && c.number === asNumber
     const titleHit = c.title.toLowerCase().includes(q)
     const cardLabelRows = labelIdsByCard.get(c.id) ?? []
     const cardLabels = cardLabelRows
@@ -875,15 +881,17 @@ export function headlessSearchCards(
     const descriptionHit =
       description !== null && description.toLowerCase().includes(q)
 
-    if (!titleHit && labelHits.length === 0 && !descriptionHit) continue
+    if (!numberHit && !titleHit && labelHits.length === 0 && !descriptionHit) continue
 
     // Strongest-tier wins. Same precedence as live searchCards:
-    // title > label > description.
-    const matchKind: SearchHit['matchKind'] = titleHit
-      ? 'title'
-      : labelHits.length > 0
-        ? 'label'
-        : 'description'
+    // number > title > label > description.
+    const matchKind: SearchHit['matchKind'] = numberHit
+      ? 'number'
+      : titleHit
+        ? 'title'
+        : labelHits.length > 0
+          ? 'label'
+          : 'description'
 
     // Snippet is attached whenever the description matched, regardless
     // of which tier won - same as the live implementation.
@@ -894,6 +902,7 @@ export function headlessSearchCards(
 
     hits.push({
       cardId: c.id,
+      number: c.number ?? 0,
       title: c.title,
       descriptionSnippet,
       boardId: board.id,
@@ -905,7 +914,7 @@ export function headlessSearchCards(
     })
   }
 
-  const tier = { title: 0, label: 1, description: 2 } as const
+  const tier = { number: 0, title: 1, label: 2, description: 3 } as const
   hits.sort((a, b) => {
     const t = tier[a.matchKind] - tier[b.matchKind]
     if (t !== 0) return t

@@ -56,6 +56,7 @@ function hit(over: Partial<SearchHit> = {}): SearchHit {
     listName: 'Doing',
     matchedLabels: [],
     matchKind: 'title',
+    number: 1,
     updatedAt: 0,
     ...over
   }

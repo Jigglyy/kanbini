@@ -151,6 +151,33 @@ describe('MCP read tools', () => {
     expect(hits[0]!.title.toLowerCase()).toContain('drag')
   })
 
+  it('kanbini_get_card and kanbini_search_cards take a #number', async () => {
+    const board = unwrap<{
+      lists: Array<{ cards: Array<{ id: string; number: number }> }>
+    }>(
+      await client.callTool({ name: 'kanbini_get_board', arguments: {} }),
+      'get_board'
+    )
+    const card = board.lists[0]!.cards[0]!
+    expect(card.number).toBeGreaterThan(0)
+    const detail = unwrap<{ id: string; number: number }>(
+      await client.callTool({
+        name: 'kanbini_get_card',
+        arguments: { id: `#${card.number}` }
+      }),
+      'get_card'
+    )
+    expect(detail).toMatchObject({ id: card.id, number: card.number })
+    const hits = unwrap<Array<{ cardId: string; number: number; matchKind: string }>>(
+      await client.callTool({
+        name: 'kanbini_search_cards',
+        arguments: { query: `#${card.number}` }
+      }),
+      'search_cards'
+    )
+    expect(hits[0]).toMatchObject({ cardId: card.id, number: card.number, matchKind: 'number' })
+  })
+
   it('kanbini_get_agenda buckets cards across the whole DB', async () => {
     // Plant one overdue card and one completed card on the seeded
     // board, straight through @kanbini/db (the completion writes the

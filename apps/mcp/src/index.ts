@@ -313,6 +313,8 @@ server.registerTool(
     title: 'Get Kanbini board',
     description:
       'Return one Kanbini board view (project, lists, cards, labels). ' +
+      'Each card carries `number`, the short #N the app shows on it ' +
+      '(global across boards); mention it when you name a card. ' +
       'Archived cards are left out; archived lists are included with ' +
       '`closed: true` (the app hides them) - kanbini_list_archived lists ' +
       'both. Every other card is returned in full regardless of how the ' +
@@ -339,14 +341,17 @@ server.registerTool(
   {
     title: 'Get Kanbini card',
     description:
-      'Return one Kanbini card by id, including title, description, ' +
+      'Return one Kanbini card by id OR by its number - `#142` or `142`, ' +
+      'the short #N the app shows on the card, which is how the user ' +
+      'refers to cards. Use this to turn a number the user gives you into ' +
+      'the card `id` the write tools need. Includes title, description, ' +
       'priority (low/medium/high/urgent or null), checklists, comments, ' +
       'attachments, recent activity feed, and its "waiting on" links: ' +
       '`blockedBy` (cards it waits on) and `blocking` (cards waiting on ' +
       'it), each with title, completed, archived, board, and list. A card ' +
       'is blocked while any `blockedBy` card is neither completed nor ' +
       'archived. Works for archived cards ' +
-      'too (see kanbini_list_archived). Returns null if the id ' +
+      'too (see kanbini_list_archived). Returns null if the id or number ' +
       'does not exist. When the desktop app is closed, falls back to ' +
       "the last on-disk export.",
     inputSchema: { id: z.string() }
@@ -365,11 +370,13 @@ server.registerTool(
     title: 'Search cards across all boards',
     description:
       'Global card search by case-insensitive substring on title, ' +
-      'description, and label name. Returns up to `limit` (default 50, ' +
-      'max 100) hits, each carrying cardId + title + boardId + boardName ' +
-      '+ listName + matchedLabels + matchKind ("title" | "label" | ' +
-      '"description") + updatedAt. Sort prioritises title matches, then ' +
-      'label, then description; ties break by recency. Archived cards ' +
+      'description, and label name; a query like `#142` or `142` also ' +
+      'finds the card with that number. Returns up to `limit` (default ' +
+      '50, max 100) hits, each carrying cardId + number + title + boardId ' +
+      '+ boardName + listName + matchedLabels + matchKind ("number" | ' +
+      '"title" | "label" | "description") + updatedAt. Sort puts the ' +
+      'numbered card first, then title matches, then label, then ' +
+      'description; ties break by recency. Archived cards ' +
       'and closed lists are excluded. Use cardId with kanbini_get_card ' +
       'to fetch full detail for any hit. When the desktop app is ' +
       "closed, falls back to the last on-disk export.",

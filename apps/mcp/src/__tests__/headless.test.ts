@@ -268,6 +268,21 @@ describe('headless readers vs live @kanbini/db', () => {
     }
   })
 
+  it('#number lookups and searches read identically in both readers', async () => {
+    const snap = await loadHeadlessSnapshot(exportDir)
+    const card = getBoardView(db)!.lists[0]!.cards[1]!
+    for (const ref of [`#${card.number}`, String(card.number)]) {
+      expect(headlessCardView(snap!, ref)).toEqual(getCardView(db, ref))
+      expect(headlessCardView(snap!, ref)?.id).toBe(card.id)
+      expect(headlessSearchCards(snap!, ref)).toEqual(searchCards(db, ref))
+      expect(headlessSearchCards(snap!, ref)[0]).toMatchObject({
+        cardId: card.id,
+        matchKind: 'number'
+      })
+    }
+    expect(headlessCardView(snap!, '#9999')).toBeNull()
+  })
+
   it('an export from before card numbers gets the numbers importing it would', async () => {
     const root = join(tmpRoot, 'pre-number')
     const exDir = join(root, 'export')
