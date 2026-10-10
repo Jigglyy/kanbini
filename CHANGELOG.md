@@ -6,8 +6,21 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 (pre-1.0: minor versions may still carry user-visible changes).
 
 Releases are cut by pushing a `v*` tag, which builds the Windows
-portable app and publishes a GitHub Release (see
+installer and portable app and publishes a GitHub Release (see
 [`.github/workflows/release.yml`](.github/workflows/release.yml)).
+
+## [0.10.1] - 2026-10-10
+
+### Changed
+
+- **The installer is back.** Each release has both versions again:
+  `Kanbini Setup` installs Kanbini with a Start menu entry and an
+  uninstaller, and the portable .zip runs from any folder without
+  installing anything. 0.10.0 shipped only the portable one. Both use
+  the same boards.
+- **"Remove my data when uninstalling" is back** in Settings, Backup &
+  restore, in the installed version (the portable version has nothing
+  to uninstall, so it doesn't show it).
 
 ## [0.10.0] - 2026-10-10
 
