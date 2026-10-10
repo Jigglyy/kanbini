@@ -4,6 +4,7 @@ import {
   AGENDA_COMPLETION_ACTIVITY_TYPES,
   MAX_VISIBLE_CARD_LIMIT,
   buildAgendaView,
+  fillMissingCardNumbers,
   type AgendaCandidate,
   type AgendaOptions
 } from '@kanbini/shared'
@@ -61,6 +62,9 @@ interface ExportDump {
   schemaVersion: number
   formatVersion: number
   exportedAt: number
+  /** Last card number handed out. Absent in exports written before card
+   *  numbers existed. */
+  cardNumberSeq?: number
   projects: Array<{ id: string; name: string }>
   boards: Array<{
     id: string
@@ -92,6 +96,9 @@ interface ExportDump {
   }>
   cards: Array<{
     id: string
+    /** Card number. Absent in exports written before numbers existed;
+     *  `loadHeadlessSnapshot` fills those in (same rule as the importer). */
+    number?: number | null
     listId: string
     title: string
     /** Always null in the dump - bodies live in cards/<id>.md and are
@@ -237,6 +244,11 @@ export async function loadHeadlessSnapshot(
       /* skip unreadable files - better partial data than no data */
     }
   }
+
+  // An export from before card numbers existed: number its cards the
+  // way importing it would (creation order), so #N lookups still work.
+  const numbers = fillMissingCardNumbers(dump.cards, dump.cardNumberSeq ?? 0)
+  for (const c of dump.cards) c.number = numbers.get(c.id) ?? null
 
   return {
     exportedAt: dump.exportedAt ?? 0,
@@ -794,6 +806,7 @@ function buildCardView(
 
   return {
     id: c.id,
+    number: c.number ?? 0,
     title: c.title,
     description: snap.descriptions.get(c.id) ?? null,
     position: c.position,

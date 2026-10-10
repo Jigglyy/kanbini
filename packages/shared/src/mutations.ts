@@ -156,6 +156,10 @@ export const zMutation = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('card.create'),
     id: z.string().optional(),
+    // Card number to reuse. Omitted on a normal create (the DB hands out
+    // the next one); the undo recorder fills it in alongside `id` so a
+    // redo brings the card back as the same #N.
+    number: z.number().int().positive().optional(),
     listId: z.string(),
     title: z.string().min(1),
     priority: zCardPriority.nullable().optional()
@@ -311,7 +315,10 @@ export const zMutation = z.discriminatedUnion('type', [
     type: z.literal('card.spawnNext'),
     id: z.string(),
     copyId: z.string(),
-    toListId: z.string()
+    toListId: z.string(),
+    // The copy's card number, filled in by the recorder like `copyId`
+    // so a redo recreates the same #N.
+    copyNumber: z.number().int().positive().optional()
   }),
   z.object({
     type: z.literal('card.unspawnNext'),

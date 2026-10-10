@@ -332,6 +332,8 @@ function LaneCell({
                         ...l.cards,
                         {
                           id: `tmp-${crypto.randomUUID()}`,
+                          // Unknown until the server answers; 0 renders no #N.
+                          number: 0,
                           title,
                           description: null,
                           position: 'zzzz',

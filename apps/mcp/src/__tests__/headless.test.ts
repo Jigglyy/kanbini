@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -15,6 +15,7 @@ import {
   getArchivedItems,
   getBoardView,
   getCardView,
+  importFromFolder,
   listBoards,
   openDatabase,
   searchCards,
@@ -264,6 +265,38 @@ describe('headless readers vs live @kanbini/db', () => {
       }
     } finally {
       close()
+    }
+  })
+
+  it('an export from before card numbers gets the numbers importing it would', async () => {
+    const root = join(tmpRoot, 'pre-number')
+    const exDir = join(root, 'export')
+    await exportToFolder(db, root, exDir)
+    const jsonPath = join(exDir, 'kanbini.json')
+    const dump = JSON.parse(await readFile(jsonPath, 'utf8')) as {
+      cardNumberSeq?: number
+      cards: Array<{ number?: number; createdAt: number }>
+    }
+    delete dump.cardNumberSeq
+    // Scramble creation order vs id order so the rule actually matters.
+    dump.cards.forEach((c, i) => {
+      delete c.number
+      c.createdAt = 1000 - i
+    })
+    await writeFile(jsonPath, JSON.stringify(dump))
+
+    const snap = await loadHeadlessSnapshot(exDir)
+    const imported = openDatabase({ filePath: ':memory:', migrationsFolder: MIGRATIONS })
+    try {
+      await importFromFolder(imported.db, root, exDir)
+      const boardId = getBoardView(imported.db)!.board.id
+      expect(headlessBoardView(snap!, boardId)).toEqual(getBoardView(imported.db, boardId))
+      const numbers = getBoardView(imported.db, boardId)!.lists.flatMap((l) =>
+        l.cards.map((c) => c.number)
+      )
+      expect(numbers.every((n) => n > 0)).toBe(true)
+    } finally {
+      imported.close()
     }
   })
 

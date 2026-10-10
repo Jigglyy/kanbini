@@ -4,7 +4,8 @@ import {
   integer,
   primaryKey,
   sqliteTable,
-  text
+  text,
+  uniqueIndex
 } from 'drizzle-orm/sqlite-core'
 
 // Kanbini schema v1 (DESIGN §6, ADR-0011).
@@ -170,10 +171,19 @@ export const card = sqliteTable(
     // (zCardRepeat); null = a one-off card. Completing a repeating card
     // creates the next one and moves this rule onto it (repeat.ts).
     repeat: text('repeat', { mode: 'json' }),
+    // Short global #N people use to refer to a card (migration 0016).
+    // Never reused, kept for as long as the card keeps its id. Nullable
+    // in SQL only so the `card_number_assign` AFTER INSERT trigger can
+    // fill it: an insert that omits it gets the next number from
+    // `cardNumberSeq`; restore / import pass the stored one (and the
+    // `card_number_track` trigger keeps the counter at or above it).
+    // Every row has one once its INSERT statement finishes.
+    number: integer('number'),
     ...timestamps
   },
   (t) => [
     index('idx_card_list').on(t.listId, t.position),
+    uniqueIndex('idx_card_number').on(t.number),
     index('idx_card_due').on(t.dueAt),
     // Swimlanes (ADR-0037 slice 2) group by priority across the
     // whole board - this keeps that lookup cheap on multi-thousand-
@@ -181,6 +191,14 @@ export const card = sqliteTable(
     index('idx_card_priority').on(t.priority)
   ]
 )
+
+/** One row (id = 1): the last card number handed out. Only moves up -
+ *  the triggers in migration 0016 maintain it, and the importer resets
+ *  then restores it alongside the cards it replaces. */
+export const cardNumberSeq = sqliteTable('card_number_seq', {
+  id: integer('id').primaryKey(),
+  last: integer('last').notNull()
+})
 
 export const label = sqliteTable(
   'label',

@@ -10,6 +10,7 @@ import { CollapseToggle, CompactBadges } from '../card-density'
 function makeCard(overrides: Partial<CardView> = {}): CardView {
   return {
     id: 'c1',
+    number: 1,
     title: 'Card',
     description: null,
     position: 'a',

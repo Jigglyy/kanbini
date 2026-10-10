@@ -463,6 +463,9 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
       db.insert(card)
         .values({
           id,
+          // Undefined -> the column is omitted and the DB trigger hands
+          // out the next number; a redo passes the original one back.
+          number: m.number,
           listId: m.listId,
           title: m.title,
           position: appendCardKey(db, m.listId),
@@ -574,7 +577,9 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
     }
     case 'card.spawnNext':
       return db.transaction((tx) =>
-        spawnNextOccurrence(tx as unknown as Db, m.id, m.copyId, m.toListId)
+        spawnNextOccurrence(tx as unknown as Db, m.id, m.copyId, m.toListId, {
+          copyNumber: m.copyNumber
+        })
       )
     case 'card.unspawnNext':
       return db.transaction((tx) =>

@@ -63,6 +63,7 @@ describe('toggledCollapsed', () => {
 function card(id: string, overrides: Partial<CardView> = {}): CardView {
   return {
     id,
+    number: 1,
     title: id,
     description: null,
     position: 'a',

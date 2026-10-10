@@ -76,13 +76,14 @@ export function repeatSpawnPlan(
 /** `card.spawnNext`: create the next occurrence of `id` as `copyId` in
  *  `toListId` (falling back to the card's own list if that list is
  *  gone) and move the repeat rule onto it. A no-op when the card is
- *  gone or no longer repeats. */
+ *  gone or no longer repeats. `copyNumber` (a redo) reuses the copy's
+ *  original card number; omitted, the DB hands out the next one. */
 export function spawnNextOccurrence(
   db: Db,
   id: string,
   copyId: string,
   toListId: string,
-  now: number = Date.now()
+  { copyNumber, now = Date.now() }: { copyNumber?: number; now?: number } = {}
 ): MutationResult {
   const orig = db.select().from(card).where(eq(card.id, id)).get()
   const rule = orig ? parseRepeat(orig.repeat) : null
@@ -97,6 +98,7 @@ export function spawnNextOccurrence(
   db.insert(card)
     .values({
       id: copyId,
+      number: copyNumber,
       listId: targetList,
       title: orig.title,
       description: orig.description,

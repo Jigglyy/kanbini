@@ -356,6 +356,7 @@ describe('buildNote (v2 format)', () => {
   ): BoardView['lists'][number]['cards'][number] {
     return {
       id: 'c1',
+      number: 1,
       title: 'Card title',
       description: null,
       position: 'a0',

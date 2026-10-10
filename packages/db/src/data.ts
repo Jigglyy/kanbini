@@ -570,6 +570,8 @@ export function getBoardView(db: Db, boardId?: string): BoardView | null {
         .all()
         .map((c) => ({
           id: c.id,
+          // Always set once the insert finishes (migration 0016 trigger).
+          number: c.number ?? 0,
           title: c.title,
           description: c.description,
           position: c.position,
@@ -775,6 +777,7 @@ export function getCardView(db: Db, cardId: string) {
 
   return {
     id: c.id,
+    number: c.number ?? 0,
     title: c.title,
     description: c.description,
     position: c.position,

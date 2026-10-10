@@ -11,6 +11,7 @@ import { filterByLabels, pruneLabelFilter } from '../label-filter'
 function makeCard(id: string, labelIds: string[]): CardView {
   return {
     id,
+    number: 1,
     title: id,
     description: null,
     position: 'a',

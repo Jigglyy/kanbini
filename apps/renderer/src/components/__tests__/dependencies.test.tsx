@@ -25,6 +25,7 @@ function ref(over: Partial<CardRef> = {}): CardRef {
 function makeCard(over: Partial<CardView> = {}): CardView {
   return {
     id: 'c1',
+    number: 1,
     title: 'This card',
     description: null,
     position: 'a',

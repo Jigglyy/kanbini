@@ -9,6 +9,7 @@ import { RepeatBadge, RepeatPicker, repeatSpan } from '../repeat'
 function makeCard(over: Partial<CardView> = {}): CardView {
   return {
     id: 'c1',
+    number: 1,
     title: 'Water the plants',
     description: null,
     position: 'a',

@@ -21,6 +21,7 @@ function makeCard(
 ): CardView {
   return {
     id: 'c1',
+    number: 1,
     title: 'Card',
     description: null,
     position: 'a0',

@@ -192,6 +192,10 @@ function shortId(id: string | null): string {
 
 export interface CardSnapshot {
   id: string
+  /** Card number (migration 0016). Optional: snapshots written to the
+   *  undo log before numbers existed don't carry it, and restore then
+   *  lets the DB hand out a fresh one. */
+  number?: number | null
   listId: string
   title: string
   description: string | null
@@ -511,6 +515,7 @@ export function snapshotCard(db: Db, id: string): CardSnapshot | null {
     }))
   return {
     id: r.id,
+    number: r.number,
     listId: r.listId,
     title: r.title,
     description: r.description,
@@ -607,6 +612,7 @@ function restoreCard(db: Db, s: CardSnapshot): void {
   db.insert(card)
     .values({
       id: s.id,
+      number: s.number ?? null,
       listId: s.listId,
       title: s.title,
       description: s.description,
@@ -1348,6 +1354,25 @@ function isCreateWithoutId(m: Mutation): boolean {
   return !(m as { id?: string }).id
 }
 
+/** A card keeps its number for as long as it keeps its id, so the
+ *  creates that a redo replays with the same id (`card.create`, and the
+ *  repeat copy from `card.spawnNext`) also get the number the DB just
+ *  handed out written into the stored forward. Without it a redo would
+ *  bring the card back as a new #N. */
+function withCardNumber(db: Db, m: Mutation): Mutation {
+  const numberOf = (id: string): number | undefined =>
+    db.select({ n: card.number }).from(card).where(eq(card.id, id)).get()?.n ?? undefined
+  if (m.type === 'card.create' && m.id && m.number === undefined) {
+    const n = numberOf(m.id)
+    return n === undefined ? m : { ...m, number: n }
+  }
+  if (m.type === 'card.spawnNext' && m.copyNumber === undefined) {
+    const n = numberOf(m.copyId)
+    return n === undefined ? m : { ...m, copyNumber: n }
+  }
+  return m
+}
+
 /** Wrap `applyMutation` with undo-log recording. Captures the inverse
  *  before applying (or after, for creates), then inserts the log row +
  *  prunes the stack in a single transaction. The 'undone' (redo) tail
@@ -1382,15 +1407,18 @@ export function applyMutationRecorded(
       tx.delete(undoLog).where(eq(undoLog.status, 'undone')).run()
       // Backfill the minted id into a stored copy of the forward
       // (creates only - see CREATE_TYPES above).
-      const storedForward = isCreateWithoutId(m)
-        ? ({ ...m, id: result.id } as Mutation)
-        : // board.duplicate is create-like, but its `id` is the SOURCE
-          // board - the NEW board's id rides in `newId` so a redo
-          // recreates the same duplicate instead of minting a fresh one
-          // (which would orphan it and dangle the stored inverse).
-          m.type === 'board.duplicate' && !m.newId
-          ? ({ ...m, newId: result.id } as Mutation)
-          : m
+      const storedForward = withCardNumber(
+        txDb,
+        isCreateWithoutId(m)
+          ? ({ ...m, id: result.id } as Mutation)
+          : // board.duplicate is create-like, but its `id` is the SOURCE
+            // board - the NEW board's id rides in `newId` so a redo
+            // recreates the same duplicate instead of minting a fresh one
+            // (which would orphan it and dangle the stored inverse).
+            m.type === 'board.duplicate' && !m.newId
+            ? ({ ...m, newId: result.id } as Mutation)
+            : m
+      )
       // Insert the new entry.
       const entryId = newId()
       tx.insert(undoLog)

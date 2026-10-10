@@ -9,6 +9,7 @@ import {
   card,
   cardDependency,
   cardLabel,
+  cardNumberSeq,
   checklist,
   checklistItem,
   comment,
@@ -113,12 +114,17 @@ export async function exportToFolder(
     .orderBy(asc(attachment.id))
     .all()
   const activities = db.select().from(activity).orderBy(asc(activity.id)).all()
+  // The last card number handed out. Can be above every card's number
+  // (the newest cards were deleted); carried so a restore keeps those
+  // numbers retired instead of handing them out again.
+  const cardNumberLast = db.select({ last: cardNumberSeq.last }).from(cardNumberSeq).get()?.last ?? 0
 
   const exportedAt = Date.now()
   const dump = {
     schemaVersion: 1, // matches @kanbini/shared SCHEMA_VERSION
     formatVersion: EXPORT_FORMAT_VERSION,
     exportedAt,
+    cardNumberSeq: cardNumberLast,
     projects,
     boards,
     lists,

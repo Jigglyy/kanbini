@@ -6,6 +6,7 @@ import { DescriptionBadge } from '../description-badge'
 function makeCard(description: string | null): CardView {
   return {
     id: 'c1',
+    number: 1,
     title: 'Card',
     description,
     position: 'a',

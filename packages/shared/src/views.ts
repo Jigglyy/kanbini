@@ -227,6 +227,9 @@ export type CardRef = z.infer<typeof zCardRef>
 
 export const zCardView = z.object({
   id: z.string(),
+  /** Short global #N (see card-number.ts). Never reused; stays with the
+   *  card for as long as it keeps its id. */
+  number: z.number().int(),
   title: z.string(),
   description: z.string().nullable(),
   position: z.string(),
