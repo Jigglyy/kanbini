@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -87,6 +87,28 @@ describe('plugin manifest + marketplace', () => {
       args: ['${CLAUDE_PLUGIN_ROOT}/server/launch.mjs']
     })
     expect(existsSync(LAUNCHER)).toBe(true)
+  })
+
+  it('ships every plugin file: none of them is gitignored', () => {
+    // A repo-wide `.mcp.json` ignore rule once swallowed the plugin's own
+    // .mcp.json: tests passed on the machine that had the file, while the
+    // plugin on GitHub (what `/plugin install` fetches) had no MCP server
+    // at all. CI's checkout is what caught it. Check the working tree's
+    // plugin files against git's ignore rules directly.
+    const files = [
+      join(REPO, '.claude-plugin', 'marketplace.json'),
+      ...readdirSync(PLUGIN, { recursive: true, withFileTypes: true })
+        .filter((d) => d.isFile())
+        .map((d) => join(d.parentPath, d.name))
+    ]
+    const r = spawnSync('git', ['check-ignore', '--no-index', ...files], {
+      cwd: REPO,
+      encoding: 'utf8'
+    })
+    // check-ignore prints each ignored path and exits 0 if any matched;
+    // exit 1 means none are ignored.
+    expect(r.stdout.trim()).toBe('')
+    expect(r.status).toBe(1)
   })
 
   it('reads the same pointer file name the app writes', () => {

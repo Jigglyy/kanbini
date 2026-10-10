@@ -41,6 +41,9 @@ Thumbs.db
 # Local-only AI tooling config (leaks $USER paths + per-machine perms)
 .claude/
 .mcp.json
+# ...except the Claude Code plugin's own server definition, which ships
+# (it holds only ${CLAUDE_PLUGIN_ROOT}, no user paths).
+!plugins/kanbini/.mcp.json
 
 # Logs
 *.log
