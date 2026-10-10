@@ -9,6 +9,14 @@ Releases are cut by pushing a `v*` tag, which builds the Windows
 installer and portable app and publishes a GitHub Release (see
 [`.github/workflows/release.yml`](.github/workflows/release.yml)).
 
+## [Unreleased]
+
+### Fixed
+
+- The board zoom slider now has 100% right in the middle, under its
+  "100%" label, with 50% and 200% at the ends. Before, the middle of the
+  slider was 125%. The arrow keys move it in steps of 5%.
+
 ## [0.10.1] - 2026-10-10
 
 ### Changed
