@@ -1,0 +1,76 @@
+name: Bug report
+description: Something in Kanbini isn't working the way it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this! A few details make it much easier to track down.
+
+        Kanbini keeps your boards on your computer and never sends them anywhere, so what you write here is all anyone will see. Please leave out anything private from your boards.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What went wrong, and what did you expect to happen instead?
+      placeholder: When I delete a board, the confirm button is below the bottom of the screen and I can't scroll to it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can someone else make it happen?
+      description: The steps that lead to the problem. If it only happens sometimes, say so, that helps too.
+      placeholder: |
+        1. Right-click a board on the home screen
+        2. Click "Delete board…"
+        3. ...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Kanbini version
+      description: You'll find it in Settings → About.
+      placeholder: "0.10.2"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How do you run Kanbini?
+      options:
+        - Installed (Kanbini Setup)
+        - Portable (.zip)
+        - Built from source
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or a screen recording
+      description: Drag images or a short video in here if it helps show the problem. For anything that looks cut off or out of place, your screen size and display scaling (like 125%) are handy to know too.
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Error messages, whether an AI assistant was changing the board through Kanbini at the time, or anything else you noticed.

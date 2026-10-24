@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest an idea or an improvement for Kanbini.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ideas are very welcome!
+
+        One thing to know up front: Kanbini is a private, offline app for one person, on purpose. There are no accounts and nothing leaves your computer unless you switch it on. So features built around accounts or sharing a board with other people are out of scope, but nearly everything else is fair game.
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: What would you like to do?
+      description: What are you trying to get done, and what gets in the way today?
+      placeholder: I'd like to see how long cards have been sitting in each list, so I can spot the ones that are stuck.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: How do you picture it working?
+      description: Rough is fine. Screenshots or sketches, even from other apps, are welcome too.
+
+  - type: textarea
+    id: today
+    attributes:
+      label: What do you do today instead?
+      description: Any workaround you use, or another app that does this well.
