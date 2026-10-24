@@ -9,10 +9,17 @@ Releases are cut by pushing a `v*` tag, which builds the Windows
 installer and portable app and publishes a GitHub Release (see
 [`.github/workflows/release.yml`](.github/workflows/release.yml)).
 
-## [Unreleased]
+## [0.10.2] - 2026-10-25
 
 ### Fixed
 
+- **The Delete button no longer hides off the screen.** On a smaller
+  screen, the right-click menu for a board could put its Delete button
+  below the bottom of the screen, with no way to scroll to it. Menus now always stay inside the window and
+  scroll when the window is too short for them, and the delete
+  confirmation scrolls itself into view. The same fix covers the list
+  menu. Thanks to @devmdxb for reporting it
+  ([#1](https://github.com/Jigglyy/kanbini/issues/1)).
 - The board zoom slider now has 100% right in the middle, under its
   "100%" label, with 50% and 200% at the ends. Before, the middle of the
   slider was 125%. The arrow keys move it in steps of 5%.
