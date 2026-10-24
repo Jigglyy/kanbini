@@ -51,7 +51,12 @@ import { AgendaPanel } from './agenda'
 import { BackgroundPicker } from './background-picker'
 import { TemplatePickerDialog } from './templates'
 import { Button } from './ui/button'
-import { ContextMenu, MenuLabel, MenuSep } from './ui/context-menu'
+import {
+  ContextMenu,
+  MenuLabel,
+  MenuSep,
+  revealOnMount
+} from './ui/context-menu'
 import { Modal } from './ui/modal'
 
 // Home picker (M4-G / ADR-0021). Single-user offline: flat grid of
@@ -877,7 +882,7 @@ function BoardCardMenu({
       </MenuRow>
       <MenuSep />
       {confirming ? (
-        <div className="flex flex-col gap-1 px-1">
+        <div ref={revealOnMount} className="flex flex-col gap-1 px-1">
           <span className="px-1 text-xs text-muted-foreground">
             Delete “{board.name}” and all its lists/cards? You can undo this with Ctrl+Z.
           </span>

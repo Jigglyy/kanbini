@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
   ContextMenu,
@@ -151,6 +151,81 @@ describe('<ContextMenu>', () => {
     expect(screen.getByText('Z')).toBeInTheDocument()
     fireEvent.scroll(window)
     expect(screen.queryByText('Z')).toBeNull()
+  })
+
+  // GitHub issue #1: a tall menu (or a short window) has to scroll
+  // inside itself to reach its last rows, so that scroll must not count
+  // as the page scrolling out from under the menu.
+  it('scrolling inside the panel does NOT close the menu', () => {
+    render(
+      <ContextMenu menu={() => <MenuItem onClick={vi.fn()}>Inner</MenuItem>}>
+        {(open) => <button onContextMenu={open}>trigger</button>}
+      </ContextMenu>
+    )
+    openMenuAt(20, 20)
+    fireEvent.scroll(document.querySelector('[data-overlay="context-menu"]')!)
+    expect(screen.getByText('Inner')).toBeInTheDocument()
+  })
+
+  it('caps its height to the window and scrolls the overflow', () => {
+    render(
+      <ContextMenu menu={() => <MenuItem onClick={vi.fn()}>Tall</MenuItem>}>
+        {(open) => <button onContextMenu={open}>trigger</button>}
+      </ContextMenu>
+    )
+    openMenuAt(20, 20)
+    const panel = document.querySelector(
+      '[data-overlay="context-menu"]'
+    ) as HTMLElement
+    expect(panel.style.maxHeight).toBe('calc(100vh - 16px)')
+    expect(panel.style.overflowY).toBe('auto')
+  })
+
+  describe('re-clamping when the menu changes size after opening', () => {
+    // JSDOM has no layout: fake the panel's measured height and drive
+    // the ResizeObserver by hand.
+    let height = 100
+    let notify: (() => void) | undefined
+    beforeEach(() => {
+      height = 100
+      notify = undefined
+      vi.stubGlobal(
+        'ResizeObserver',
+        class {
+          constructor(cb: () => void) {
+            notify = cb
+          }
+          observe(): void {}
+          disconnect(): void {}
+        }
+      )
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
+        () => ({ width: 220, height }) as DOMRect
+      )
+    })
+    afterEach(() => {
+      vi.unstubAllGlobals()
+      vi.restoreAllMocks()
+    })
+
+    it('moves up so a row that grew in (delete confirm) stays on screen', () => {
+      render(
+        <ContextMenu menu={() => <MenuItem onClick={vi.fn()}>Grow</MenuItem>}>
+          {(open) => <button onContextMenu={open}>trigger</button>}
+        </ContextMenu>
+      )
+      const bottom = window.innerHeight
+      openMenuAt(20, bottom - 10)
+      const panel = document.querySelector(
+        '[data-overlay="context-menu"]'
+      ) as HTMLElement
+      // Clamped against the opening size: bottom edge 8px above the window's.
+      expect(panel.style.top).toBe(`${bottom - 100 - 8}px`)
+
+      height = 180
+      act(() => notify!())
+      expect(panel.style.top).toBe(`${bottom - 180 - 8}px`)
+    })
   })
 })
 

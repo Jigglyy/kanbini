@@ -11,7 +11,7 @@ import type { Optimistic } from '../hooks/useBoardMutation'
 import { VISIBLE_LIMIT_OPTIONS } from '../lib/list-visibility'
 import { swatchOptions } from '../lib/palette'
 import { cn } from '../lib/utils'
-import { MenuLabel, MenuSep } from './ui/context-menu'
+import { MenuLabel, MenuSep, revealOnMount } from './ui/context-menu'
 
 // List editor body - rendered inside a ContextMenu (pencil button or
 // right-click on the list header, wired in board.tsx).
@@ -405,7 +405,7 @@ export function ListEditor({
       )}
       <MenuSep />
       {confirming ? (
-        <div className="flex flex-col gap-1 px-1">
+        <div ref={revealOnMount} className="flex flex-col gap-1 px-1">
           <span className="px-1 text-xs text-muted-foreground">
             Delete “{list.name}” and its {list.cards.length} card
             {list.cards.length === 1 ? '' : 's'}? You can undo this with Ctrl+Z.
