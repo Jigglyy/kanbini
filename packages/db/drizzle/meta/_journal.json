@@ -120,6 +120,13 @@
       "when": 1790467400000,
       "tag": "0016_card_number",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1790467500000,
+      "tag": "0017_card_number_per_board",
+      "breakpoints": true
     }
   ]
 }

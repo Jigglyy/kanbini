@@ -4,8 +4,7 @@ import {
   integer,
   primaryKey,
   sqliteTable,
-  text,
-  uniqueIndex
+  text
 } from 'drizzle-orm/sqlite-core'
 
 // Kanbini schema v1 (DESIGN §6, ADR-0011).
@@ -67,6 +66,10 @@ export const board = sqliteTable(
     // plain text so future modes (`'label:<id>'`) can ride in
     // without a migration; the renderer parses defensively.
     swimlaneMode: text('swimlane_mode'),
+    // The last card number this board handed out (migration 0017). Only
+    // moves up, so a number deleted from the board is never handed out
+    // again. Maintained by the card triggers and by card.move.
+    cardNumberLast: integer('card_number_last').notNull().default(0),
     ...timestamps
   },
   (t) => [index('idx_board_project').on(t.projectId, t.position)]
@@ -171,19 +174,23 @@ export const card = sqliteTable(
     // (zCardRepeat); null = a one-off card. Completing a repeating card
     // creates the next one and moves this rule onto it (repeat.ts).
     repeat: text('repeat', { mode: 'json' }),
-    // Short global #N people use to refer to a card (migration 0016).
-    // Never reused, kept for as long as the card keeps its id. Nullable
-    // in SQL only so the `card_number_assign` AFTER INSERT trigger can
-    // fill it: an insert that omits it gets the next number from
-    // `cardNumberSeq`; restore / import pass the stored one (and the
-    // `card_number_track` trigger keeps the counter at or above it).
-    // Every row has one once its INSERT statement finishes.
+    // Short #N people use to refer to a card, counted per board
+    // (migrations 0016, 0017). Never reused on its board, kept for as
+    // long as the card keeps its id and its board; a move to another
+    // board takes that board's next number. Nullable in SQL only so the
+    // `card_number_assign` AFTER INSERT trigger can fill it: an insert
+    // that omits it gets the next number from its board's
+    // `cardNumberLast`; restore / import pass the stored one (and the
+    // `card_number_track*` triggers keep the counter at or above it).
+    // Unique per board through the `card_number_unique_*` triggers (no
+    // index can span card -> list -> board). Every row has one once its
+    // INSERT statement finishes.
     number: integer('number'),
     ...timestamps
   },
   (t) => [
     index('idx_card_list').on(t.listId, t.position),
-    uniqueIndex('idx_card_number').on(t.number),
+    index('idx_card_number').on(t.number),
     index('idx_card_due').on(t.dueAt),
     // Swimlanes (ADR-0037 slice 2) group by priority across the
     // whole board - this keeps that lookup cheap on multi-thousand-
@@ -191,14 +198,6 @@ export const card = sqliteTable(
     index('idx_card_priority').on(t.priority)
   ]
 )
-
-/** One row (id = 1): the last card number handed out. Only moves up -
- *  the triggers in migration 0016 maintain it, and the importer resets
- *  then restores it alongside the cards it replaces. */
-export const cardNumberSeq = sqliteTable('card_number_seq', {
-  id: integer('id').primaryKey(),
-  last: integer('last').notNull()
-})
 
 export const label = sqliteTable(
   'label',

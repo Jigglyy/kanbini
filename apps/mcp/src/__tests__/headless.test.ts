@@ -270,17 +270,54 @@ describe('headless readers vs live @kanbini/db', () => {
 
   it('#number lookups and searches read identically in both readers', async () => {
     const snap = await loadHeadlessSnapshot(exportDir)
-    const card = getBoardView(db)!.lists[0]!.cards[1]!
+    const view = getBoardView(db)!
+    const boardId = view.board.id
+    const card = view.lists[0]!.cards[1]!
     for (const ref of [`#${card.number}`, String(card.number)]) {
-      expect(headlessCardView(snap!, ref)).toEqual(getCardView(db, ref))
-      expect(headlessCardView(snap!, ref)?.id).toBe(card.id)
+      expect(headlessCardView(snap!, ref, boardId)).toEqual(getCardView(db, ref, boardId))
+      expect(headlessCardView(snap!, ref, boardId)?.id).toBe(card.id)
       expect(headlessSearchCards(snap!, ref)).toEqual(searchCards(db, ref))
       expect(headlessSearchCards(snap!, ref)[0]).toMatchObject({
         cardId: card.id,
         matchKind: 'number'
       })
     }
-    expect(headlessCardView(snap!, '#9999')).toBeNull()
+    expect(headlessCardView(snap!, '#9999', boardId)).toBeNull()
+  })
+
+  it('per-board #number lookups, and a #number without its board, read the same in both readers', async () => {
+    const { db: db2, close } = openDatabase({ filePath: ':memory:', migrationsFolder: MIGRATIONS })
+    try {
+      const boardIds: string[] = []
+      for (const name of ['Home', 'Work', 'Empty']) {
+        const boardId = applyMutation(db2, { type: 'board.create', name }).id
+        const listId = applyMutation(db2, { type: 'list.create', boardId, name: 'L' }).id
+        if (name !== 'Empty') applyMutation(db2, { type: 'card.create', listId, title: name })
+        boardIds.push(boardId)
+      }
+      const root = join(tmpRoot, 'number-needs-board')
+      const exDir = join(root, 'export')
+      await exportToFolder(db2, root, exDir)
+      const snap = await loadHeadlessSnapshot(exDir)
+      // Both boards with cards have a #1; each lookup gets its own.
+      const found = boardIds.map((b) => headlessCardView(snap!, '#1', b))
+      expect(found).toEqual(boardIds.map((b) => getCardView(db2, '#1', b)))
+      expect(found.map((c) => c?.title ?? null)).toEqual(['Home', 'Work', null])
+      for (const ref of ['#1', '1', '#7']) {
+        const live = (() => {
+          try {
+            getCardView(db2, ref)
+          } catch (e) {
+            return (e as Error).message
+          }
+          return 'no error'
+        })()
+        expect(live).toMatch(/per board/)
+        expect(() => headlessCardView(snap!, ref)).toThrow(live)
+      }
+    } finally {
+      close()
+    }
   })
 
   it('an export from before card numbers gets the numbers importing it would', async () => {
@@ -289,10 +326,10 @@ describe('headless readers vs live @kanbini/db', () => {
     await exportToFolder(db, root, exDir)
     const jsonPath = join(exDir, 'kanbini.json')
     const dump = JSON.parse(await readFile(jsonPath, 'utf8')) as {
-      cardNumberSeq?: number
+      boards: Array<{ cardNumberLast?: number }>
       cards: Array<{ number?: number; createdAt: number }>
     }
-    delete dump.cardNumberSeq
+    for (const b of dump.boards) delete b.cardNumberLast
     // Scramble creation order vs id order so the rule actually matters.
     dump.cards.forEach((c, i) => {
       delete c.number
@@ -312,6 +349,52 @@ describe('headless readers vs live @kanbini/db', () => {
       expect(numbers.every((n) => n > 0)).toBe(true)
     } finally {
       imported.close()
+    }
+  })
+
+  it('an export from the one-counter days gets per-board numbers, as importing it would', async () => {
+    const { db: db2, close } = openDatabase({ filePath: ':memory:', migrationsFolder: MIGRATIONS })
+    try {
+      for (const name of ['Home', 'Work']) {
+        const boardId = applyMutation(db2, { type: 'board.create', name }).id
+        const listId = applyMutation(db2, { type: 'list.create', boardId, name: 'L' }).id
+        for (const n of [1, 2]) {
+          applyMutation(db2, { type: 'card.create', listId, title: `${name} ${n}` })
+        }
+      }
+      const root = join(tmpRoot, 'one-counter')
+      const exDir = join(root, 'export')
+      await exportToFolder(db2, root, exDir)
+      const jsonPath = join(exDir, 'kanbini.json')
+      const dump = JSON.parse(await readFile(jsonPath, 'utf8')) as {
+        cardNumberSeq?: number
+        boards: Array<{ cardNumberLast?: number }>
+        cards: Array<{ number?: number; createdAt: number }>
+      }
+      // What 0.10 wrote: one counter across boards, interleaved in time.
+      for (const b of dump.boards) delete b.cardNumberLast
+      dump.cards.forEach((c, i) => {
+        c.number = i + 1
+        c.createdAt = (i % 2) * 100 + i
+      })
+      dump.cardNumberSeq = dump.cards.length
+      await writeFile(jsonPath, JSON.stringify(dump))
+
+      const snap = await loadHeadlessSnapshot(exDir)
+      const imported = openDatabase({ filePath: ':memory:', migrationsFolder: MIGRATIONS })
+      try {
+        await importFromFolder(imported.db, root, exDir)
+        for (const b of listBoards(imported.db)) {
+          const live = getBoardView(imported.db, b.id)!
+          expect(headlessBoardView(snap!, b.id)).toEqual(live)
+          const numbers = live.lists.flatMap((l) => l.cards.map((c) => c.number)).sort()
+          expect(numbers).toEqual([1, 2])
+        }
+      } finally {
+        imported.close()
+      }
+    } finally {
+      close()
     }
   })
 

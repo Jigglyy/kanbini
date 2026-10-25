@@ -291,4 +291,13 @@ describe('searchCards by card number', () => {
     cards()
     expect(searchCards(db, '#99')).toEqual([])
   })
+
+  it("finds each board's card with that number, naming its board", () => {
+    const first = cards().ids[1]!
+    const second = cards().ids[1]!
+    const hits = searchCards(db, '#2')
+    expect(hits.map((h) => h.cardId).sort()).toEqual([first, second].sort())
+    expect(new Set(hits.map((h) => h.boardId)).size).toBe(2)
+    expect(hits.every((h) => h.matchKind === 'number' && h.number === 2)).toBe(true)
+  })
 })

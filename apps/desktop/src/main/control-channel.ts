@@ -57,7 +57,7 @@ import {
 //        GET  /boards            -> boards.list
 //        GET  /boards/:id        -> board.getView
 //        GET  /boards/:id/archived -> board.archived
-//        GET  /cards/:id         -> card.get
+//        GET  /cards/:id?boardId= -> card.get (boardId: with a #number)
 //        GET  /search?query=&limit= -> search.cards
 //        GET  /agenda?upcomingDays=&completedDays=&limit= -> agenda.get
 //        POST /mutate            -> mutate      (body = a zMutation)
@@ -124,8 +124,8 @@ const methods: Record<string, Method> = {
     return zBoardView.nullable().parse(getBoardView(db, boardId))
   },
   'card.get': (db, raw) => {
-    const { id } = zGetCardViewRequest.parse(raw ?? {})
-    return zCardView.nullable().parse(getCardView(db, id))
+    const { id, boardId } = zGetCardViewRequest.parse(raw ?? {})
+    return zCardView.nullable().parse(getCardView(db, id, boardId))
   },
   'search.cards': (db, raw) => {
     const { query, limit } = zSearchCardsRequest.parse(raw ?? {})
@@ -394,9 +394,11 @@ export async function startControlChannel(
       }
       const cardMatch = /^\/cards\/([^/]+)$/.exec(path)
       if (cardMatch) {
+        // A card number needs its board: /cards/%2312?boardId=<id>.
+        const boardId = url.searchParams.get('boardId')
         await runMethod(
           'card.get',
-          { id: decodeURIComponent(cardMatch[1]!) },
+          { id: decodeURIComponent(cardMatch[1]!), ...(boardId != null ? { boardId } : {}) },
           res
         )
         return

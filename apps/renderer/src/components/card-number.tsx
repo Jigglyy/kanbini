@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Check } from 'lucide-react'
 import { formatCardNumber } from '@kanbini/shared'
 
-// A card's short #N (one counter across all boards, never reused) - the
+// A card's short #N (counted per board, never reused there) - the
 // handle people use to refer to a card. Two surfaces: a muted badge at
 // the end of a list card's meta row (hidden by Settings -> Cards ->
 // "Show card numbers"), and a copy button in the card detail header,

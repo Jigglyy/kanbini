@@ -133,7 +133,11 @@ export async function startFakeChannel(opts?: {
               )
               break
             case 'card.get':
-              result = getCardView(db, (params as { id: string }).id)
+              result = getCardView(
+                db,
+                (params as { id: string }).id,
+                (params as { boardId?: string }).boardId
+              )
               break
             case 'boards.list':
               result = listBoards(db)

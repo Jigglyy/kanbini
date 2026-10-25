@@ -301,7 +301,13 @@ export const zMutation = z.discriminatedUnion('type', [
     // normal cross-list move omits it and stamps now(); the undo of a
     // move passes the captured value so an undone move restores the
     // original list-entry time instead of re-stamping it to now.
-    listAddedAt: z.number().int().optional()
+    listAddedAt: z.number().int().optional(),
+    // Internal (undo only): the card number to take when the move
+    // changes the card's board; ignored otherwise. A normal move to
+    // another board omits it and takes that board's next number; the
+    // undo recorder fills both directions in so undo / redo bring each
+    // number back.
+    number: z.number().int().positive().optional()
   }),
 
   // INTERNAL (never from the renderer or MCP; see isInternalMutation).

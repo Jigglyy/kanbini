@@ -4,6 +4,7 @@ import {
   AGENDA_COMPLETION_ACTIVITY_TYPES,
   MAX_VISIBLE_CARD_LIMIT,
   buildAgendaView,
+  cardNumberNeedsBoardMessage,
   fillMissingCardNumbers,
   parseCardNumberRef,
   type AgendaCandidate,
@@ -63,9 +64,6 @@ interface ExportDump {
   schemaVersion: number
   formatVersion: number
   exportedAt: number
-  /** Last card number handed out. Absent in exports written before card
-   *  numbers existed. */
-  cardNumberSeq?: number
   projects: Array<{ id: string; name: string }>
   boards: Array<{
     id: string
@@ -78,6 +76,10 @@ interface ExportDump {
     pinned: boolean
     position: string
     swimlaneMode: string | null
+    /** The board's card number counter. Absent in exports written
+     *  before numbers were per board; `loadHeadlessSnapshot` then
+     *  renumbers their cards (same rule as the importer). */
+    cardNumberLast?: number
     createdAt: number
     updatedAt: number
   }>
@@ -97,8 +99,10 @@ interface ExportDump {
   }>
   cards: Array<{
     id: string
-    /** Card number. Absent in exports written before numbers existed;
-     *  `loadHeadlessSnapshot` fills those in (same rule as the importer). */
+    /** Card number, per board. Absent in exports written before numbers
+     *  existed, and from one counter shared by every board in exports
+     *  written before they were per board; `loadHeadlessSnapshot`
+     *  renumbers both (same rule as the importer). */
     number?: number | null
     listId: string
     title: string
@@ -246,9 +250,10 @@ export async function loadHeadlessSnapshot(
     }
   }
 
-  // An export from before card numbers existed: number its cards the
-  // way importing it would (creation order), so #N lookups still work.
-  const numbers = fillMissingCardNumbers(dump.cards, dump.cardNumberSeq ?? 0)
+  // An export from before card numbers were per board: number its cards
+  // the way importing it would (per board, creation order), so #N
+  // lookups agree with the app.
+  const numbers = fillMissingCardNumbers(dump)
   for (const c of dump.cards) c.number = numbers.get(c.id) ?? null
 
   return {
@@ -645,14 +650,28 @@ export function headlessArchivedItems(
   }
 }
 
-/** Mirror of `getCardView`: `ref` is the card's id or its number
- *  (#142 / 142, see `resolveCardRef` in @kanbini/db/data.ts). */
+/** Mirror of `getCardView`: `ref` is the card's id, or its number
+ *  (#142 / 142) with `boardId` - a number without one throws, naming the
+ *  boards that have it (see `resolveCardRef` in @kanbini/db/data.ts). */
 export function headlessCardView(
   snap: HeadlessSnapshot,
-  ref: string
+  ref: string,
+  boardId?: string
 ): CardView | null {
   const n = parseCardNumberRef(ref)
-  const c = snap.dump.cards.find((x) => (n === null ? x.id === ref : x.number === n))
+  const boardOfList = new Map(snap.dump.lists.map((l) => [l.id, l.boardId]))
+  if (n !== null && boardId === undefined) {
+    const withNumber = new Set(
+      snap.dump.cards.filter((x) => x.number === n).map((x) => boardOfList.get(x.listId))
+    )
+    const boards = snap.dump.boards
+      .filter((b) => withNumber.has(b.id))
+      .sort((a, b) => strcmp(a.position, b.position) || strcmp(a.id, b.id))
+    throw new Error(cardNumberNeedsBoardMessage(n, boards))
+  }
+  const c = snap.dump.cards.find((x) =>
+    n === null ? x.id === ref : x.number === n && boardOfList.get(x.listId) === boardId
+  )
   if (!c) return null
   return buildCardView(c, snap, {
     labelIdsByCard: groupBy(snap.dump.cardLabels, (cl) => cl.cardId),
