@@ -54,6 +54,7 @@ function makeCard(overrides: Partial<CardView> = {}): CardView {
   return {
     id: uniqueId('c'),
     number: 1,
+    boardId: 'b1',
     title: 'Card',
     description: null,
     position: 'a',

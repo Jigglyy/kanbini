@@ -115,6 +115,23 @@ describe('<CommandPalette>', () => {
     expect(screen.getByText('#142')).toBeInTheDocument()
   })
 
+  it("puts the on-screen board's #N first, so Enter opens that card", async () => {
+    const user = userEvent.setup()
+    // Search ranks the more recently edited #3 first, on another board.
+    kanbiniMock().searchCards.mockResolvedValue([
+      makeHit({ cardId: 'c-other', number: 3, title: 'Elsewhere', boardId: 'b2', matchKind: 'number' }),
+      makeHit({ cardId: 'c-here', number: 3, title: 'Here', boardId: 'b1', matchKind: 'number' })
+    ])
+    const onActivate = vi.fn()
+    renderWithQuery(
+      <CommandPalette open onClose={vi.fn()} boards={[]} currentBoardId="b1" onActivate={onActivate} />
+    )
+    await user.type(await screen.findByPlaceholderText(/search cards/i), '#3')
+    expect(await screen.findByText('Here')).toBeInTheDocument()
+    await user.keyboard('{Enter}')
+    expect(onActivate).toHaveBeenCalledWith('b1', 'c-here')
+  })
+
   it('clicking a card hit calls onActivate(boardId, cardId) + onClose', async () => {
     const user = userEvent.setup()
     kanbiniMock().searchCards.mockResolvedValue([

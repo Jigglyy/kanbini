@@ -221,9 +221,11 @@ export async function loadHeadlessSnapshot(
     throw new Error(`Export file isn't a Kanbini export: ${jsonPath}`)
   }
   const fv = (parsed as { formatVersion: number }).formatVersion
-  if (fv !== 1) {
+  // v2 counts card numbers per board; a v1 export is renumbered per
+  // board the way importing it would (fillMissingCardNumbers).
+  if (fv !== 1 && fv !== 2) {
     throw new Error(
-      `Export format version ${fv} isn't supported (built for 1).`
+      `Export format version ${fv} isn't supported (built for 1 and 2).`
     )
   }
   const dump = parsed as ExportDump
@@ -556,7 +558,7 @@ export function headlessBoardView(
     )
 
     const cards: CardView[] = orderedCards.map((c) =>
-      buildCardView(c, snap, {
+      buildCardView(c, b.id, snap, {
         labelIdsByCard,
         checklistsByCard,
         itemsByChecklist,
@@ -673,7 +675,7 @@ export function headlessCardView(
     n === null ? x.id === ref : x.number === n && boardOfList.get(x.listId) === boardId
   )
   if (!c) return null
-  return buildCardView(c, snap, {
+  return buildCardView(c, boardOfList.get(c.listId) ?? '', snap, {
     labelIdsByCard: groupBy(snap.dump.cardLabels, (cl) => cl.cardId),
     checklistsByCard: groupBy(snap.dump.checklists, (cl) => cl.cardId),
     itemsByChecklist: groupBy(snap.dump.checklistItems, (it) => it.checklistId),
@@ -759,6 +761,7 @@ interface CardIndexes {
 
 function buildCardView(
   c: ExportDump['cards'][number],
+  boardId: string,
   snap: HeadlessSnapshot,
   idx: CardIndexes
 ): CardView {
@@ -830,6 +833,7 @@ function buildCardView(
   return {
     id: c.id,
     number: c.number ?? 0,
+    boardId,
     title: c.title,
     description: snap.descriptions.get(c.id) ?? null,
     position: c.position,

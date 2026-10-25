@@ -155,14 +155,11 @@ export function listBoardId(db: Db, listId: string): string | null {
  *  another board. Inserts get theirs from the DB triggers instead
  *  (migration 0017). */
 function nextCardNumber(db: Db, boardId: string): number {
-  db.update(board)
+  return db
+    .update(board)
     .set({ cardNumberLast: sql`${board.cardNumberLast} + 1` })
     .where(eq(board.id, boardId))
-    .run()
-  return db
-    .select({ last: board.cardNumberLast })
-    .from(board)
-    .where(eq(board.id, boardId))
+    .returning({ last: board.cardNumberLast })
     .get()!.last
 }
 
@@ -670,7 +667,9 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
         // new board.
         const boardId = listBoardId(tx as unknown as Db, m.toListId)
         const number =
-          boardId !== null && boardId !== listBoardId(tx as unknown as Db, sourceListId)
+          crossedList &&
+          boardId !== null &&
+          boardId !== listBoardId(tx as unknown as Db, sourceListId)
             ? (m.number ?? nextCardNumber(tx as unknown as Db, boardId))
             : undefined
         tx.update(card)

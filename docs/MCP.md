@@ -277,7 +277,7 @@ neither completed nor archived.
 
 Every card carries `number`: the short `#N` the app shows on it,
 counted per board (every board has its own #1, #2, ...) and never
-reused on that board. A card moved to another board takes that board's
+reused on that board, and `boardId`, the board that number is on. A card moved to another board takes that board's
 next number. Users refer to cards that way, so passing `#142` with its
 `boardId` here is how the AI turns a number into the id the write
 tools take. A number without `boardId` is an error that names the

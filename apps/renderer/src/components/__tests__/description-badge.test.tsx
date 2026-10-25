@@ -7,6 +7,7 @@ function makeCard(description: string | null): CardView {
   return {
     id: 'c1',
     number: 1,
+    boardId: 'b1',
     title: 'Card',
     description,
     position: 'a',

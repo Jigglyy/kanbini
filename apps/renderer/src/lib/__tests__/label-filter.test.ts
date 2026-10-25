@@ -12,6 +12,7 @@ function makeCard(id: string, labelIds: string[]): CardView {
   return {
     id,
     number: 1,
+    boardId: 'b1',
     title: id,
     description: null,
     position: 'a',

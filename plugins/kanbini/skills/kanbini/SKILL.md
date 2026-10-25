@@ -23,7 +23,10 @@ Nothing is sent anywhere else.
   since the write tools take the id, not the number. Don't reuse a
   number from earlier in a long session without its board; look the
   card up again. When you mention a card to the user, add its number,
-  e.g. "Fix login redirect (#142)".
+  e.g. "Fix login redirect (#142)", and name its board when the
+  conversation spans more than one. Anything you write down for later
+  (a comment, a description, notes) names the board with the number,
+  e.g. "#142 on Website", since every board has a #142.
 - For "what's due", "what's overdue", "what should I work on", or "what
   did I get done", call `kanbini_get_agenda` once. It covers every board,
   so don't walk the boards one by one.

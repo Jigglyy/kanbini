@@ -1,6 +1,6 @@
 import { promises as fsp } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
-import { fillMissingCardNumbers, hasPerBoardCardNumbers } from '@kanbini/shared'
+import { fillMissingCardNumbers } from '@kanbini/shared'
 import type { Db } from './client'
 import { EXPORT_FORMAT_VERSION } from './export'
 import {
@@ -119,9 +119,9 @@ export async function importFromFolder(
   const dumpPath = join(sourceRoot, 'kanbini.json')
   const raw = await fsp.readFile(dumpPath, 'utf8')
   const dump = JSON.parse(raw) as ParsedDump
-  if (dump.formatVersion !== EXPORT_FORMAT_VERSION) {
+  if (dump.formatVersion !== 1 && dump.formatVersion !== EXPORT_FORMAT_VERSION) {
     throw new Error(
-      `import: format v${dump.formatVersion} but this build understands v${EXPORT_FORMAT_VERSION}`
+      `import: format v${dump.formatVersion} but this build understands v1 and v${EXPORT_FORMAT_VERSION}`
     )
   }
 
@@ -171,20 +171,19 @@ export async function importFromFolder(
     }
   }
 
-  // 1c. Card numbers, counted per board. In an export whose boards all
-  //     carry `cardNumberLast` (written since migration 0017), kept
-  //     numbers must be positive whole numbers, distinct within their
-  //     board (the card_number_unique_insert trigger would refuse a
-  //     clash - catch it here, before the wipe, with a readable
-  //     message). An older
-  //     export's numbers came from one counter shared by every board
-  //     (its top-level `cardNumberSeq`), or don't exist: its cards are
+  // 1c. Card numbers, counted per board. A v2 export's boards must all
+  //     carry `cardNumberLast`, and its numbers must be positive whole
+  //     numbers, distinct within their board (the
+  //     card_number_unique_insert trigger would refuse a clash - catch it
+  //     here, before the wipe, with a readable message). A v1 export's
+  //     numbers came from one counter shared by every board (its
+  //     top-level `cardNumberSeq`), or don't exist: its cards are
   //     renumbered per board in creation order, like migration 0017
   //     does, via the helper the headless reader shares. Inserting the
   //     cards raises each board's counter to its highest number (the
   //     card_number_track trigger).
   const isCount = (n: unknown): n is number => Number.isSafeInteger(n) && (n as number) >= 0
-  if (hasPerBoardCardNumbers(dump.boards)) {
+  if (dump.formatVersion >= 2) {
     for (const b of dump.boards) {
       if (!isCount(b.cardNumberLast)) {
         throw new Error(`import: board ${String(b.id)} has a malformed card number counter`)

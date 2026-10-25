@@ -64,6 +64,7 @@ function card(id: string, overrides: Partial<CardView> = {}): CardView {
   return {
     id,
     number: 1,
+    boardId: 'b1',
     title: id,
     description: null,
     position: 'a',

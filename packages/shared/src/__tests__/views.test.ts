@@ -91,6 +91,7 @@ describe('zCardView / zListView / zBoardView', () => {
   const card = {
     id: 'c1',
     number: 1,
+    boardId: 'b1',
     title: 'A card',
     description: null,
     position: 'a0',

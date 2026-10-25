@@ -30,6 +30,7 @@ function renderActivities(rows: ActivityView[]) {
   const card: CardView = {
     id: 'c1',
     number: 1,
+    boardId: 'b1',
     title: 'Card',
     description: null,
     position: 'a',

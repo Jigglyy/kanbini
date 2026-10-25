@@ -574,6 +574,7 @@ export function getBoardView(db: Db, boardId?: string): BoardView | null {
           id: c.id,
           // Always set once the insert finishes (migration 0016 trigger).
           number: c.number ?? 0,
+          boardId: b.id,
           title: c.title,
           description: c.description,
           position: c.position,
@@ -807,10 +808,16 @@ export function getCardView(db: Db, ref: string, boardId?: string) {
     }))
 
   const deps = dependencyRefs(db, [cardId])
+  const cardBoard = db
+    .select({ b: list.boardId })
+    .from(list)
+    .where(eq(list.id, c.listId))
+    .get()!.b
 
   return {
     id: c.id,
     number: c.number ?? 0,
+    boardId: cardBoard,
     title: c.title,
     description: c.description,
     position: c.position,

@@ -9,7 +9,9 @@
 -- two BEFORE triggers refuse a number another card on the same board
 -- already has. A cross-board move therefore sets list_id and number in
 -- one UPDATE (crud.ts, card.move), and a third trigger keeps the board's
--- counter at or above any number that arrives that way.
+-- counter at or above any number that arrives that way. The two UPDATE
+-- triggers skip a write that keeps the card's list and number, so a
+-- same-list drag pays for neither lookup.
 --
 -- Undo history from before this migration holds the old global numbers
 -- (card snapshots, card.create / card.spawnNext forwards); replaying one
@@ -68,7 +70,8 @@ BEGIN
 END;
 --> statement-breakpoint
 CREATE TRIGGER `card_number_track_update` AFTER UPDATE OF `number`, `list_id` ON `card`
-WHEN NEW.`number` > (
+WHEN (NEW.`list_id` IS NOT OLD.`list_id` OR NEW.`number` IS NOT OLD.`number`)
+AND NEW.`number` > (
 	SELECT `b`.`card_number_last` FROM `board` AS `b`
 	JOIN `list` AS `l` ON `l`.`board_id` = `b`.`id`
 	WHERE `l`.`id` = NEW.`list_id`
@@ -90,7 +93,8 @@ BEGIN
 END;
 --> statement-breakpoint
 CREATE TRIGGER `card_number_unique_update` BEFORE UPDATE OF `number`, `list_id` ON `card`
-WHEN NEW.`number` IS NOT NULL
+WHEN (NEW.`list_id` IS NOT OLD.`list_id` OR NEW.`number` IS NOT OLD.`number`)
+AND NEW.`number` IS NOT NULL
 BEGIN
 	SELECT RAISE(ABORT, 'card number already used on this board')
 	WHERE EXISTS (

@@ -350,7 +350,8 @@ server.registerTool(
       'before they were per board are gone: look a card up again rather ' +
       'than trusting an old number. Use this to turn a number the user ' +
       'gives you into the card `id` the write tools need; `boardId` is ' +
-      'ignored for an id. Includes title, description, ' +
+      'ignored for an id. Includes its `number` and `boardId` ' +
+      '(keep the two together), title, description, ' +
       'priority (low/medium/high/urgent or null), checklists, comments, ' +
       'attachments, recent activity feed, and its "waiting on" links: ' +
       '`blockedBy` (cards it waits on) and `blocking` (cards waiting on ' +

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { zChangeEvent, zMutation, zMutationResult } from '../mutations'
+import {
+  isInternalMutation,
+  mutationName,
+  zChangeEvent,
+  zMutation,
+  zMutationResult
+} from '../mutations'
 
 // One representative valid example per discriminated-union arm - the
 // parse exercises each arm's schema. Also a handful of must-reject
@@ -243,5 +249,23 @@ describe('zMutationResult / zChangeEvent', () => {
 
   it('allows null boardId (board-agnostic change)', () => {
     expect(zChangeEvent.parse({ boardId: null }).boardId).toBeNull()
+  })
+})
+
+describe('isInternalMutation', () => {
+  it('refuses a card create or move that names its number', () => {
+    const create = zMutation.parse({ type: 'card.create', listId: 'l1', title: 'T', number: 1e15 })
+    const move = zMutation.parse({ type: 'card.move', id: 'c1', toListId: 'l2', number: 7 })
+    expect(isInternalMutation(create)).toBe(true)
+    expect(isInternalMutation(move)).toBe(true)
+    expect(mutationName(move)).toBe('card.move with a card number')
+  })
+
+  it('lets the same mutations through without a number', () => {
+    const create = zMutation.parse({ type: 'card.create', listId: 'l1', title: 'T' })
+    const move = zMutation.parse({ type: 'card.move', id: 'c1', toListId: 'l2' })
+    expect(isInternalMutation(create)).toBe(false)
+    expect(isInternalMutation(move)).toBe(false)
+    expect(mutationName(move)).toBe('card.move')
   })
 })

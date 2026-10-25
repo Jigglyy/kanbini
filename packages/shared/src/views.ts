@@ -231,6 +231,8 @@ export const zCardView = z.object({
    *  its board; stays with the card for as long as it keeps its id and
    *  its board. */
   number: z.number().int(),
+  /** The card's board, which a number needs to name the card. */
+  boardId: z.string(),
   title: z.string(),
   description: z.string().nullable(),
   position: z.string(),

@@ -37,8 +37,11 @@ import {
 // never a half-written one.
 
 /** Bumped whenever the on-disk layout shifts. The importer uses this to
- *  refuse exports it can't read. Today: schema v1, layout v1. */
-export const EXPORT_FORMAT_VERSION = 1 as const
+ *  refuse exports it can't read. v2: card numbers count per board, and
+ *  each board row carries its counter (`cardNumberLast`). v1 numbered
+ *  cards from one counter; this build still reads it, while a build
+ *  that only knows v1 refuses v2 as a newer format. */
+export const EXPORT_FORMAT_VERSION = 2 as const
 
 export interface ExportSummary {
   exportedAt: number

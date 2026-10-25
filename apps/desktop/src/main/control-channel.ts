@@ -22,6 +22,7 @@ import {
 } from '@kanbini/db'
 import {
   isInternalMutation,
+  mutationName,
   zAgendaRequest,
   zAgendaView,
   zArchivedItemsView,
@@ -169,9 +170,10 @@ const methods: Record<string, Method> = {
     // this method anyway.
     const mutation = zMutation.parse(raw)
     if (isInternalMutation(mutation)) {
-      // Undo-only arms (`restore`, the repeat spawn pair): the undo
-      // machinery is their only producer, so refuse them here.
-      throw new Error(`${mutation.type} mutation not allowed via control channel`)
+      // Undo-only arms (`restore`, the repeat spawn pair, a named card
+      // number): the undo machinery is their only producer, so refuse
+      // them here.
+      throw new Error(`${mutationName(mutation)} mutation not allowed via control channel`)
     }
     const result = zMutationResult.parse(
       mutation.type === 'attachment.delete'
@@ -195,7 +197,7 @@ const methods: Record<string, Method> = {
       // file-backed `attachment.delete` needs the per-mutation unlink the
       // renderer IPC does, so it can't ride a batch.
       if (isInternalMutation(m) || m.type === 'attachment.delete') {
-        throw new Error(`${m.type} not allowed in a mutation batch`)
+        throw new Error(`${mutationName(m)} not allowed in a mutation batch`)
       }
     }
     const results = zMutationResults.parse(applyMutationsRecorded(db, mutations))

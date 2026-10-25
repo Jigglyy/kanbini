@@ -156,9 +156,10 @@ export const zMutation = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('card.create'),
     id: z.string().optional(),
-    // Card number to reuse. Omitted on a normal create (the DB hands out
-    // the next one); the undo recorder fills it in alongside `id` so a
-    // redo brings the card back as the same #N.
+    // Internal (undo only): the card number to reuse. Omitted on a normal
+    // create (the DB hands out the next one); the undo recorder fills it
+    // in alongside `id` so a redo brings the card back as the same #N.
+    // The external entry points refuse it (see isInternalMutation).
     number: z.number().int().positive().optional(),
     listId: z.string(),
     title: z.string().min(1),
@@ -306,7 +307,7 @@ export const zMutation = z.discriminatedUnion('type', [
     // changes the card's board; ignored otherwise. A normal move to
     // another board omits it and takes that board's next number; the
     // undo recorder fills both directions in so undo / redo bring each
-    // number back.
+    // number back. The external entry points refuse it.
     number: z.number().int().positive().optional()
   }),
 
@@ -371,8 +372,19 @@ export const INTERNAL_MUTATION_TYPES: ReadonlySet<Mutation['type']> = new Set([
   'card.unspawnNext'
 ])
 
-export const isInternalMutation = (m: Pick<Mutation, 'type'>): boolean =>
-  INTERNAL_MUTATION_TYPES.has(m.type)
+const namesCardNumber = (m: Mutation): boolean =>
+  (m.type === 'card.create' || m.type === 'card.move') && m.number !== undefined
+
+/** True for a mutation only the undo machinery may apply: an internal
+ *  arm, or a card create / move that names its card number. Only undo /
+ *  redo hand a number back; from anyone else it could take a number
+ *  out of turn or push the board's counter far ahead. */
+export const isInternalMutation = (m: Mutation): boolean =>
+  INTERNAL_MUTATION_TYPES.has(m.type) || namesCardNumber(m)
+
+/** How an entry point names a mutation it refuses. */
+export const mutationName = (m: Mutation): string =>
+  namesCardNumber(m) ? `${m.type} with a card number` : m.type
 
 /** Every mutation returns the affected board (for scoped refetch). */
 export const zMutationResult = z.object({

@@ -326,9 +326,11 @@ describe('headless readers vs live @kanbini/db', () => {
     await exportToFolder(db, root, exDir)
     const jsonPath = join(exDir, 'kanbini.json')
     const dump = JSON.parse(await readFile(jsonPath, 'utf8')) as {
+      formatVersion: number
       boards: Array<{ cardNumberLast?: number }>
       cards: Array<{ number?: number; createdAt: number }>
     }
+    dump.formatVersion = 1
     for (const b of dump.boards) delete b.cardNumberLast
     // Scramble creation order vs id order so the rule actually matters.
     dump.cards.forEach((c, i) => {
@@ -367,11 +369,14 @@ describe('headless readers vs live @kanbini/db', () => {
       await exportToFolder(db2, root, exDir)
       const jsonPath = join(exDir, 'kanbini.json')
       const dump = JSON.parse(await readFile(jsonPath, 'utf8')) as {
+        formatVersion: number
         cardNumberSeq?: number
         boards: Array<{ cardNumberLast?: number }>
         cards: Array<{ number?: number; createdAt: number }>
       }
-      // What 0.10 wrote: one counter across boards, interleaved in time.
+      // What 0.10 wrote: format v1, one counter across boards,
+      // interleaved in time.
+      dump.formatVersion = 1
       for (const b of dump.boards) delete b.cardNumberLast
       dump.cards.forEach((c, i) => {
         c.number = i + 1

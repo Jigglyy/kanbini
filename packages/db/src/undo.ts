@@ -1115,7 +1115,9 @@ export function inverseBefore(db: Db, m: Mutation): Mutation | null {
       if (!old) return null
       // A move to another board renumbers the card there (card numbers
       // are per board); the way back takes its old number again.
-      const crossesBoards = listBoardId(db, old.listId) !== listBoardId(db, m.toListId)
+      const crossesBoards =
+        old.listId !== m.toListId &&
+        listBoardId(db, old.listId) !== listBoardId(db, m.toListId)
       // Capture siblings as they exist BEFORE the move so we can name
       // the pre-move neighbours.
       const siblings = db

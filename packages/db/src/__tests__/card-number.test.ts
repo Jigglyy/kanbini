@@ -335,7 +335,9 @@ describe('export / import', () => {
     const b1 = create(b.todo, 'B first')
     const a2 = create(a.todo, 'A second')
     const fresh = await roundTrip((dump) => {
-      // What 0.10 wrote: numbers from one counter, no board counters.
+      // What 0.10 wrote: format v1, numbers from one counter, no board
+      // counters.
+      dump['formatVersion'] = 1
       const global: Record<string, number> = { [a1]: 1, [b1]: 2, [a2]: 3 }
       for (const c of rows(dump, 'cards')) c['number'] = global[c['id'] as string]
       for (const bd of rows(dump, 'boards')) delete bd['cardNumberLast']
@@ -356,6 +358,7 @@ describe('export / import', () => {
     const first = create(todo, 'First')
     const second = create(todo, 'Second')
     const fresh = await roundTrip((dump) => {
+      dump['formatVersion'] = 1
       const cards = rows(dump, 'cards')
       for (const c of cards) delete c['number']
       for (const bd of rows(dump, 'boards')) delete bd['cardNumberLast']
@@ -389,6 +392,22 @@ describe('export / import', () => {
         for (const bd of rows(dump, 'boards')) bd['cardNumberLast'] = -1
       })
     ).rejects.toThrow(/card number counter/i)
+  })
+
+  it('writes format v2, which needs every board counter, and refuses v3', async () => {
+    board('A')
+    board('B')
+    await expect(
+      roundTrip((dump) => {
+        expect(dump['formatVersion']).toBe(2)
+        delete rows(dump, 'boards')[1]!['cardNumberLast']
+      })
+    ).rejects.toThrow(/card number counter/i)
+    await expect(
+      roundTrip((dump) => {
+        dump['formatVersion'] = 3
+      })
+    ).rejects.toThrow(/format v3/)
   })
 })
 
@@ -560,7 +579,8 @@ describe('looking a card up by number', () => {
     const id = create(todo, 'Two')
     expect(getCardView(db, '#2', boardId)?.id).toBe(id)
     expect(getCardView(db, '2', boardId)?.id).toBe(id)
-    expect(getCardView(db, id)?.number).toBe(2)
+    // A read by id names the board too, so the number can be looked up again.
+    expect([getCardView(db, id)?.number, getCardView(db, id)?.boardId]).toEqual([2, boardId])
   })
 
   it('finds the number on the board asked for', () => {
