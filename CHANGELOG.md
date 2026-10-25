@@ -11,6 +11,20 @@ installer and portable app and publishes a GitHub Release (see
 
 ## [Unreleased]
 
+### Changed
+
+- **Card numbers count per board.** Every board now has its own #1, #2,
+  ..., like issue keys in a Jira project. Existing cards are renumbered
+  once, per board, in the order they were made, so a card's number
+  changes the first time you open this version. A `#N` you already wrote
+  in a description or comment isn't updated, so it may now point at a
+  different card or none. Undo history from before the update is cleared
+  once; the activity log is kept. Thanks to @Nokama0 for building this
+  ([#2](https://github.com/Jigglyy/kanbini/pull/2)).
+- MCP / HTTP: looking a card up by number needs its board (`boardId`).
+  Without one, the error lists the boards that have that number. Cards
+  now include `boardId` next to `number`.
+
 ### Fixed
 
 - **"None" in a board's right-click menu now clears all of its colour.**
