@@ -9,6 +9,16 @@ Releases are cut by pushing a `v*` tag, which builds the Windows
 installer and portable app and publishes a GitHub Release (see
 [`.github/workflows/release.yml`](.github/workflows/release.yml)).
 
+## [Unreleased]
+
+### Fixed
+
+- **"None" in a board's right-click menu now clears all of its colour.**
+  If the board's colour came from Background…, picking None did nothing.
+  None now removes the colour and any colour or gradient background, so
+  the board goes back to plain. A picture background stays (remove it
+  from Background…). Ctrl+Z brings the colour back.
+
 ## [0.10.2] - 2026-10-25
 
 ### Fixed

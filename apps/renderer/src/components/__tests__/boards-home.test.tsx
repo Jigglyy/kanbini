@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { BoardSummary } from '@kanbini/shared'
@@ -371,5 +371,208 @@ describe('<BoardsHome> agenda', () => {
     expect(await screen.findByRole('region', { name: 'Agenda' })).toBeInTheDocument()
     await user.click(await screen.findByRole('button', { name: /pay rent/i }))
     expect(onOpen).toHaveBeenCalledWith('b1', 'c-9')
+  })
+})
+
+describe('<BoardsHome> board right-click menu', () => {
+  // The menu body-portals, so query inside the panel, not the grid.
+  const openMenu = (boardName: string) => {
+    fireEvent.contextMenu(screen.getByRole('heading', { name: boardName }))
+    return within(
+      document.querySelector('[data-overlay="context-menu"]') as HTMLElement
+    )
+  }
+  const ACCENT = 'oklch(0.76 0.14 85)'
+
+  it('a colour swatch sets the board accent', async () => {
+    const user = userEvent.setup()
+    const mock = kanbiniMock()
+    renderBoardsHome([makeBoard()])
+    const swatch = openMenu('Welcome').getAllByRole('button', { name: /^Colour / })[0]!
+    const color = swatch.getAttribute('aria-label')!.replace(/^Colour /, '')
+    await user.click(swatch)
+    expect(mock.mutate).toHaveBeenCalledWith({
+      type: 'board.update',
+      id: 'b1',
+      patch: { color }
+    })
+  })
+
+  it('clicking the current colour again changes nothing', async () => {
+    const user = userEvent.setup()
+    const mock = kanbiniMock()
+    renderBoardsHome([makeBoard({ color: ACCENT })])
+    await user.click(
+      openMenu('Welcome').getByRole('button', { name: `Colour ${ACCENT}` })
+    )
+    expect(mock.mutate).not.toHaveBeenCalled()
+  })
+
+  describe('"None"', () => {
+    it('clears the accent colour', async () => {
+      const user = userEvent.setup()
+      const mock = kanbiniMock()
+      renderBoardsHome([makeBoard({ color: ACCENT })])
+      await user.click(openMenu('Welcome').getByRole('button', { name: 'None' }))
+      expect(mock.mutate).toHaveBeenCalledWith({
+        type: 'board.update',
+        id: 'b1',
+        patch: { color: null }
+      })
+    })
+
+    // Regression: a colour picked through Background… is the board's
+    // colour as far as the user can see, but "None" only cleared the
+    // (already empty) accent, so nothing happened.
+    it('clears a colour background', async () => {
+      const user = userEvent.setup()
+      const mock = kanbiniMock()
+      renderBoardsHome([
+        makeBoard({ background: { kind: 'color', value: 'oklch(0.63 0.19 25)' } })
+      ])
+      await user.click(openMenu('Welcome').getByRole('button', { name: 'None' }))
+      expect(mock.mutate).toHaveBeenCalledWith({
+        type: 'board.update',
+        id: 'b1',
+        patch: { background: null }
+      })
+    })
+
+    it('clears a gradient background and the accent in one change', async () => {
+      const user = userEvent.setup()
+      const mock = kanbiniMock()
+      renderBoardsHome([
+        makeBoard({ color: ACCENT, background: { kind: 'gradient', preset: 'sunset' } })
+      ])
+      await user.click(openMenu('Welcome').getByRole('button', { name: 'None' }))
+      expect(mock.mutate).toHaveBeenCalledTimes(1)
+      expect(mock.mutate).toHaveBeenCalledWith({
+        type: 'board.update',
+        id: 'b1',
+        patch: { color: null, background: null }
+      })
+    })
+
+    it('keeps a picture background (Background… → Clear removes that)', async () => {
+      const user = userEvent.setup()
+      const mock = kanbiniMock()
+      renderBoardsHome([
+        makeBoard({
+          color: ACCENT,
+          background: { kind: 'image', relPath: 'board-backgrounds/b1/bg.png' }
+        })
+      ])
+      await user.click(openMenu('Welcome').getByRole('button', { name: 'None' }))
+      expect(mock.mutate).toHaveBeenCalledWith({
+        type: 'board.update',
+        id: 'b1',
+        patch: { color: null }
+      })
+    })
+
+    it('does nothing when there is no colour to clear', async () => {
+      const user = userEvent.setup()
+      const mock = kanbiniMock()
+      renderBoardsHome([
+        makeBoard({
+          background: { kind: 'image', relPath: 'board-backgrounds/b1/bg.png' }
+        })
+      ])
+      await user.click(openMenu('Welcome').getByRole('button', { name: 'None' }))
+      expect(mock.mutate).not.toHaveBeenCalled()
+    })
+  })
+
+  it('Favorite and Unfavorite flip the pin', async () => {
+    const user = userEvent.setup()
+    const mock = kanbiniMock()
+    renderBoardsHome([
+      makeBoard(),
+      makeBoard({ id: 'b2', name: 'Pinned', pinned: true })
+    ])
+    await user.click(openMenu('Welcome').getByRole('button', { name: 'Favorite' }))
+    expect(mock.mutate).toHaveBeenLastCalledWith({
+      type: 'board.update',
+      id: 'b1',
+      patch: { pinned: true }
+    })
+    await user.click(openMenu('Pinned').getByRole('button', { name: 'Unfavorite' }))
+    expect(mock.mutate).toHaveBeenLastCalledWith({
+      type: 'board.update',
+      id: 'b2',
+      patch: { pinned: false }
+    })
+  })
+
+  it('Archive and Unarchive flip the archived flag', async () => {
+    const user = userEvent.setup()
+    const mock = kanbiniMock()
+    renderBoardsHome([
+      makeBoard(),
+      makeBoard({ id: 'b2', name: 'Old', archived: true })
+    ])
+    await user.click(openMenu('Welcome').getByRole('button', { name: 'Archive' }))
+    expect(mock.mutate).toHaveBeenLastCalledWith({
+      type: 'board.update',
+      id: 'b1',
+      patch: { archived: true }
+    })
+    await user.click(screen.getByRole('button', { name: /show archived/i }))
+    await user.click(openMenu('Old').getByRole('button', { name: 'Unarchive' }))
+    expect(mock.mutate).toHaveBeenLastCalledWith({
+      type: 'board.update',
+      id: 'b2',
+      patch: { archived: false }
+    })
+  })
+
+  it('Duplicate copies the board', async () => {
+    const user = userEvent.setup()
+    const mock = kanbiniMock()
+    renderBoardsHome([makeBoard()])
+    await user.click(openMenu('Welcome').getByRole('button', { name: 'Duplicate' }))
+    expect(mock.mutate).toHaveBeenCalledWith({ type: 'board.duplicate', id: 'b1' })
+  })
+
+  it('Delete asks first: Cancel backs out, Delete deletes', async () => {
+    const user = userEvent.setup()
+    const mock = kanbiniMock()
+    renderBoardsHome([makeBoard()])
+    const menu = openMenu('Welcome')
+    await user.click(menu.getByRole('button', { name: 'Delete board…' }))
+    expect(menu.getByText(/and all its lists\/cards\?/)).toBeInTheDocument()
+    await user.click(menu.getByRole('button', { name: 'Cancel' }))
+    expect(mock.mutate).not.toHaveBeenCalled()
+    await user.click(menu.getByRole('button', { name: 'Delete board…' }))
+    await user.click(menu.getByRole('button', { name: 'Delete' }))
+    expect(mock.mutate).toHaveBeenCalledWith({ type: 'board.delete', id: 'b1' })
+  })
+
+  it('Move up / Move down are disabled at the ends and move the board otherwise', async () => {
+    const user = userEvent.setup()
+    const mock = kanbiniMock()
+    renderBoardsHome([
+      makeBoard({ id: 'b1', name: 'First', position: 'a' }),
+      makeBoard({ id: 'b2', name: 'Second', position: 'b' })
+    ])
+    const first = openMenu('First')
+    expect(first.getByRole('button', { name: 'Move up' })).toBeDisabled()
+    await user.click(first.getByRole('button', { name: 'Move down' }))
+    expect(mock.mutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: 'board.move', id: 'b1' })
+    )
+    expect(openMenu('Second').getByRole('button', { name: 'Move down' })).toBeDisabled()
+  })
+
+  it('Rename… and Background… open their dialogs', async () => {
+    const user = userEvent.setup()
+    renderBoardsHome([makeBoard()])
+    await user.click(openMenu('Welcome').getByRole('button', { name: 'Rename…' }))
+    expect(await screen.findByRole('dialog', { name: /rename/i })).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    await user.click(openMenu('Welcome').getByRole('button', { name: 'Background…' }))
+    expect(
+      await screen.findByRole('dialog', { name: 'Board background' })
+    ).toBeInTheDocument()
   })
 })

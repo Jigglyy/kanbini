@@ -1,15 +1,29 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { launchKanbini, type E2EHandle } from './_launch.js'
 
 // E2E for the ADR-0034 board background picker. Three tabs (Color /
 // Gradient / Image) inside one modal hosted by either the boards-
-// home context menu OR the board-view rename popover. This spec
-// drives the board-view path (the rename pencil) and exercises:
+// home context menu OR the board-view rename popover. The first two
+// tests drive the board-view path (the rename pencil):
 //   - Gradient tab: pick a preset → modal closes → apply persists
 //   - Color tab: pick an ACCENT swatch → modal closes → apply persists
+// The last drives the boards-home right-click menu: a colour set
+// through Background… is cleared by the menu's Colour → "None".
 // The Image tab needs the file-picker dialog (test-only env var
 // `KANBINI_E2E_DIALOG_FILE` + an image fixture) which is not yet
 // covered here.
+
+/** The Welcome Board's stored accent + background, read through the
+ *  same preload bridge the renderer uses. */
+async function welcomeBoardLook(page: Page) {
+  return page.evaluate(async () => {
+    type Row = { name: string; color: string | null; background: unknown }
+    const api = (window as unknown as { kanbini: { listBoards: () => Promise<Row[]> } })
+      .kanbini
+    const b = (await api.listBoards()).find((x) => x.name === 'Welcome Board')!
+    return { color: b.color, background: b.background }
+  })
+}
 
 let handle: E2EHandle
 
@@ -80,4 +94,28 @@ test('Color tab: pick a preset applies + Clear restores no-background state', as
   await expect(
     modal2.getByText('No background. Uses the board accent.')
   ).toBeVisible()
+})
+
+// Regression: "None" under Colour only cleared the accent, so a board
+// coloured through Background… stayed coloured and "None" did nothing.
+test('boards home: Colour "None" clears a colour set through Background…', async () => {
+  const { page } = handle
+  const board = page.getByRole('heading', { name: 'Welcome Board', exact: true })
+  await expect(board).toBeVisible()
+  const menu = page.locator('[data-overlay="context-menu"]')
+
+  await board.click({ button: 'right' })
+  await menu.getByRole('button', { name: 'Background…' }).click()
+  const modal = page.getByRole('dialog', { name: 'Board background' })
+  await modal.getByRole('button', { name: /^Pick oklch/ }).first().click()
+  await expect(modal).not.toBeVisible()
+  await expect
+    .poll(async () => (await welcomeBoardLook(page)).background)
+    .toMatchObject({ kind: 'color' })
+
+  await board.click({ button: 'right' })
+  await menu.getByRole('button', { name: 'None' }).click()
+  await expect
+    .poll(() => welcomeBoardLook(page))
+    .toEqual({ color: null, background: null })
 })

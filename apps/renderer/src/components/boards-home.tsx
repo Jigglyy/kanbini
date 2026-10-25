@@ -798,6 +798,18 @@ function BoardCardMenu({
   const setColor = (color: string | null): void => {
     if (color !== board.color) update({ color })
   }
+  // "None" means no colour on the board at all: the accent AND a colour
+  // or gradient background (set through Background…, but it's what
+  // paints the card). A picture isn't a colour, so it stays; Background…
+  // → Clear removes it. One patch so a single Ctrl+Z brings both back;
+  // nothing to clear sends nothing (no junk undo entry).
+  const clearColor = (): void => {
+    const patch: { color?: null; background?: null } = {}
+    if (board.color !== null) patch.color = null
+    const bgKind = board.background?.kind
+    if (bgKind === 'color' || bgKind === 'gradient') patch.background = null
+    if (Object.keys(patch).length > 0) update(patch)
+  }
   const togglePinFromMenu = (): void => update({ pinned: !board.pinned })
   const toggleArchive = (): void => update({ archived: !board.archived })
   const duplicate = (): void => fire({ type: 'board.duplicate', id: board.id })
@@ -824,7 +836,7 @@ function BoardCardMenu({
           />
         ))}
         <button
-          onClick={() => setColor(null)}
+          onClick={clearColor}
           className="ml-1 text-xs text-muted-foreground hover:text-foreground"
         >
           None
