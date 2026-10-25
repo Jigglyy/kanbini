@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { APP_CODENAME, isInternalMutation, type Mutation } from '@kanbini/shared'
+import { APP_CODENAME, isInternalMutation, mutationName, type Mutation } from '@kanbini/shared'
 import {
   addAttachmentFromRequest,
   applyMutationRecorded,
@@ -133,7 +133,11 @@ export async function startFakeChannel(opts?: {
               )
               break
             case 'card.get':
-              result = getCardView(db, (params as { id: string }).id)
+              result = getCardView(
+                db,
+                (params as { id: string }).id,
+                (params as { boardId?: string }).boardId
+              )
               break
             case 'boards.list':
               result = listBoards(db)
@@ -184,7 +188,7 @@ export async function startFakeChannel(opts?: {
               // surface in our suite).
               const m = params as Mutation
               if (isInternalMutation(m)) {
-                throw new Error(`${m.type} mutation not allowed via control channel`)
+                throw new Error(`${mutationName(m)} mutation not allowed via control channel`)
               }
               // Same file-aware routing as the real channel.
               result =

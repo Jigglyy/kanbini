@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray } from 'drizzle-orm'
 import { type Mutation, type MutationResult, newId } from '@kanbini/shared'
 import type { Db } from './client'
-import { applyMutation } from './crud'
+import { applyMutation, listBoardId } from './crud'
 import {
   type DependencyEdge,
   dependencyEdgesOf,
@@ -192,9 +192,10 @@ function shortId(id: string | null): string {
 
 export interface CardSnapshot {
   id: string
-  /** Card number (migration 0016). Optional: snapshots written to the
-   *  undo log before numbers existed don't carry it, and restore then
-   *  lets the DB hand out a fresh one. */
+  /** Card number (migrations 0016, 0017). Nullable only because the
+   *  column is (see schema.ts): every snapshot in the undo log carries
+   *  one, since 0017 cleared the log. Restore without one lets the DB
+   *  hand out a fresh number. */
   number?: number | null
   listId: string
   title: string
@@ -327,6 +328,9 @@ export interface BoardSnapshot {
   position: string
   archived: boolean
   pinned: boolean
+  /** The board's card number counter (migration 0017), so delete + undo
+   *  keeps numbers deleted from the board retired. */
+  cardNumberLast: number
   createdAt: number
   updatedAt: number
   labels: LabelSnapshot[]
@@ -595,6 +599,7 @@ export function snapshotBoard(db: Db, id: string): BoardSnapshot | null {
     position: r.position,
     archived: r.archived,
     pinned: r.pinned,
+    cardNumberLast: r.cardNumberLast,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
     labels,
@@ -806,6 +811,7 @@ function restoreBoard(db: Db, s: BoardSnapshot): void {
       position: s.position,
       archived: s.archived,
       pinned: s.pinned,
+      cardNumberLast: s.cardNumberLast,
       createdAt: s.createdAt,
       updatedAt: s.updatedAt
     })
@@ -1102,11 +1108,16 @@ export function inverseBefore(db: Db, m: Mutation): Mutation | null {
     // -- Moves: capture old position --
     case 'card.move': {
       const old = db
-        .select({ listId: card.listId, listAddedAt: card.listAddedAt })
+        .select({ listId: card.listId, listAddedAt: card.listAddedAt, number: card.number })
         .from(card)
         .where(eq(card.id, m.id))
         .get()
       if (!old) return null
+      // A move to another board renumbers the card there (card numbers
+      // are per board); the way back takes its old number again.
+      const crossesBoards =
+        old.listId !== m.toListId &&
+        listBoardId(db, old.listId) !== listBoardId(db, m.toListId)
       // Capture siblings as they exist BEFORE the move so we can name
       // the pre-move neighbours.
       const siblings = db
@@ -1126,7 +1137,8 @@ export function inverseBefore(db: Db, m: Mutation): Mutation | null {
         afterId,
         // Restore the prior list-entry time so an undone cross-list move
         // doesn't re-stamp "added to list" to the moment of the undo.
-        listAddedAt: old.listAddedAt
+        listAddedAt: old.listAddedAt,
+        ...(crossesBoards && old.number !== null ? { number: old.number } : {})
       }
     }
     case 'board.move': {
@@ -1354,12 +1366,14 @@ function isCreateWithoutId(m: Mutation): boolean {
   return !(m as { id?: string }).id
 }
 
-/** A card keeps its number for as long as it keeps its id, so the
- *  creates that a redo replays with the same id (`card.create`, and the
- *  repeat copy from `card.spawnNext`) also get the number the DB just
- *  handed out written into the stored forward. Without it a redo would
- *  bring the card back as a new #N. */
-function withCardNumber(db: Db, m: Mutation): Mutation {
+/** A card keeps its number for as long as it keeps its id and its
+ *  board, so the creates that a redo replays with the same id
+ *  (`card.create`, and the repeat copy from `card.spawnNext`) also get
+ *  the number the DB just handed out written into the stored forward,
+ *  and so does a move to another board (whose `inverse` carries the
+ *  number to take back). Without it a redo would bring the card back
+ *  as a new #N. */
+function withCardNumber(db: Db, m: Mutation, inverse: Mutation | null): Mutation {
   const numberOf = (id: string): number | undefined =>
     db.select({ n: card.number }).from(card).where(eq(card.id, id)).get()?.n ?? undefined
   if (m.type === 'card.create' && m.id && m.number === undefined) {
@@ -1369,6 +1383,15 @@ function withCardNumber(db: Db, m: Mutation): Mutation {
   if (m.type === 'card.spawnNext' && m.copyNumber === undefined) {
     const n = numberOf(m.copyId)
     return n === undefined ? m : { ...m, copyNumber: n }
+  }
+  if (
+    m.type === 'card.move' &&
+    m.number === undefined &&
+    inverse?.type === 'card.move' &&
+    inverse.number !== undefined
+  ) {
+    const n = numberOf(m.id)
+    return n === undefined ? m : { ...m, number: n }
   }
   return m
 }
@@ -1417,7 +1440,8 @@ export function applyMutationRecorded(
             // (which would orphan it and dangle the stored inverse).
             m.type === 'board.duplicate' && !m.newId
             ? ({ ...m, newId: result.id } as Mutation)
-            : m
+            : m,
+        inverse
       )
       // Insert the new entry.
       const entryId = newId()

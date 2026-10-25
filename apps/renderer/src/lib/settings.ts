@@ -75,7 +75,7 @@ export interface Settings {
    *  toggle is the non-click way back. The card detail always shows
    *  names regardless. */
   labelsExpanded: boolean
-  /** Show each card's #number (its short global id) at the end of the
+  /** Show each card's #number (its short per-board id) at the end of the
    *  in-list card's meta row. On by default. The card detail always
    *  shows it (with a copy button) regardless. */
   showCardNumbers: boolean

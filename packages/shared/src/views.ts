@@ -227,9 +227,12 @@ export type CardRef = z.infer<typeof zCardRef>
 
 export const zCardView = z.object({
   id: z.string(),
-  /** Short global #N (see card-number.ts). Never reused; stays with the
-   *  card for as long as it keeps its id. */
+  /** Short #N, counted per board (see card-number.ts). Never reused on
+   *  its board; stays with the card for as long as it keeps its id and
+   *  its board. */
   number: z.number().int(),
+  /** The card's board, which a number needs to name the card. */
+  boardId: z.string(),
   title: z.string(),
   description: z.string().nullable(),
   position: z.string(),
@@ -421,8 +424,10 @@ export const zGetBoardViewRequest = z.object({
 })
 export type GetBoardViewRequest = z.infer<typeof zGetBoardViewRequest>
 
-/** MCP control channel: fetch one card by id. */
-export const zGetCardViewRequest = z.object({ id: z.string() })
+/** MCP control channel: fetch one card. `id` is a card id, or a card
+ *  number (#142 / 142) together with `boardId` - numbers are per board.
+ *  `boardId` is ignored for an id. */
+export const zGetCardViewRequest = z.object({ id: z.string(), boardId: z.string().optional() })
 export type GetCardViewRequest = z.infer<typeof zGetCardViewRequest>
 
 /** Global card-search request (M4-D). Empty query → empty results

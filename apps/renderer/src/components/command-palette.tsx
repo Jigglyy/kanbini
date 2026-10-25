@@ -24,6 +24,9 @@ interface Props {
   open: boolean
   onClose: () => void
   boards: BoardSummary[]
+  /** The board on screen, if any. Card numbers are per board, so its own
+   *  #N hit comes first: "#3" + Enter opens this board's #3. */
+  currentBoardId?: string | null
   /** Navigate to a board, optionally opening a card detail on arrival. */
   onActivate: (boardId: string, cardId?: string) => void
 }
@@ -43,7 +46,13 @@ type PaletteItem =
   | { kind: 'card'; hit: SearchHit }
   | { kind: 'board'; board: BoardSummary }
 
-export function CommandPalette({ open, onClose, boards, onActivate }: Props) {
+export function CommandPalette({
+  open,
+  onClose,
+  boards,
+  currentBoardId = null,
+  onActivate
+}: Props) {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(0)
   const debounced = useDebounced(query, 120)
@@ -86,13 +95,17 @@ export function CommandPalette({ open, onClose, boards, onActivate }: Props) {
       .slice(0, 12)
   }, [boards, qTrim])
 
-  const items: PaletteItem[] = useMemo(
-    () => [
-      ...hits.map((hit) => ({ kind: 'card' as const, hit })),
+  const items: PaletteItem[] = useMemo(() => {
+    // Stable sort: only the on-screen board's number hit moves up.
+    const here = (h: SearchHit): number =>
+      h.matchKind === 'number' && h.boardId === currentBoardId ? 0 : 1
+    return [
+      ...[...hits]
+        .sort((a, b) => here(a) - here(b))
+        .map((hit) => ({ kind: 'card' as const, hit })),
       ...visibleBoards.map((board) => ({ kind: 'board' as const, board }))
-    ],
-    [hits, visibleBoards]
-  )
+    ]
+  }, [hits, visibleBoards, currentBoardId])
 
   // Clamp selection whenever the items list shrinks (e.g., a new
   // query trimmed the result count below the previous index).

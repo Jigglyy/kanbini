@@ -273,15 +273,21 @@ neither completed nor archived.
 | Argument | Type     | Required | Notes                                                        |
 |----------|----------|----------|--------------------------------------------------------------|
 | `id`     | `string` | yes      | UUIDv7 from `get_board`, or the card's number (`#142` / `142`). |
+| `boardId` | `string` | with a number | The board the number is on. Ignored for an id. |
 
-Every card carries `number`: the short `#N` the app shows on it, one
-counter across all boards, never reused. Users refer to cards that
-way, so passing `#142` here is how the AI turns a number into the id
-the write tools take. `kanbini_search_cards` also matches a `#142`
-query (that card first, `matchKind: "number"`).
+Every card carries `number`: the short `#N` the app shows on it,
+counted per board (every board has its own #1, #2, ...) and never
+reused on that board, and `boardId`, the board that number is on. A card moved to another board takes that board's
+next number. Users refer to cards that way, so passing `#142` with its
+`boardId` here is how the AI turns a number into the id the write
+tools take. A number without `boardId` is an error that names the
+boards with that number, so a caller holding a number from before
+numbers were per board can't land on the wrong card.
+`kanbini_search_cards` also matches a `#142` query (each board's #142
+first, `matchKind: "number"`, with its `boardName`).
 
-Works for archived cards too. Returns `null` if the id or number
-doesn't exist.
+Works for archived cards too. Returns `null` if the id, or the number
+on that board, doesn't exist.
 
 #### `kanbini_get_agenda`
 
@@ -414,7 +420,8 @@ Move a card between lists, or reorder within its list.
 
 Pass both `null` to append to the end. Server mints the fractional-
 index position between the two neighbours - concurrent moves never
-collide.
+collide. A move to a list on another board gives the card that board's
+next number (numbers are per board); undo gives the old one back.
 
 #### `kanbini_delete_card`
 Permanently delete a card. Checklists, comments, and attachment rows
@@ -655,7 +662,7 @@ Same rules as the MCP hop apply:
 | `GET  /boards`           | `boards.list`  | -                                     |
 | `GET  /boards/:id`       | `board.getView`| -                                     |
 | `GET  /boards/:id/archived` | `board.archived` | -                                |
-| `GET  /cards/:id`        | `card.get`     | -                                     |
+| `GET  /cards/:id`        | `card.get`     | `?boardId=` with a card number (`%23142`) |
 | `GET  /search?query=&limit=` | `search.cards` | query string                      |
 | `GET  /agenda?upcomingDays=&completedDays=&limit=` | `agenda.get` | query string (all optional) |
 | `POST /mutate`           | `mutate`       | one mutation (the `zMutation` union)  |

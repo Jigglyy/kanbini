@@ -9,6 +9,7 @@ import {
   type ListOnEnterRule,
   type ListSortMode,
   type SwimlaneMode,
+  cardNumberNeedsBoardMessage,
   firstOrderKey,
   MAX_VISIBLE_CARD_LIMIT,
   newId,
@@ -573,6 +574,7 @@ export function getBoardView(db: Db, boardId?: string): BoardView | null {
           id: c.id,
           // Always set once the insert finishes (migration 0016 trigger).
           number: c.number ?? 0,
+          boardId: b.id,
           title: c.title,
           description: c.description,
           position: c.position,
@@ -690,21 +692,40 @@ export function listCardIds(db: Db): string[] {
     .map((r) => r.id)
 }
 
-/** The card id `ref` names: the id itself, or - when `ref` reads like a
- *  card number ("#142" / "142") - the id of the card with that number.
- *  null when no card has that number. Mirrored by the headless reader. */
-export function resolveCardRef(db: Db, ref: string): string | null {
+/** The card id `ref` names: the id itself (`boardId` is then ignored),
+ *  or - when `ref` reads like a card number ("#142" / "142") - the id of
+ *  the card with that number on `boardId`; null when no card there has
+ *  it. Numbers are per board, so a number without `boardId` throws,
+ *  naming the boards that have one: a caller still holding a number
+ *  from before numbers were per board (an old MCP server, a long Claude
+ *  session) gets told instead of handed some other card. Mirrored by
+ *  the headless reader. */
+export function resolveCardRef(db: Db, ref: string, boardId?: string): string | null {
   const n = parseCardNumberRef(ref)
   if (n === null) return ref
-  return db.select({ id: card.id }).from(card).where(eq(card.number, n)).get()?.id ?? null
+  const onBoard = db
+    .select({ id: card.id, boardId: list.boardId, boardName: board.name })
+    .from(card)
+    .innerJoin(list, eq(card.listId, list.id))
+    .innerJoin(board, eq(list.boardId, board.id))
+    .where(and(eq(card.number, n), boardId === undefined ? undefined : eq(list.boardId, boardId)))
+    .orderBy(asc(board.position), asc(board.id))
+    .all()
+  if (boardId !== undefined) return onBoard[0]?.id ?? null
+  throw new Error(
+    cardNumberNeedsBoardMessage(
+      n,
+      onBoard.map((r) => ({ id: r.boardId, name: r.boardName }))
+    )
+  )
 }
 
 /** Single-card view - used by the MCP control channel so the AI can
  *  zoom in on a card without pulling the entire board. `ref` is the
- *  card's id or its number (#142 / 142, see `resolveCardRef`). Returns
- *  null when it doesn't match anything. */
-export function getCardView(db: Db, ref: string) {
-  const cardId = resolveCardRef(db, ref)
+ *  card's id or its number (#142 / 142) with `boardId`, see
+ *  `resolveCardRef`. Returns null when it doesn't match anything. */
+export function getCardView(db: Db, ref: string, boardId?: string) {
+  const cardId = resolveCardRef(db, ref, boardId)
   if (cardId === null) return null
   const c = db.select().from(card).where(eq(card.id, cardId)).get()
   if (!c) return null
@@ -787,10 +808,16 @@ export function getCardView(db: Db, ref: string) {
     }))
 
   const deps = dependencyRefs(db, [cardId])
+  const cardBoard = db
+    .select({ b: list.boardId })
+    .from(list)
+    .where(eq(list.id, c.listId))
+    .get()!.b
 
   return {
     id: c.id,
     number: c.number ?? 0,
+    boardId: cardBoard,
     title: c.title,
     description: c.description,
     position: c.position,

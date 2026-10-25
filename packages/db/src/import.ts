@@ -1,6 +1,5 @@
 import { promises as fsp } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
-import { eq } from 'drizzle-orm'
 import { fillMissingCardNumbers } from '@kanbini/shared'
 import type { Db } from './client'
 import { EXPORT_FORMAT_VERSION } from './export'
@@ -11,7 +10,6 @@ import {
   card,
   cardDependency,
   cardLabel,
-  cardNumberSeq,
   checklist,
   checklistItem,
   comment,
@@ -72,9 +70,6 @@ interface ParsedDump {
   schemaVersion: number
   formatVersion: number
   exportedAt: number
-  /** Last card number handed out. Absent in exports written before card
-   *  numbers existed (their cards carry no `number` either). */
-  cardNumberSeq?: number
   projects: Array<typeof project.$inferInsert>
   boards: Array<typeof board.$inferInsert>
   lists: Array<typeof list.$inferInsert>
@@ -124,9 +119,9 @@ export async function importFromFolder(
   const dumpPath = join(sourceRoot, 'kanbini.json')
   const raw = await fsp.readFile(dumpPath, 'utf8')
   const dump = JSON.parse(raw) as ParsedDump
-  if (dump.formatVersion !== EXPORT_FORMAT_VERSION) {
+  if (dump.formatVersion !== 1 && dump.formatVersion !== EXPORT_FORMAT_VERSION) {
     throw new Error(
-      `import: format v${dump.formatVersion} but this build understands v${EXPORT_FORMAT_VERSION}`
+      `import: format v${dump.formatVersion} but this build understands v1 and v${EXPORT_FORMAT_VERSION}`
     )
   }
 
@@ -176,35 +171,49 @@ export async function importFromFolder(
     }
   }
 
-  // 1c. Card numbers. Kept ones must be distinct positive whole numbers
-  //     (they land in a UNIQUE column - catch it here, before the wipe,
-  //     with a readable message). Cards from an export written before
-  //     numbers existed get them in creation order, the same rule
-  //     migration 0016 used, via the helper the headless reader shares.
+  // 1c. Card numbers, counted per board. A v2 export's boards must all
+  //     carry `cardNumberLast`, and its numbers must be positive whole
+  //     numbers, distinct within their board (the
+  //     card_number_unique_insert trigger would refuse a clash - catch it
+  //     here, before the wipe, with a readable message). A v1 export's
+  //     numbers came from one counter shared by every board (its
+  //     top-level `cardNumberSeq`), or don't exist: its cards are
+  //     renumbered per board in creation order, like migration 0017
+  //     does, via the helper the headless reader shares. Inserting the
+  //     cards raises each board's counter to its highest number (the
+  //     card_number_track trigger).
   const isCount = (n: unknown): n is number => Number.isSafeInteger(n) && (n as number) >= 0
-  if (dump.cardNumberSeq !== undefined && !isCount(dump.cardNumberSeq)) {
-    throw new Error('import: kanbini.json has a malformed card number counter')
-  }
-  const seenNumbers = new Set<number>()
-  for (const c of dump.cards) {
-    if (c.number == null) continue
-    if (!isCount(c.number) || c.number === 0) {
-      throw new Error(`import: card ${String(c.id)} has an invalid card number`)
+  if (dump.formatVersion >= 2) {
+    for (const b of dump.boards) {
+      if (!isCount(b.cardNumberLast)) {
+        throw new Error(`import: board ${String(b.id)} has a malformed card number counter`)
+      }
     }
-    if (seenNumbers.has(c.number)) {
-      throw new Error(`import: two cards share card number #${c.number}`)
+    const boardOfList = new Map(dump.lists.map((l) => [l.id, l.boardId]))
+    const seenNumbers = new Set<string>()
+    for (const c of dump.cards) {
+      if (c.number == null) continue
+      if (!isCount(c.number) || c.number === 0) {
+        throw new Error(`import: card ${String(c.id)} has an invalid card number`)
+      }
+      const key = `${String(boardOfList.get(c.listId))}#${c.number}`
+      if (seenNumbers.has(key)) {
+        throw new Error(`import: two cards on one board share card number #${c.number}`)
+      }
+      seenNumbers.add(key)
     }
-    seenNumbers.add(c.number)
   }
-  const cardNumbers = fillMissingCardNumbers(
-    dump.cards.map((c) => ({ id: c.id, createdAt: c.createdAt ?? 0, number: c.number })),
-    dump.cardNumberSeq ?? 0
-  )
-  let cardNumberLast = dump.cardNumberSeq ?? 0
-  for (const c of dump.cards) {
-    c.number = cardNumbers.get(c.id)
-    cardNumberLast = Math.max(cardNumberLast, c.number ?? 0)
-  }
+  const cardNumbers = fillMissingCardNumbers({
+    boards: dump.boards,
+    lists: dump.lists,
+    cards: dump.cards.map((c) => ({
+      id: c.id,
+      listId: c.listId,
+      createdAt: c.createdAt ?? 0,
+      number: c.number
+    }))
+  })
+  for (const c of dump.cards) c.number = cardNumbers.get(c.id)
 
   // 2. Stitch descriptions back from cards/<id>.md.
   const cardsDir = join(sourceRoot, 'cards')
@@ -245,9 +254,6 @@ export async function importFromFolder(
     if (dump.labels.length > 0) tx.insert(label).values(dump.labels).run()
     if (dump.lists.length > 0) tx.insert(list).values(dump.lists).run()
     if (dump.cards.length > 0) tx.insert(card).values(dump.cards).run()
-    // Set (not raise) the counter: the replaced DB's may be higher, but
-    // its numbers left with it.
-    tx.update(cardNumberSeq).set({ last: cardNumberLast }).where(eq(cardNumberSeq.id, 1)).run()
     if (dump.cardLabels.length > 0)
       tx.insert(cardLabel).values(dump.cardLabels).run()
     if (cardDependencies.length > 0)

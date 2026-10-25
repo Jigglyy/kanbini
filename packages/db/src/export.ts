@@ -9,7 +9,6 @@ import {
   card,
   cardDependency,
   cardLabel,
-  cardNumberSeq,
   checklist,
   checklistItem,
   comment,
@@ -38,8 +37,11 @@ import {
 // never a half-written one.
 
 /** Bumped whenever the on-disk layout shifts. The importer uses this to
- *  refuse exports it can't read. Today: schema v1, layout v1. */
-export const EXPORT_FORMAT_VERSION = 1 as const
+ *  refuse exports it can't read. v2: card numbers count per board, and
+ *  each board row carries its counter (`cardNumberLast`). v1 numbered
+ *  cards from one counter; this build still reads it, while a build
+ *  that only knows v1 refuses v2 as a newer format. */
+export const EXPORT_FORMAT_VERSION = 2 as const
 
 export interface ExportSummary {
   exportedAt: number
@@ -114,17 +116,15 @@ export async function exportToFolder(
     .orderBy(asc(attachment.id))
     .all()
   const activities = db.select().from(activity).orderBy(asc(activity.id)).all()
-  // The last card number handed out. Can be above every card's number
-  // (the newest cards were deleted); carried so a restore keeps those
-  // numbers retired instead of handing them out again.
-  const cardNumberLast = db.select({ last: cardNumberSeq.last }).from(cardNumberSeq).get()?.last ?? 0
 
   const exportedAt = Date.now()
   const dump = {
     schemaVersion: 1, // matches @kanbini/shared SCHEMA_VERSION
     formatVersion: EXPORT_FORMAT_VERSION,
     exportedAt,
-    cardNumberSeq: cardNumberLast,
+    // Each board row carries its card number counter (`cardNumberLast`),
+    // which can be above every number left on it (the newest cards were
+    // deleted); a restore then keeps those numbers retired.
     projects,
     boards,
     lists,

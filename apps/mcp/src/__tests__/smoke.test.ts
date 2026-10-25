@@ -153,6 +153,7 @@ describe('MCP read tools', () => {
 
   it('kanbini_get_card and kanbini_search_cards take a #number', async () => {
     const board = unwrap<{
+      board: { id: string }
       lists: Array<{ cards: Array<{ id: string; number: number }> }>
     }>(
       await client.callTool({ name: 'kanbini_get_board', arguments: {} }),
@@ -163,11 +164,18 @@ describe('MCP read tools', () => {
     const detail = unwrap<{ id: string; number: number }>(
       await client.callTool({
         name: 'kanbini_get_card',
-        arguments: { id: `#${card.number}` }
+        arguments: { id: `#${card.number}`, boardId: board.board.id }
       }),
       'get_card'
     )
     expect(detail).toMatchObject({ id: card.id, number: card.number })
+    // Numbers are per board: without the board it's an error that says so.
+    const bare = await client.callTool({
+      name: 'kanbini_get_card',
+      arguments: { id: `#${card.number}` }
+    })
+    expect(bare.isError).toBe(true)
+    expect(JSON.stringify(bare.content)).toMatch(/per board/)
     const hits = unwrap<Array<{ cardId: string; number: number; matchKind: string }>>(
       await client.callTool({
         name: 'kanbini_search_cards',

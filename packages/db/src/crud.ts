@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import {
   type Mutation,
   type MutationResult,
@@ -149,6 +149,18 @@ export function listBoardId(db: Db, listId: string): string | null {
       .where(eq(list.id, listId))
       .get()?.b ?? null
   )
+}
+
+/** Hand out `boardId`'s next card number, for a card arriving from
+ *  another board. Inserts get theirs from the DB triggers instead
+ *  (migration 0017). */
+function nextCardNumber(db: Db, boardId: string): number {
+  return db
+    .update(board)
+    .set({ cardNumberLast: sql`${board.cardNumberLast} + 1` })
+    .where(eq(board.id, boardId))
+    .returning({ last: board.cardNumberLast })
+    .get()!.last
 }
 
 export function cardBoardId(db: Db, cardId: string): string | null {
@@ -646,10 +658,25 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
         const position = toListRow?.sortMode
           ? appendCardKey(tx as unknown as Db, m.toListId)
           : orderKeyBetween(keyOf(m.beforeId), keyOf(m.afterId))
+        // Card numbers are per board, so a card moving to another board
+        // (MCP / HTTP only - the UI never does) takes a number there: the
+        // next one, or the one undo / redo brings back (the
+        // card_number_track_update trigger then raises the counter to
+        // it). Set in the same UPDATE as listId: the per-board uniqueness
+        // trigger checks the pair, and the old number may be taken on the
+        // new board.
+        const boardId = listBoardId(tx as unknown as Db, m.toListId)
+        const number =
+          crossedList &&
+          boardId !== null &&
+          boardId !== listBoardId(tx as unknown as Db, sourceListId)
+            ? (m.number ?? nextCardNumber(tx as unknown as Db, boardId))
+            : undefined
         tx.update(card)
           .set({
             listId: m.toListId,
             position,
+            ...(number !== undefined ? { number } : {}),
             // Stamp "added to this list" only on a real cross-list move.
             // undo passes the prior value (m.listAddedAt) to restore it;
             // a normal move omits it and stamps now().
@@ -660,7 +687,6 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
           })
           .where(eq(card.id, m.id))
           .run()
-        const boardId = listBoardId(tx as unknown as Db, m.toListId)
         logActivity(tx as unknown as Db, {
           boardId,
           cardId: m.id,

@@ -541,6 +541,7 @@ export function App() {
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
         boards={boards ?? []}
+        currentBoardId={route.kind === 'board' ? route.id : null}
         onActivate={(boardId, cardId) => openBoard(boardId, cardId)}
       />
 

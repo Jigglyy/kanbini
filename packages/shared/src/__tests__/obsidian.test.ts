@@ -357,6 +357,7 @@ describe('buildNote (v2 format)', () => {
     return {
       id: 'c1',
       number: 1,
+      boardId: 'b1',
       title: 'Card title',
       description: null,
       position: 'a0',

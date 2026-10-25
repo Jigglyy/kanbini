@@ -22,6 +22,7 @@ import {
 } from '@kanbini/db'
 import {
   isInternalMutation,
+  mutationName,
   zAgendaRequest,
   zAgendaView,
   zArchivedItemsView,
@@ -57,7 +58,7 @@ import {
 //        GET  /boards            -> boards.list
 //        GET  /boards/:id        -> board.getView
 //        GET  /boards/:id/archived -> board.archived
-//        GET  /cards/:id         -> card.get
+//        GET  /cards/:id?boardId= -> card.get (boardId: with a #number)
 //        GET  /search?query=&limit= -> search.cards
 //        GET  /agenda?upcomingDays=&completedDays=&limit= -> agenda.get
 //        POST /mutate            -> mutate      (body = a zMutation)
@@ -124,8 +125,8 @@ const methods: Record<string, Method> = {
     return zBoardView.nullable().parse(getBoardView(db, boardId))
   },
   'card.get': (db, raw) => {
-    const { id } = zGetCardViewRequest.parse(raw ?? {})
-    return zCardView.nullable().parse(getCardView(db, id))
+    const { id, boardId } = zGetCardViewRequest.parse(raw ?? {})
+    return zCardView.nullable().parse(getCardView(db, id, boardId))
   },
   'search.cards': (db, raw) => {
     const { query, limit } = zSearchCardsRequest.parse(raw ?? {})
@@ -169,9 +170,10 @@ const methods: Record<string, Method> = {
     // this method anyway.
     const mutation = zMutation.parse(raw)
     if (isInternalMutation(mutation)) {
-      // Undo-only arms (`restore`, the repeat spawn pair): the undo
-      // machinery is their only producer, so refuse them here.
-      throw new Error(`${mutation.type} mutation not allowed via control channel`)
+      // Undo-only arms (`restore`, the repeat spawn pair, a named card
+      // number): the undo machinery is their only producer, so refuse
+      // them here.
+      throw new Error(`${mutationName(mutation)} mutation not allowed via control channel`)
     }
     const result = zMutationResult.parse(
       mutation.type === 'attachment.delete'
@@ -195,7 +197,7 @@ const methods: Record<string, Method> = {
       // file-backed `attachment.delete` needs the per-mutation unlink the
       // renderer IPC does, so it can't ride a batch.
       if (isInternalMutation(m) || m.type === 'attachment.delete') {
-        throw new Error(`${m.type} not allowed in a mutation batch`)
+        throw new Error(`${mutationName(m)} not allowed in a mutation batch`)
       }
     }
     const results = zMutationResults.parse(applyMutationsRecorded(db, mutations))
@@ -394,9 +396,11 @@ export async function startControlChannel(
       }
       const cardMatch = /^\/cards\/([^/]+)$/.exec(path)
       if (cardMatch) {
+        // A card number needs its board: /cards/%2312?boardId=<id>.
+        const boardId = url.searchParams.get('boardId')
         await runMethod(
           'card.get',
-          { id: decodeURIComponent(cardMatch[1]!) },
+          { id: decodeURIComponent(cardMatch[1]!), ...(boardId != null ? { boardId } : {}) },
           res
         )
         return

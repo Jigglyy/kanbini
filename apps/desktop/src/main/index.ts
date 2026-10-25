@@ -19,6 +19,7 @@ import {
   APP_CODENAME,
   buildMcpClientSnippet,
   isInternalMutation,
+  mutationName,
   buildMcpServerPointer,
   MCP_SERVER_POINTER_FILE,
   IPC,
@@ -389,7 +390,7 @@ function registerIpc(
   ipcMain.handle(IPC.mutate, async (_event, raw: unknown) => {
     const mutation = zMutation.parse(raw)
     if (isInternalMutation(mutation)) {
-      throw new Error(`${mutation.type} is internal to undo / redo`)
+      throw new Error(`${mutationName(mutation)} is internal to undo / redo`)
     }
     // attachment.delete also owns a file on disk. The shared helper
     // reads the relPath BEFORE the row goes, applies the delete through
@@ -416,7 +417,7 @@ function registerIpc(
     const mutations = zMutationBatch.parse(raw)
     for (const m of mutations) {
       if (isInternalMutation(m) || m.type === 'attachment.delete') {
-        throw new Error(`${m.type} not allowed in a mutation batch`)
+        throw new Error(`${mutationName(m)} not allowed in a mutation batch`)
       }
     }
     const results = zMutationResults.parse(
