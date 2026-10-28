@@ -102,6 +102,54 @@ test('a card the label filter hides: the notice offers to show it', async () => 
   await expect(page.getByText('Card 6', { exact: true })).toBeVisible()
 })
 
+test('typing and hitting Enter at once goes to what you typed, not the previous results', async () => {
+  const { page } = handle
+  await page.keyboard.press('Control+f')
+  const palette = page.getByRole('dialog', { name: 'Command palette' })
+  await expect(palette).toBeVisible()
+  // No wait between typing and Enter: before the fix, Enter acted on
+  // the empty search's board list and opened a board.
+  await page.keyboard.type('Far away')
+  await page.keyboard.press('Enter')
+  await expect(palette).not.toBeVisible()
+  await expect(page.getByRole('heading', { name: /^Inbox\b/ })).toBeVisible()
+  await expect.poll(() => isGlowing(cardEl(page, 'Far away card'))).toBe(true)
+})
+
+test('a result appearing under a resting mouse does not steal Enter', async () => {
+  const { page } = handle
+  const palette = page.getByRole('dialog', { name: 'Command palette' })
+  const input = palette.getByPlaceholder(/search cards or jump/i)
+  const search = async (): Promise<void> => {
+    await page.keyboard.press('Control+f')
+    await input.fill('Card 1')
+    // The card results for "Card 1", not the board list an empty query
+    // shows (that has a third row too).
+    await expect(palette.locator('[data-row="2"]')).toContainText('Card 1')
+  }
+  await search()
+  const third = (await palette.locator('[data-row="2"]').boundingBox())!
+  await page.keyboard.press('Escape')
+  // Park the mouse where the third result will appear, then don't move it.
+  await page.mouse.move(third.x + third.width / 2, third.y + third.height / 2)
+  await search()
+  const first = palette.locator('[data-row="0"]')
+  await expect(first).toHaveAttribute('aria-current', 'true')
+  const title = (await first.locator('.font-medium').first().textContent())!.trim()
+  await page.keyboard.press('Enter')
+  await expect.poll(() => isGlowing(cardEl(page, title))).toBe(true)
+})
+
+test('Ctrl+Enter in Ctrl+F opens the card straight away', async () => {
+  const { page } = handle
+  await page.keyboard.press('Control+f')
+  const palette = page.getByRole('dialog', { name: 'Command palette' })
+  await palette.getByPlaceholder(/search cards or jump/i).fill('Card 38')
+  await expect(palette.getByText('Card 38', { exact: true })).toBeVisible()
+  await page.keyboard.press('Control+Enter')
+  await expect(page.getByRole('dialog', { name: 'Card 38' })).toBeVisible()
+})
+
 test('Ctrl+F shows a card on another board', async () => {
   const { page } = handle
   await pickInPalette(page, 'Far away', 'Far away card')

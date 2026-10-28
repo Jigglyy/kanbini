@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { BoardSummary, SearchHit } from '@kanbini/shared'
 import { CommandPalette } from '../command-palette'
@@ -47,6 +47,13 @@ function makeHit(overrides: Partial<SearchHit> = {}): SearchHit {
     ...overrides
   }
 }
+
+/** Result rows' text, top to bottom. */
+const rowTexts = (): string[] =>
+  Array.from(document.querySelectorAll('[data-row]')).map((r) => r.textContent ?? '')
+/** Text of the selected row (the one Enter takes). */
+const activeRowText = (): string =>
+  document.querySelector('[data-row][aria-current="true"]')?.textContent ?? ''
 
 describe('<CommandPalette>', () => {
   it('renders nothing when closed', () => {
@@ -128,8 +135,146 @@ describe('<CommandPalette>', () => {
     )
     await user.type(await screen.findByPlaceholderText(/search cards/i), '#3')
     expect(await screen.findByText('Here')).toBeInTheDocument()
+    // The row on top is the one Enter takes (they used to differ: the
+    // rows rendered in search order, Enter used the re-sorted list).
+    expect(rowTexts()[0]).toContain('Here')
     await user.keyboard('{Enter}')
     expect(onActivate).toHaveBeenCalledWith('b1', 'c-here')
+  })
+
+  it('marks the selected row, and every new search starts on the first result', async () => {
+    const user = userEvent.setup()
+    kanbiniMock().searchCards.mockImplementation(async ({ query }) =>
+      query === 'a'
+        ? [makeHit({ cardId: 'a1', title: 'a one' }), makeHit({ cardId: 'a2', title: 'a two' })]
+        : [makeHit({ cardId: 'b1', title: 'ab one' }), makeHit({ cardId: 'b2', title: 'ab two' })]
+    )
+    const onActivate = vi.fn()
+    renderWithQuery(
+      <CommandPalette open onClose={vi.fn()} boards={[]} onActivate={onActivate} />
+    )
+    const input = await screen.findByPlaceholderText(/search cards/i)
+    await user.type(input, 'a')
+    await screen.findByText('a two')
+    await user.keyboard('{ArrowDown}')
+    expect(activeRowText()).toContain('a two')
+
+    await user.type(input, 'b')
+    await screen.findByText('ab two')
+    await waitFor(() => expect(activeRowText()).toContain('ab one'))
+    await user.keyboard('{Enter}')
+    expect(onActivate).toHaveBeenCalledWith('b1', 'b1')
+  })
+
+  // Typing "192" and hitting Enter at once used to act on whatever the
+  // previous (debounced) search had shown - even the empty search's board
+  // list - so it landed on a random board or card.
+  it('Enter pressed before the results for what you typed arrive waits for them', async () => {
+    const user = userEvent.setup()
+    kanbiniMock().searchCards.mockImplementation(async ({ query }) =>
+      query === '192'
+        ? [makeHit({ cardId: 'c192', number: 192, title: 'The 192 card', boardId: 'b-dice', matchKind: 'number' })]
+        : [makeHit({ cardId: 'c-stale', title: 'Stale hit', boardId: 'b-other' })]
+    )
+    const onActivate = vi.fn()
+    renderWithQuery(
+      <CommandPalette
+        open
+        onClose={vi.fn()}
+        boards={[makeBoard({ id: 'b-landlord', name: 'Landlord' })]}
+        onActivate={onActivate}
+      />
+    )
+    const input = await screen.findByPlaceholderText(/search cards/i)
+    await user.type(input, '192{Enter}')
+    await waitFor(() => expect(onActivate).toHaveBeenCalled())
+    expect(onActivate).toHaveBeenCalledTimes(1)
+    expect(onActivate).toHaveBeenCalledWith('b-dice', 'c192')
+  })
+
+  it('Ctrl+Enter and Ctrl+click open the card instead of showing it', async () => {
+    const user = userEvent.setup()
+    kanbiniMock().searchCards.mockResolvedValue([
+      makeHit({ cardId: 'c1', title: 'open me', boardId: 'b-t' })
+    ])
+    const onActivate = vi.fn()
+    renderWithQuery(
+      <CommandPalette open onClose={vi.fn()} boards={[]} onActivate={onActivate} />
+    )
+    await user.type(await screen.findByPlaceholderText(/search cards/i), 'open')
+    await screen.findByText('open me')
+    await user.keyboard('{Control>}{Enter}{/Control}')
+    expect(onActivate).toHaveBeenLastCalledWith('b-t', 'c1', { open: true })
+    await user.keyboard('{Control>}')
+    await user.click(screen.getByText('open me'))
+    await user.keyboard('{/Control}')
+    expect(onActivate).toHaveBeenLastCalledWith('b-t', 'c1', { open: true })
+  })
+
+  it('tells you which keys do what', async () => {
+    const user = userEvent.setup()
+    kanbiniMock().searchCards.mockResolvedValue([makeHit({ title: 'hint me' })])
+    renderWithQuery(
+      <CommandPalette open onClose={vi.fn()} boards={[]} onActivate={vi.fn()} />
+    )
+    await user.type(await screen.findByPlaceholderText(/search cards/i), 'hint')
+    await screen.findByText('hint me')
+    expect(screen.getByText(/to show it on the board/i)).toBeInTheDocument()
+    expect(screen.getByText(/to open it/i)).toBeInTheDocument()
+  })
+
+  describe('the mouse', () => {
+    const threeBoards = [
+      makeBoard({ id: 'b1', name: 'First' }),
+      makeBoard({ id: 'b2', name: 'Second' }),
+      makeBoard({ id: 'b3', name: 'Third' })
+    ]
+
+    // Rows that render under a resting mouse get mouseenter / a
+    // mousemove at the same spot - that used to select them, so Enter
+    // took whatever row appeared under the pointer.
+    it('a row appearing under a resting mouse does not take the selection', async () => {
+      const user = userEvent.setup()
+      const onActivate = vi.fn()
+      renderWithQuery(
+        <CommandPalette open onClose={vi.fn()} boards={threeBoards} onActivate={onActivate} />
+      )
+      const third = (await screen.findByText('Third')).closest('button')!
+      fireEvent.mouseEnter(third)
+      fireEvent.mouseMove(third, { clientX: 40, clientY: 90 })
+      fireEvent.mouseMove(third, { clientX: 40, clientY: 90 })
+      expect(activeRowText()).toContain('First')
+      await user.keyboard('{Enter}')
+      expect(onActivate).toHaveBeenCalledWith('b1')
+    })
+
+    it('moving the mouse over a row selects it', async () => {
+      const user = userEvent.setup()
+      const onActivate = vi.fn()
+      renderWithQuery(
+        <CommandPalette open onClose={vi.fn()} boards={threeBoards} onActivate={onActivate} />
+      )
+      const third = (await screen.findByText('Third')).closest('button')!
+      fireEvent.mouseMove(third, { clientX: 40, clientY: 90 })
+      fireEvent.mouseMove(third, { clientX: 42, clientY: 91 })
+      expect(activeRowText()).toContain('Third')
+      await user.keyboard('{Enter}')
+      expect(onActivate).toHaveBeenCalledWith('b3')
+    })
+
+    it('a nudge of the mouse on the same row does not undo arrowing away', async () => {
+      const user = userEvent.setup()
+      renderWithQuery(
+        <CommandPalette open onClose={vi.fn()} boards={threeBoards} onActivate={vi.fn()} />
+      )
+      const third = (await screen.findByText('Third')).closest('button')!
+      fireEvent.mouseMove(third, { clientX: 40, clientY: 90 })
+      fireEvent.mouseMove(third, { clientX: 42, clientY: 91 })
+      await user.keyboard('{ArrowUp}')
+      expect(activeRowText()).toContain('Second')
+      fireEvent.mouseMove(third, { clientX: 43, clientY: 91 })
+      expect(activeRowText()).toContain('Second')
+    })
   })
 
   it('clicking a card hit calls onActivate(boardId, cardId) + onClose', async () => {

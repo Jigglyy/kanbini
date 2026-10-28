@@ -26,6 +26,17 @@ installer and portable app and publishes a GitHub Release (see
 - If a label filter or "Hide completed" is hiding the card you're
   looking for, Kanbini tells you and offers to show it, instead of
   quietly changing your filters.
+- **Ctrl+Enter (⌘+Enter on Mac) or Ctrl+click in Ctrl+F opens the card
+  straight away.** A line under the results lists the keys.
+
+### Fixed
+
+- **Ctrl+F's Enter now goes to the result you're looking at.** Typing
+  and pressing Enter right away could land on a different board or card
+  than the one you typed, a result that appeared under a resting mouse
+  could quietly take over Enter, and on some searches the highlighted
+  row wasn't the one Enter used. Every new search now starts on the
+  first result, and the selected row is much easier to see.
 
 ## [0.11.1] - 2026-10-28
 
