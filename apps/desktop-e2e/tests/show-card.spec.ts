@@ -149,9 +149,16 @@ test("Ctrl+F lists the current board's cards before an exact #N on another board
   await palette.getByPlaceholder(/search cards or jump/i).fill('1')
   await expect(palette.getByText('Far away card', { exact: true })).toBeVisible()
   await expect(palette.locator('[data-row="0"]')).toContainText(BOARD)
-  const rows = await palette.locator('[data-row]').allTextContents()
-  const farAway = rows.findIndex((t) => t.includes('Far away card'))
-  expect(rows.slice(0, farAway).every((t) => t.includes(BOARD))).toBe(true)
+  // Every row from this board comes before every card row from another
+  // board (the seeded Welcome Board's #1 may sit either side of
+  // Elsewhere's #1 - only the board grouping is the rule).
+  const cardRows = (await palette.locator('[data-row]').allTextContents()).filter((t) =>
+    / · /.test(t)
+  )
+  const lastHere = cardRows.map((t) => t.includes(`· ${BOARD} ·`)).lastIndexOf(true)
+  const firstElsewhere = cardRows.findIndex((t) => !t.includes(`· ${BOARD} ·`))
+  expect(lastHere).toBeGreaterThanOrEqual(0)
+  expect(firstElsewhere).toBeGreaterThan(lastHere)
 })
 
 test('Ctrl+Enter in Ctrl+F opens the card straight away', async () => {
