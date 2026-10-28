@@ -92,6 +92,8 @@ test('a collapse survives leaving and reopening the board', async () => {
 test('a compact list compacts every card, and one card can stay open', async () => {
   const { page } = handle
   await page.getByRole('button', { name: 'Edit list' }).click()
+  // Card size lives in the list menu's Cards fly-out.
+  await page.getByRole('button', { name: /^Cards/ }).click()
   await page.getByRole('button', { name: 'Compact', exact: true }).click()
 
   const rich = cardEl(page, ids.rich)

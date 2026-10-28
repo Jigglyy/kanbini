@@ -11,7 +11,6 @@ import {
 } from '@kanbini/shared'
 import type { Optimistic } from '../hooks/useBoardMutation'
 import { cn } from '../lib/utils'
-import { MenuLabel } from './ui/context-menu'
 
 // Repeating cards: the meta-row marker and the card-menu picker. The
 // spawn itself (completing a repeating card adds the next one) happens
@@ -107,7 +106,6 @@ export function RepeatPicker({
 
   return (
     <>
-      <MenuLabel>Repeat</MenuLabel>
       <div className="flex flex-wrap gap-1 px-2 py-1" role="group" aria-label="Repeat">
         <button
           type="button"

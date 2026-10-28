@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ListView, Mutation } from '@kanbini/shared'
 import { ACCENTS } from '../../lib/palette'
 import { ListEditor } from '../list-menu'
+import { ContextMenu } from '../ui/context-menu'
 
 // Tests for the ListEditor - the body of the per-list pencil / right-
 // click context menu. Covers the surfaces three ADRs converge on:
@@ -15,6 +16,24 @@ import { ListEditor } from '../list-menu'
 //   - on-card-enter automation (ADR-0041): None / Complete / Uncomplete
 //   - "Save as template" (only renders when onSaveAsTemplate is supplied)
 //   - delete with inline confirm
+
+/** Open the menu for real: its fly-out rows need a ContextMenu around
+ *  them. The editor's own `close` prop stays the test's spy. */
+function renderMenu(node: React.ReactElement): void {
+  render(
+    <ContextMenu menu={() => node}>
+      {(open) => <button onContextMenu={open}>open menu</button>}
+    </ContextMenu>
+  )
+  fireEvent.contextMenu(screen.getByRole('button', { name: 'open menu' }), {
+    clientX: 10,
+    clientY: 10
+  })
+}
+/** Open the fly-out whose row starts with `label`. */
+function openFlyout(label: string): void {
+  fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${label}`) }))
+}
 
 function makeList(overrides: Partial<ListView> = {}): ListView {
   return {
@@ -36,7 +55,7 @@ function makeList(overrides: Partial<ListView> = {}): ListView {
 describe('<ListEditor>', () => {
   it('rename commits the new value through list.update on blur', () => {
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
-    render(<ListEditor list={makeList()} apply={apply} close={vi.fn()} />)
+    renderMenu(<ListEditor list={makeList()} apply={apply} close={vi.fn()} />)
     const input = screen.getByDisplayValue('Todo')
     fireEvent.change(input, { target: { value: 'Doing' } })
     fireEvent.blur(input)
@@ -53,7 +72,7 @@ describe('<ListEditor>', () => {
   it('rename via Enter blurs the input + commits', () => {
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
     const close = vi.fn()
-    render(<ListEditor list={makeList()} apply={apply} close={close} />)
+    renderMenu(<ListEditor list={makeList()} apply={apply} close={close} />)
     const input = screen.getByDisplayValue('Todo')
     fireEvent.change(input, { target: { value: 'Doing' } })
     fireEvent.keyDown(input, { key: 'Enter' })
@@ -63,7 +82,7 @@ describe('<ListEditor>', () => {
 
   it('rename no-ops when the trimmed value matches current name', () => {
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
-    render(<ListEditor list={makeList()} apply={apply} close={vi.fn()} />)
+    renderMenu(<ListEditor list={makeList()} apply={apply} close={vi.fn()} />)
     const input = screen.getByDisplayValue('Todo')
     fireEvent.change(input, { target: { value: '  Todo  ' } })
     fireEvent.blur(input)
@@ -74,7 +93,8 @@ describe('<ListEditor>', () => {
     const user = userEvent.setup()
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
     const close = vi.fn()
-    render(<ListEditor list={makeList()} apply={apply} close={close} />)
+    renderMenu(<ListEditor list={makeList()} apply={apply} close={close} />)
+    openFlyout('Colour')
     // First swatch (ACCENTS[0]) is the first aria-label matching
     // /Colour /.
     const swatches = screen.getAllByLabelText(/^Colour /)
@@ -98,7 +118,8 @@ describe('<ListEditor>', () => {
     // ring'd current one. Clicking it must not fire a redundant
     // list.update (which would log a junk undo entry).
     const color = ACCENTS[0]
-    render(<ListEditor list={makeList({ color })} apply={apply} close={close} />)
+    renderMenu(<ListEditor list={makeList({ color })} apply={apply} close={close} />)
+    openFlyout('Colour')
     await user.click(screen.getByLabelText(`Colour ${color}`))
     expect(apply).not.toHaveBeenCalled()
     expect(close).toHaveBeenCalledTimes(1)
@@ -107,13 +128,14 @@ describe('<ListEditor>', () => {
   it('"None" colour clears the list colour', async () => {
     const user = userEvent.setup()
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
-    render(
+    renderMenu(
       <ListEditor
         list={makeList({ color: 'oklch(0.62 0.15 250)' })}
         apply={apply}
         close={vi.fn()}
       />
     )
+    openFlyout('Colour')
     // Two "None" buttons in the editor - the colour row's + the
     // on-enter row's. The colour one is first in DOM order.
     const noneButtons = screen.getAllByRole('button', { name: 'None' })
@@ -128,7 +150,8 @@ describe('<ListEditor>', () => {
   it('sort cards: clicking "Newest created" fires list.update with created-desc', async () => {
     const user = userEvent.setup()
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
-    render(<ListEditor list={makeList()} apply={apply} close={vi.fn()} />)
+    renderMenu(<ListEditor list={makeList()} apply={apply} close={vi.fn()} />)
+    openFlyout('Sort cards')
     await user.click(screen.getByRole('button', { name: 'Newest created' }))
     expect(apply.mock.calls[0]![0]).toEqual({
       type: 'list.update',
@@ -140,7 +163,8 @@ describe('<ListEditor>', () => {
   it('sort cards: "Recently added" fires the added-desc mode', async () => {
     const user = userEvent.setup()
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
-    render(<ListEditor list={makeList()} apply={apply} close={vi.fn()} />)
+    renderMenu(<ListEditor list={makeList()} apply={apply} close={vi.fn()} />)
+    openFlyout('Sort cards')
     await user.click(screen.getByRole('button', { name: 'Recently added' }))
     expect(apply.mock.calls[0]![0]).toEqual({
       type: 'list.update',
@@ -152,7 +176,8 @@ describe('<ListEditor>', () => {
   it('sort cards: "Due date" / "Priority" / "A to Z" wire their modes', async () => {
     const user = userEvent.setup()
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
-    render(<ListEditor list={makeList()} apply={apply} close={vi.fn()} />)
+    renderMenu(<ListEditor list={makeList()} apply={apply} close={vi.fn()} />)
+    openFlyout('Sort cards')
     await user.click(screen.getByRole('button', { name: 'Due date' }))
     await user.click(screen.getByRole('button', { name: 'Priority' }))
     await user.click(screen.getByRole('button', { name: 'A to Z' }))
@@ -167,13 +192,14 @@ describe('<ListEditor>', () => {
     const user = userEvent.setup()
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
     const close = vi.fn()
-    render(
+    renderMenu(
       <ListEditor
         list={makeList({ sortMode: 'created-desc' })}
         apply={apply}
         close={close}
       />
     )
+    openFlyout('Sort cards')
     await user.click(screen.getByRole('button', { name: 'Newest created' }))
     expect(apply).not.toHaveBeenCalled()
     expect(close).toHaveBeenCalledTimes(1)
@@ -182,13 +208,14 @@ describe('<ListEditor>', () => {
   it('sort cards: Manual reverts to null', async () => {
     const user = userEvent.setup()
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
-    render(
+    renderMenu(
       <ListEditor
         list={makeList({ sortMode: 'created-desc' })}
         apply={apply}
         close={vi.fn()}
       />
     )
+    openFlyout('Sort cards')
     await user.click(screen.getByRole('button', { name: 'Manual' }))
     expect(apply.mock.calls[0]![0]).toEqual({
       type: 'list.update',
@@ -200,7 +227,8 @@ describe('<ListEditor>', () => {
   it('on-enter: clicking Complete sets the rule', async () => {
     const user = userEvent.setup()
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
-    render(<ListEditor list={makeList()} apply={apply} close={vi.fn()} />)
+    renderMenu(<ListEditor list={makeList()} apply={apply} close={vi.fn()} />)
+    openFlyout('On card enter')
     await user.click(screen.getByRole('button', { name: 'Complete' }))
     expect(apply.mock.calls[0]![0]).toEqual({
       type: 'list.update',
@@ -212,18 +240,19 @@ describe('<ListEditor>', () => {
   it('on-enter: None clears the rule on a list that has one', async () => {
     const user = userEvent.setup()
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
-    render(
+    renderMenu(
       <ListEditor
         list={makeList({ onEnter: { kind: 'complete' } })}
         apply={apply}
         close={vi.fn()}
       />
     )
-    // The second "None" button is the on-enter row's (colour row is
-    // first in DOM order). Click that one and assert the onEnter
-    // patch.
-    const noneButtons = screen.getAllByRole('button', { name: 'None' })
-    await user.click(noneButtons[1]!)
+    openFlyout('On card enter')
+    await user.click(
+      within(screen.getByRole('menu', { name: 'On card enter' })).getByRole('button', {
+        name: 'None'
+      })
+    )
     expect(apply.mock.calls[0]![0]).toEqual({
       type: 'list.update',
       id: 'list-1',
@@ -234,7 +263,8 @@ describe('<ListEditor>', () => {
   it('wip limit: typing a positive integer + clicking Set fires list.update', async () => {
     const user = userEvent.setup()
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
-    render(<ListEditor list={makeList()} apply={apply} close={vi.fn()} />)
+    renderMenu(<ListEditor list={makeList()} apply={apply} close={vi.fn()} />)
+    openFlyout('Card limit')
     const input = screen.getByPlaceholderText('None')
     await user.type(input, '5')
     await user.click(screen.getByRole('button', { name: 'Set' }))
@@ -248,13 +278,14 @@ describe('<ListEditor>', () => {
   it('wip limit: clearing the input commits null', async () => {
     const user = userEvent.setup()
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
-    render(
+    renderMenu(
       <ListEditor
         list={makeList({ wipLimit: 5 })}
         apply={apply}
         close={vi.fn()}
       />
     )
+    openFlyout('Card limit')
     const input = screen.getByDisplayValue('5')
     await user.clear(input)
     await user.click(screen.getByRole('button', { name: 'Set' }))
@@ -268,7 +299,8 @@ describe('<ListEditor>', () => {
   it('wip limit: rejects a non-positive value (no mutation fires)', async () => {
     const user = userEvent.setup()
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
-    render(<ListEditor list={makeList()} apply={apply} close={vi.fn()} />)
+    renderMenu(<ListEditor list={makeList()} apply={apply} close={vi.fn()} />)
+    openFlyout('Card limit')
     const input = screen.getByPlaceholderText('None')
     // type "-1" - number input may reject the minus depending on the
     // browser; for safety set the raw value via change.
@@ -281,7 +313,7 @@ describe('<ListEditor>', () => {
     const user = userEvent.setup()
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
     const close = vi.fn()
-    render(
+    renderMenu(
       <ListEditor
         list={makeList({ cards: [{} as never, {} as never] })}
         apply={apply}
@@ -302,7 +334,7 @@ describe('<ListEditor>', () => {
   it('Delete Cancel restores the action row + does not delete', async () => {
     const user = userEvent.setup()
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
-    render(<ListEditor list={makeList()} apply={apply} close={vi.fn()} />)
+    renderMenu(<ListEditor list={makeList()} apply={apply} close={vi.fn()} />)
     await user.click(screen.getByRole('button', { name: 'Delete list' }))
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(
@@ -312,13 +344,14 @@ describe('<ListEditor>', () => {
   })
 
   it('"Save as template" only renders when onSaveAsTemplate is supplied', () => {
-    const { rerender } = render(
+    renderMenu(
       <ListEditor list={makeList()} apply={vi.fn()} close={vi.fn()} />
     )
     expect(
       screen.queryByRole('button', { name: /save as template/i })
     ).toBeNull()
-    rerender(
+    cleanup()
+    renderMenu(
       <ListEditor
         list={makeList()}
         apply={vi.fn()}
@@ -335,7 +368,7 @@ describe('<ListEditor>', () => {
     const user = userEvent.setup()
     const onSaveAsTemplate = vi.fn()
     const close = vi.fn()
-    render(
+    renderMenu(
       <ListEditor
         list={makeList()}
         apply={vi.fn()}
@@ -351,7 +384,8 @@ describe('<ListEditor>', () => {
   it('Cards: Compact sets the list density with an optimistic projection', async () => {
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
     const close = vi.fn()
-    render(<ListEditor list={makeList()} apply={apply} close={close} />)
+    renderMenu(<ListEditor list={makeList()} apply={apply} close={close} />)
+    openFlyout('Cards')
     expect(screen.getByRole('button', { name: 'Full' })).toHaveAttribute('aria-pressed', 'true')
     await userEvent.setup().click(screen.getByRole('button', { name: 'Compact' }))
     expect(apply).toHaveBeenCalledWith(
@@ -375,9 +409,10 @@ describe('<ListEditor>', () => {
   it('Cards: clicking the active density just closes the menu', async () => {
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
     const close = vi.fn()
-    render(
+    renderMenu(
       <ListEditor list={makeList({ cardDensity: 'compact' })} apply={apply} close={close} />
     )
+    openFlyout('Cards')
     expect(screen.getByRole('button', { name: 'Compact' })).toHaveAttribute(
       'aria-pressed',
       'true'
@@ -389,9 +424,10 @@ describe('<ListEditor>', () => {
 
   it('Cards: Full clears a compact list back to null', async () => {
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
-    render(
+    renderMenu(
       <ListEditor list={makeList({ cardDensity: 'compact' })} apply={apply} close={vi.fn()} />
     )
+    openFlyout('Cards')
     await userEvent.setup().click(screen.getByRole('button', { name: 'Full' }))
     expect(apply).toHaveBeenCalledWith(
       { type: 'list.update', id: 'list-1', patch: { cardDensity: null } },
@@ -401,7 +437,8 @@ describe('<ListEditor>', () => {
 
   it('Show at most: All is active by default, and 20 sets the limit', async () => {
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
-    render(<ListEditor list={makeList()} apply={apply} close={vi.fn()} />)
+    renderMenu(<ListEditor list={makeList()} apply={apply} close={vi.fn()} />)
+    openFlyout('Cards')
     expect(screen.getByRole('button', { name: 'Show all cards' })).toHaveAttribute(
       'aria-pressed',
       'true'
@@ -415,9 +452,10 @@ describe('<ListEditor>', () => {
 
   it('Show at most: All clears a limit back to null', async () => {
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
-    render(
+    renderMenu(
       <ListEditor list={makeList({ visibleCardLimit: 10 })} apply={apply} close={vi.fn()} />
     )
+    openFlyout('Cards')
     expect(screen.getByRole('button', { name: 'Show at most 10 cards' })).toHaveAttribute(
       'aria-pressed',
       'true'
@@ -427,5 +465,30 @@ describe('<ListEditor>', () => {
       { type: 'list.update', id: 'list-1', patch: { visibleCardLimit: null } },
       expect.any(Function)
     )
+  })
+
+  it('the rows read the list: sort, cards, on card enter and card limit', () => {
+    renderMenu(
+      <ListEditor
+        list={makeList({
+          sortMode: 'due-asc',
+          cardDensity: 'compact',
+          visibleCardLimit: 10,
+          onEnter: { kind: 'complete' },
+          wipLimit: 5
+        })}
+        apply={vi.fn()}
+        close={vi.fn()}
+      />
+    )
+    const row = (label: string) =>
+      screen.getByRole('button', { name: new RegExp(`^${label}`) })
+    expect(row('Colour')).toHaveTextContent('None')
+    expect(row('Sort cards')).toHaveTextContent('Due date')
+    expect(row('Cards')).toHaveTextContent('Compact · first 10')
+    expect(row('On card enter')).toHaveTextContent('Complete')
+    expect(row('Card limit')).toHaveTextContent('5')
+    // The options wait in the fly-outs.
+    expect(screen.queryByRole('button', { name: 'Newest created' })).toBeNull()
   })
 })

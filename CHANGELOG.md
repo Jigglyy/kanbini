@@ -17,9 +17,17 @@ installer and portable app and publishes a GitHub Release (see
   card and Kanbini goes to its board, scrolls it into view and makes it
   glow for a moment, so you can see which list it's in. Press Enter to
   open it from there.
+- **Shorter right-click menus.** Labels, due date, repeat, priority and
+  cover on a card, and colour, sorting, card size, on-enter and card
+  limit on a list, are now one row each that shows the current setting
+  and opens a second menu beside it when you hover or click. The same
+  goes for priority, labels and "Move to list" when several cards are
+  selected.
 
 ### Added
 
+- **Archive a card from its right-click menu.** It leaves the board
+  but isn't deleted.
 - **The card detail says where the card lives**, like "in To Do ·
   Website", right under the title. Click it to close the card and see
   it on the board.

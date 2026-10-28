@@ -6,7 +6,7 @@ import type {
   Mutation
 } from '@kanbini/shared'
 import type { Optimistic } from '../hooks/useBoardMutation'
-import { MenuItem, MenuLabel } from './ui/context-menu'
+import { MenuItem } from './ui/context-menu'
 
 // ADR-0037 · card priority field. Read-only badge on the in-list card
 // preview + the card-detail header; editor surface lives in the card
@@ -111,7 +111,6 @@ export function PriorityPicker({
   }
   return (
     <>
-      <MenuLabel>Priority</MenuLabel>
       {PRIORITY_LEVELS.map((p) => {
         const meta = META[p]
         const active = card.priority === p

@@ -12,7 +12,7 @@ import {
 import type { CardPriority, LabelView } from '@kanbini/shared'
 import { PRIORITY_LEVELS, priorityColor, priorityLabel } from './priority'
 import { Popover } from './ui/popover'
-import { MenuItem, MenuLabel, MenuSep } from './ui/context-menu'
+import { MenuItem, MenuLabel, MenuSep, SubMenu } from './ui/context-menu'
 import { accentText } from '../lib/palette'
 
 // Multi-select bulk actions (ADR-0035 follow-up). Two surfaces share one
@@ -313,27 +313,29 @@ export function BulkCardMenu({
       </MenuItem>
 
       <MenuSep />
-      <MenuLabel>Priority</MenuLabel>
-      {PRIORITY_LEVELS.map((p) => (
-        <MenuItem key={p} onClick={act(() => actions.onSetPriority(p))}>
-          <span className="inline-flex items-center gap-2">
-            <span
-              aria-hidden
-              className="inline-block size-2.5 rounded-full"
-              style={{ backgroundColor: priorityColor(p) }}
-            />
-            {priorityLabel(p)}
-          </span>
+      {/* Fly-outs keep the menu short however many labels / lists the
+          board has. No current value on the rows: it's usually mixed
+          across the selection. */}
+      <SubMenu id="priority" label="Priority" icon={<Flag className="size-3.5" />} width={200}>
+        {PRIORITY_LEVELS.map((p) => (
+          <MenuItem key={p} onClick={act(() => actions.onSetPriority(p))}>
+            <span className="inline-flex items-center gap-2">
+              <span
+                aria-hidden
+                className="inline-block size-2.5 rounded-full"
+                style={{ backgroundColor: priorityColor(p) }}
+              />
+              {priorityLabel(p)}
+            </span>
+          </MenuItem>
+        ))}
+        <MenuItem onClick={act(() => actions.onSetPriority(null))}>
+          <span className="text-muted-foreground">No priority</span>
         </MenuItem>
-      ))}
-      <MenuItem onClick={act(() => actions.onSetPriority(null))}>
-        <span className="text-muted-foreground">No priority</span>
-      </MenuItem>
+      </SubMenu>
 
       {actions.labels.length > 0 && (
-        <>
-          <MenuSep />
-          <MenuLabel>Labels</MenuLabel>
+        <SubMenu id="labels" label="Labels" icon={<Tag className="size-3.5" />}>
           {actions.labels.map((l) => {
             const state = actions.labelPresence(l.id)
             return (
@@ -362,19 +364,21 @@ export function BulkCardMenu({
               </MenuItem>
             )
           })}
-        </>
+        </SubMenu>
       )}
 
       {actions.lists.length > 0 && (
-        <>
-          <MenuSep />
-          <MenuLabel>Move to list</MenuLabel>
+        <SubMenu
+          id="move"
+          label="Move to list"
+          icon={<ArrowRightLeft className="size-3.5" />}
+        >
           {actions.lists.map((l) => (
             <MenuItem key={l.id} onClick={act(() => actions.onMoveTo(l.id))}>
               <span className="truncate">{l.name}</span>
             </MenuItem>
           ))}
-        </>
+        </SubMenu>
       )}
 
       <MenuSep />

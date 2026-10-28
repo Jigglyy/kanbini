@@ -84,10 +84,13 @@ test('the reveal is per session: reopening the board shows N again', async () =>
 test('the list menu sets and clears the limit', async () => {
   const { page } = handle
   await page.getByRole('button', { name: 'Edit list' }).first().click()
+  // Show at most lives in the list menu's Cards fly-out.
+  await page.getByRole('button', { name: /^Cards/ }).click()
   await page.getByRole('button', { name: 'Show all cards' }).click()
   await expect(longCards(page)).toHaveCount(TOTAL)
   await expect(footer(page)).toHaveCount(0)
   await page.getByRole('button', { name: 'Edit list' }).first().click()
+  await page.getByRole('button', { name: /^Cards/ }).click()
   await page.getByRole('button', { name: 'Show at most 20 cards' }).click()
   await expect(longCards(page)).toHaveCount(20)
 })

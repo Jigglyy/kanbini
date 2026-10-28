@@ -1,21 +1,37 @@
 import {
+  Archive,
+  CalendarClock,
+  CheckSquare,
   ChevronsDownUp,
   ChevronsUpDown,
   FileImage,
+  Flag,
   Globe,
-  ImageOff
+  Image as ImageIcon,
+  ImageOff,
+  Repeat,
+  Tag,
+  Trash2
 } from 'lucide-react'
-import type { BoardView, CardView, LabelView, Mutation } from '@kanbini/shared'
+import {
+  describeRepeat,
+  type BoardView,
+  type CardView,
+  type LabelView,
+  type Mutation
+} from '@kanbini/shared'
 import type { Optimistic } from '../hooks/useBoardMutation'
+import { dueLabel } from '../lib/due-presets'
 import { ipc } from '../lib/ipc'
 import { LabelToggleList } from './labels'
 import { DueEditor } from './due-date'
-import { PriorityPicker } from './priority'
+import { PriorityPicker, priorityLabel } from './priority'
 import { RepeatPicker } from './repeat'
-import { MenuItem, MenuLabel, MenuSep } from './ui/context-menu'
+import { MenuItem, MenuSep, SubMenu } from './ui/context-menu'
 
-// Content of a card's right-click menu: labels + due + cover + complete
-// + delete in one place (replaces the misclick-prone hover buttons).
+// Content of a card's right-click menu. The settings with several
+// options (labels, due date, repeat, priority, cover) are fly-out rows
+// that show the current value; the one-click actions sit below them.
 
 type Apply = (m: Mutation, o: Optimistic) => void
 
@@ -38,6 +54,16 @@ const dropCard = (b: BoardView, id: string): BoardView => ({
     cards: l.cards.filter((c) => c.id !== id)
   }))
 })
+
+/** An icon + text row label (MenuItem lays its children out as-is). */
+function Row({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span className="inline-flex w-4 justify-center text-muted-foreground">{icon}</span>
+      {children}
+    </span>
+  )
+}
 
 export function CardMenu({
   card,
@@ -88,43 +114,71 @@ export function CardMenu({
     close()
   }
 
+  const labelNames = card.labelIds
+    .map((id) => labels.find((l) => l.id === id)?.name)
+    .filter((n): n is string => !!n)
+
   return (
     <>
-      <MenuLabel>Labels</MenuLabel>
-      <LabelToggleList card={card} labels={labels} apply={apply} />
-
-      <MenuSep />
-      <MenuLabel>Due date</MenuLabel>
-      <DueEditor card={card} apply={apply} close={close} />
-      <RepeatPicker card={card} apply={apply} close={close} />
-
-      <MenuSep />
-      <PriorityPicker card={card} apply={apply} close={close} />
-
-      <MenuSep />
-      <MenuLabel>Cover</MenuLabel>
-      <MenuItem onClick={() => void setCoverFromFile()}>
-        <span className="inline-flex items-center gap-2">
-          <FileImage className="size-3.5" /> Set from file…
-        </span>
-      </MenuItem>
-      <MenuItem
-        onClick={() => {
-          onRequestCoverFromUrl()
-          close()
-        }}
+      {/* Stays open while you tick: toggling a label doesn't close it. */}
+      <SubMenu
+        id="labels"
+        label="Labels"
+        icon={<Tag className="size-3.5" />}
+        value={labelNames.length > 0 ? labelNames.join(', ') : 'None'}
       >
-        <span className="inline-flex items-center gap-2">
-          <Globe className="size-3.5" /> Set from URL…
-        </span>
-      </MenuItem>
-      {card.coverAttachmentId && (
-        <MenuItem onClick={removeCover}>
-          <span className="inline-flex items-center gap-2">
-            <ImageOff className="size-3.5" /> Remove cover
-          </span>
+        <LabelToggleList card={card} labels={labels} apply={apply} />
+      </SubMenu>
+      <SubMenu
+        id="due"
+        label="Due date"
+        icon={<CalendarClock className="size-3.5" />}
+        value={card.dueAt != null ? dueLabel(card.dueAt) : 'None'}
+        width={260}
+      >
+        <DueEditor card={card} apply={apply} close={close} />
+      </SubMenu>
+      <SubMenu
+        id="repeat"
+        label="Repeat"
+        icon={<Repeat className="size-3.5" />}
+        value={card.repeat ? describeRepeat(card.repeat) : 'Off'}
+        width={260}
+      >
+        <RepeatPicker card={card} apply={apply} close={close} />
+      </SubMenu>
+      <SubMenu
+        id="priority"
+        label="Priority"
+        icon={<Flag className="size-3.5" />}
+        value={card.priority ? priorityLabel(card.priority) : 'None'}
+        width={200}
+      >
+        <PriorityPicker card={card} apply={apply} close={close} />
+      </SubMenu>
+      <SubMenu
+        id="cover"
+        label="Cover"
+        icon={<ImageIcon className="size-3.5" />}
+        value={card.coverAttachmentId ? 'On' : 'None'}
+      >
+        <MenuItem onClick={() => void setCoverFromFile()}>
+          <Row icon={<FileImage className="size-3.5" />}>Set from file…</Row>
         </MenuItem>
-      )}
+        <MenuItem
+          onClick={() => {
+            onRequestCoverFromUrl()
+            close()
+          }}
+        >
+          <Row icon={<Globe className="size-3.5" />}>Set from URL…</Row>
+        </MenuItem>
+        {card.coverAttachmentId && (
+          <MenuItem onClick={removeCover}>
+            <Row icon={<ImageOff className="size-3.5" />}>Remove cover</Row>
+          </MenuItem>
+        )}
+      </SubMenu>
 
       <MenuSep />
       {onToggleCollapse && (
@@ -134,14 +188,17 @@ export function CardMenu({
             close()
           }}
         >
-          <span className="inline-flex items-center gap-2">
-            {compact ? (
-              <ChevronsUpDown className="size-3.5" />
-            ) : (
-              <ChevronsDownUp className="size-3.5" />
-            )}
+          <Row
+            icon={
+              compact ? (
+                <ChevronsUpDown className="size-3.5" />
+              ) : (
+                <ChevronsDownUp className="size-3.5" />
+              )
+            }
+          >
             {compact ? 'Expand card' : 'Collapse card'}
-          </span>
+          </Row>
         </MenuItem>
       )}
       <MenuItem
@@ -157,7 +214,22 @@ export function CardMenu({
           close()
         }}
       >
-        {card.completed ? 'Mark incomplete' : 'Mark complete'}
+        <Row icon={<CheckSquare className="size-3.5" />}>
+          {card.completed ? 'Mark incomplete' : 'Mark complete'}
+        </Row>
+      </MenuItem>
+      {/* Off the board but kept: the board's Archived view brings it
+          back. Undoable like any edit. */}
+      <MenuItem
+        onClick={() => {
+          apply(
+            { type: 'card.update', id: card.id, patch: { archived: true } },
+            (b) => dropCard(b, card.id)
+          )
+          close()
+        }}
+      >
+        <Row icon={<Archive className="size-3.5" />}>Archive card</Row>
       </MenuItem>
       <MenuItem
         danger
@@ -168,7 +240,7 @@ export function CardMenu({
           close()
         }}
       >
-        Delete card
+        <Row icon={<Trash2 className="size-3.5" />}>Delete card</Row>
       </MenuItem>
     </>
   )

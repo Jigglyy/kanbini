@@ -47,6 +47,8 @@ const cardsTitled = (page: Page): Locator =>
 
 async function makeWeekly(page: Page): Promise<void> {
   await cardEl(page, ids.card).click({ button: 'right' })
+  // Repeat is a fly-out row in the card menu.
+  await page.getByRole('button', { name: /^Repeat/ }).click()
   await page.getByRole('group', { name: 'Repeat' }).getByRole('button', { name: 'Weekly' }).click()
   await expect(
     cardEl(page, ids.card).getByRole('img', { name: 'Repeats every week' })

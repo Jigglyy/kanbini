@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BulkCardMenu, SelectionBar, type BulkActions } from '../selection'
+import { ContextMenu } from '../ui/context-menu'
 
 // SelectionBar (floating bulk-action bar) + BulkCardMenu (the same
 // actions on a selected card's right-click). The selection-set maths
@@ -87,12 +88,25 @@ describe('<SelectionBar>', () => {
   })
 })
 
+/** Open the menu for real: its fly-out rows need a ContextMenu. */
+function renderMenu(node: React.ReactElement): void {
+  render(
+    <ContextMenu menu={() => node}>
+      {(open) => <button onContextMenu={open}>open menu</button>}
+    </ContextMenu>
+  )
+  fireEvent.contextMenu(screen.getByRole('button', { name: 'open menu' }), {
+    clientX: 10,
+    clientY: 10
+  })
+}
+
 describe('<BulkCardMenu>', () => {
   it('lists the selection count + actions and closes after acting', async () => {
     const user = userEvent.setup()
     const actions = makeActions()
     const close = vi.fn()
-    render(<BulkCardMenu actions={actions} close={close} />)
+    renderMenu(<BulkCardMenu actions={actions} close={close} />)
     expect(screen.getByText('3 cards selected')).toBeInTheDocument()
 
     await user.click(screen.getByText('Mark complete'))
@@ -100,10 +114,23 @@ describe('<BulkCardMenu>', () => {
     expect(close).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps priorities, labels and lists in fly-outs, not in the menu itself', async () => {
+    const user = userEvent.setup()
+    const actions = makeActions()
+    renderMenu(<BulkCardMenu actions={actions} close={vi.fn()} />)
+    expect(screen.queryByText('Doing')).toBeNull()
+    expect(screen.queryByText('Bug')).toBeNull()
+    expect(screen.queryByText('Urgent')).toBeNull()
+    await user.click(screen.getByRole('button', { name: /^Priority/ }))
+    await user.click(screen.getByText('Urgent'))
+    expect(actions.onSetPriority).toHaveBeenCalledWith('urgent')
+  })
+
   it('moves the selection to a chosen list', async () => {
     const user = userEvent.setup()
     const actions = makeActions()
-    render(<BulkCardMenu actions={actions} close={vi.fn()} />)
+    renderMenu(<BulkCardMenu actions={actions} close={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: /^Move to list/ }))
     await user.click(screen.getByText('Doing'))
     expect(actions.onMoveTo).toHaveBeenCalledWith('list-2')
   })
@@ -112,7 +139,8 @@ describe('<BulkCardMenu>', () => {
     const user = userEvent.setup()
     const actions = makeActions()
     const close = vi.fn()
-    render(<BulkCardMenu actions={actions} close={close} />)
+    renderMenu(<BulkCardMenu actions={actions} close={close} />)
+    await user.click(screen.getByRole('button', { name: /^Labels/ }))
     await user.click(screen.getByText('Bug'))
     expect(actions.onToggleLabel).toHaveBeenCalledWith('L1')
     expect(close).not.toHaveBeenCalled()

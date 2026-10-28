@@ -142,7 +142,8 @@ test('new user creates a board, list, card, edits it, comments, then deletes', a
   await page
     .getByText('Pick up groceries', { exact: true })
     .click({ button: 'right' })
-  // PriorityPicker renders the four-level radio strip - click "High".
+  // Priority is a fly-out row; its picker lists the levels - click "High".
+  await page.getByRole('button', { name: /^Priority/ }).click()
   await page.getByRole('button', { name: 'High', exact: true }).click()
   // Reopen detail to confirm the priority chip rendered.
   await page.getByText('Pick up groceries', { exact: true }).click()
@@ -164,14 +165,16 @@ test('new user creates a board, list, card, edits it, comments, then deletes', a
   await page
     .getByText('Pick up groceries', { exact: true })
     .click({ button: 'right' })
-  // LabelToggleList renders one button per board label (text +
-  // optional ✓). The LabelBar's filter chip also has text "Errands"
-  // - disambiguate by excluding the chip's `title` attr that the
-  // CardMenu row doesn't have.
+  // Labels is a fly-out row; LabelToggleList inside it renders one
+  // button per board label (text + optional ✓). Scope to the fly-out:
+  // the LabelBar's filter chip also reads "Errands".
+  await page.getByRole('button', { name: /^Labels/ }).click()
   await page
-    .locator('button:not([title])', { hasText: /^Errands$/ })
+    .getByRole('menu', { name: 'Labels' })
+    .getByRole('button', { name: /Errands/ })
     .click()
-  // Dismiss the menu (click anywhere outside).
+  // Escape backs out of the fly-out, a second one closes the menu.
+  await page.keyboard.press('Escape')
   await page.keyboard.press('Escape')
   // The card now carries the label. With the Trello-style bars default
   // (settings.labelsExpanded off) the in-list card renders it as a

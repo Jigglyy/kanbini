@@ -1,4 +1,13 @@
 import { useState } from 'react'
+import {
+  ArrowDownUp,
+  BookmarkPlus,
+  Hash,
+  LogIn,
+  Palette,
+  Rows3,
+  Trash2
+} from 'lucide-react'
 import type {
   BoardView,
   CardDensity,
@@ -11,10 +20,12 @@ import type { Optimistic } from '../hooks/useBoardMutation'
 import { VISIBLE_LIMIT_OPTIONS } from '../lib/list-visibility'
 import { swatchOptions } from '../lib/palette'
 import { cn } from '../lib/utils'
-import { MenuLabel, MenuSep, revealOnMount } from './ui/context-menu'
+import { MenuLabel, MenuSep, SubMenu, revealOnMount } from './ui/context-menu'
 
 // List editor body - rendered inside a ContextMenu (pencil button or
-// right-click on the list header, wired in board.tsx).
+// right-click on the list header, wired in board.tsx). Rename and Move
+// stay on top; the settings with several options are fly-out rows that
+// show the current value.
 
 type Apply = (m: Mutation, o: Optimistic) => void
 
@@ -142,6 +153,18 @@ export function ListEditor({
     close()
   }
 
+  const sortLabel =
+    SORT_OPTIONS.find((o) => o.mode === (list.sortMode ?? null))?.label ?? 'Manual'
+  const cardsValue = `${list.cardDensity === 'compact' ? 'Compact' : 'Full'}${
+    list.visibleCardLimit != null ? ` · first ${list.visibleCardLimit}` : ''
+  }`
+  const onEnterValue =
+    list.onEnter?.kind === 'complete'
+      ? 'Complete'
+      : list.onEnter?.kind === 'uncomplete'
+        ? 'Uncomplete'
+        : 'None'
+
   return (
     <>
       <MenuLabel>Rename</MenuLabel>
@@ -187,208 +210,248 @@ export function ListEditor({
         </>
       )}
       <MenuSep />
-      <MenuLabel>Colour</MenuLabel>
-      <div className="flex flex-wrap items-center gap-1.5 px-2 py-1">
-        {swatchOptions(list.color).map((c) => (
+      <SubMenu
+        id="colour"
+        label="Colour"
+        icon={<Palette className="size-3.5" />}
+        value={
+          list.color ? (
+            <span
+              aria-hidden
+              className="inline-block size-3 rounded-full align-middle"
+              style={{ backgroundColor: list.color }}
+            />
+          ) : (
+            'None'
+          )
+        }
+      >
+        <div className="flex flex-wrap items-center gap-1.5 px-2 py-1">
+          {swatchOptions(list.color).map((c) => (
+            <button
+              key={c}
+              onClick={() => setColor(c)}
+              className={`size-5 rounded-full ${list.color === c ? 'ring-2 ring-ring' : ''}`}
+              style={{ backgroundColor: c }}
+              aria-label={`Colour ${c}`}
+            />
+          ))}
           <button
-            key={c}
-            onClick={() => setColor(c)}
-            className={`size-5 rounded-full ${list.color === c ? 'ring-2 ring-ring' : ''}`}
-            style={{ backgroundColor: c }}
-            aria-label={`Colour ${c}`}
+            onClick={() => setColor(null)}
+            className="ml-1 text-xs text-muted-foreground hover:text-foreground"
+          >
+            None
+          </button>
+        </div>
+      </SubMenu>
+      <SubMenu
+        id="sort"
+        label="Sort cards"
+        icon={<ArrowDownUp className="size-3.5" />}
+        value={sortLabel}
+        width={260}
+      >
+        <div className="grid grid-cols-2 gap-1 px-2 py-1">
+          {SORT_OPTIONS.map(({ label, mode, hint, full }) => {
+            const active = (list.sortMode ?? null) === mode
+            return (
+              <button
+                key={label}
+                title={hint}
+                onClick={() => {
+                  if (active) {
+                    close()
+                    return
+                  }
+                  apply(
+                    {
+                      type: 'list.update',
+                      id: list.id,
+                      patch: { sortMode: mode }
+                    },
+                    (b) => patchList(b, list.id, { sortMode: mode })
+                  )
+                  close()
+                }}
+                className={cn(
+                  'rounded px-2 py-1 text-xs',
+                  full && 'col-span-2',
+                  active
+                    ? 'bg-accent text-foreground'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                )}
+              >
+                {label}
+              </button>
+            )
+          })}
+        </div>
+      </SubMenu>
+      <SubMenu
+        id="cards"
+        label="Cards"
+        icon={<Rows3 className="size-3.5" />}
+        value={cardsValue}
+        width={240}
+      >
+        <MenuLabel>Size</MenuLabel>
+        <div className="grid grid-cols-2 gap-1 px-2 py-1">
+          {(
+            [
+              ['Full', null],
+              ['Compact', 'compact']
+            ] as Array<[string, CardDensity | null]>
+          ).map(([label, density]) => {
+            const active = list.cardDensity === density
+            return (
+              <button
+                key={label}
+                aria-pressed={active}
+                onClick={() => {
+                  if (active) {
+                    close()
+                    return
+                  }
+                  apply(
+                    {
+                      type: 'list.update',
+                      id: list.id,
+                      patch: { cardDensity: density }
+                    },
+                    (b) => patchList(b, list.id, { cardDensity: density })
+                  )
+                  close()
+                }}
+                className={cn(
+                  'rounded px-2 py-1 text-xs',
+                  active
+                    ? 'bg-accent text-foreground'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                )}
+              >
+                {label}
+              </button>
+            )
+          })}
+        </div>
+        <MenuLabel>Show at most</MenuLabel>
+        <div className="grid grid-cols-4 gap-1 px-2 py-1">
+          {VISIBLE_LIMIT_OPTIONS.map((limit) => {
+            const label = limit == null ? 'All' : String(limit)
+            const active = list.visibleCardLimit === limit
+            return (
+              <button
+                key={label}
+                aria-pressed={active}
+                aria-label={limit == null ? 'Show all cards' : `Show at most ${limit} cards`}
+                onClick={() => {
+                  if (active) {
+                    close()
+                    return
+                  }
+                  apply(
+                    {
+                      type: 'list.update',
+                      id: list.id,
+                      patch: { visibleCardLimit: limit }
+                    },
+                    (b) => patchList(b, list.id, { visibleCardLimit: limit })
+                  )
+                  close()
+                }}
+                className={cn(
+                  'rounded px-2 py-1 text-xs',
+                  active
+                    ? 'bg-accent text-foreground'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                )}
+              >
+                {label}
+              </button>
+            )
+          })}
+        </div>
+      </SubMenu>
+      <SubMenu
+        id="on-enter"
+        label="On card enter"
+        icon={<LogIn className="size-3.5" />}
+        value={onEnterValue}
+        width={260}
+      >
+        <div className="grid grid-cols-3 gap-1 px-2 py-1">
+          {(
+            [
+              ['None', null],
+              ['Complete', { kind: 'complete' }],
+              ['Uncomplete', { kind: 'uncomplete' }]
+            ] as Array<[string, ListOnEnterRule | null]>
+          ).map(([label, rule]) => {
+            const active =
+              (list.onEnter?.kind ?? null) === (rule?.kind ?? null)
+            return (
+              <button
+                key={label}
+                onClick={() => {
+                  if (active) {
+                    close()
+                    return
+                  }
+                  apply(
+                    {
+                      type: 'list.update',
+                      id: list.id,
+                      patch: { onEnter: rule }
+                    },
+                    (b) => patchList(b, list.id, { onEnter: rule })
+                  )
+                  close()
+                }}
+                className={cn(
+                  'rounded px-2 py-1 text-xs',
+                  active
+                    ? 'bg-accent text-foreground'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                )}
+              >
+                {label}
+              </button>
+            )
+          })}
+        </div>
+      </SubMenu>
+      <SubMenu
+        id="limit"
+        label="Card limit"
+        icon={<Hash className="size-3.5" />}
+        value={list.wipLimit != null ? String(list.wipLimit) : 'None'}
+      >
+        <div className="flex items-center gap-2 px-2 py-1">
+          <input
+            type="number"
+            min="1"
+            value={wip}
+            onChange={(e) => setWip(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                commitWip()
+                close()
+              }
+            }}
+            placeholder="None"
+            className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-1 text-sm focus:border-ring focus:outline-none"
           />
-        ))}
-        <button
-          onClick={() => setColor(null)}
-          className="ml-1 text-xs text-muted-foreground hover:text-foreground"
-        >
-          None
-        </button>
-      </div>
-      <MenuSep />
-      <MenuLabel>Sort cards</MenuLabel>
-      <div className="grid grid-cols-2 gap-1 px-2 py-1">
-        {SORT_OPTIONS.map(({ label, mode, hint, full }) => {
-          const active = (list.sortMode ?? null) === mode
-          return (
-            <button
-              key={label}
-              title={hint}
-              onClick={() => {
-                if (active) {
-                  close()
-                  return
-                }
-                apply(
-                  {
-                    type: 'list.update',
-                    id: list.id,
-                    patch: { sortMode: mode }
-                  },
-                  (b) => patchList(b, list.id, { sortMode: mode })
-                )
-                close()
-              }}
-              className={cn(
-                'rounded px-2 py-1 text-xs',
-                full && 'col-span-2',
-                active
-                  ? 'bg-accent text-foreground'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-              )}
-            >
-              {label}
-            </button>
-          )
-        })}
-      </div>
-      <MenuSep />
-      <MenuLabel>Cards</MenuLabel>
-      <div className="grid grid-cols-2 gap-1 px-2 py-1">
-        {(
-          [
-            ['Full', null],
-            ['Compact', 'compact']
-          ] as Array<[string, CardDensity | null]>
-        ).map(([label, density]) => {
-          const active = list.cardDensity === density
-          return (
-            <button
-              key={label}
-              aria-pressed={active}
-              onClick={() => {
-                if (active) {
-                  close()
-                  return
-                }
-                apply(
-                  {
-                    type: 'list.update',
-                    id: list.id,
-                    patch: { cardDensity: density }
-                  },
-                  (b) => patchList(b, list.id, { cardDensity: density })
-                )
-                close()
-              }}
-              className={cn(
-                'rounded px-2 py-1 text-xs',
-                active
-                  ? 'bg-accent text-foreground'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-              )}
-            >
-              {label}
-            </button>
-          )
-        })}
-      </div>
-      <MenuLabel>Show at most</MenuLabel>
-      <div className="grid grid-cols-4 gap-1 px-2 py-1">
-        {VISIBLE_LIMIT_OPTIONS.map((limit) => {
-          const label = limit == null ? 'All' : String(limit)
-          const active = list.visibleCardLimit === limit
-          return (
-            <button
-              key={label}
-              aria-pressed={active}
-              aria-label={limit == null ? 'Show all cards' : `Show at most ${limit} cards`}
-              onClick={() => {
-                if (active) {
-                  close()
-                  return
-                }
-                apply(
-                  {
-                    type: 'list.update',
-                    id: list.id,
-                    patch: { visibleCardLimit: limit }
-                  },
-                  (b) => patchList(b, list.id, { visibleCardLimit: limit })
-                )
-                close()
-              }}
-              className={cn(
-                'rounded px-2 py-1 text-xs',
-                active
-                  ? 'bg-accent text-foreground'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-              )}
-            >
-              {label}
-            </button>
-          )
-        })}
-      </div>
-      <MenuSep />
-      <MenuLabel>On card enter</MenuLabel>
-      <div className="grid grid-cols-3 gap-1 px-2 py-1">
-        {(
-          [
-            ['None', null],
-            ['Complete', { kind: 'complete' }],
-            ['Uncomplete', { kind: 'uncomplete' }]
-          ] as Array<[string, ListOnEnterRule | null]>
-        ).map(([label, rule]) => {
-          const active =
-            (list.onEnter?.kind ?? null) === (rule?.kind ?? null)
-          return (
-            <button
-              key={label}
-              onClick={() => {
-                if (active) {
-                  close()
-                  return
-                }
-                apply(
-                  {
-                    type: 'list.update',
-                    id: list.id,
-                    patch: { onEnter: rule }
-                  },
-                  (b) => patchList(b, list.id, { onEnter: rule })
-                )
-                close()
-              }}
-              className={cn(
-                'rounded px-2 py-1 text-xs',
-                active
-                  ? 'bg-accent text-foreground'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-              )}
-            >
-              {label}
-            </button>
-          )
-        })}
-      </div>
-      <MenuSep />
-      <MenuLabel>Card limit</MenuLabel>
-      <div className="flex items-center gap-2 px-2 py-1">
-        <input
-          type="number"
-          min="1"
-          value={wip}
-          onChange={(e) => setWip(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
+          <button
+            onClick={() => {
               commitWip()
               close()
-            }
-          }}
-          placeholder="None"
-          className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-1 text-sm focus:border-ring focus:outline-none"
-        />
-        <button
-          onClick={() => {
-            commitWip()
-            close()
-          }}
-          className="shrink-0 rounded bg-muted px-2.5 py-1 text-sm hover:bg-accent hover:text-accent-foreground"
-        >
-          Set
-        </button>
-      </div>
+            }}
+            className="shrink-0 rounded bg-muted px-2.5 py-1 text-sm hover:bg-accent hover:text-accent-foreground"
+          >
+            Set
+          </button>
+        </div>
+      </SubMenu>
       {onSaveAsTemplate && (
         <>
           <MenuSep />
@@ -397,8 +460,11 @@ export function ListEditor({
               onSaveAsTemplate()
               close()
             }}
-            className="rounded px-2 py-1.5 text-left text-sm text-foreground hover:bg-muted"
+            className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-foreground hover:bg-muted"
           >
+            <span className="inline-flex w-4 justify-center text-muted-foreground">
+              <BookmarkPlus className="size-3.5" />
+            </span>
             Save as template…
           </button>
         </>
@@ -428,8 +494,11 @@ export function ListEditor({
       ) : (
         <button
           onClick={() => setConfirming(true)}
-          className="rounded px-2 py-1.5 text-left text-sm text-red-400 hover:bg-muted hover:text-red-300"
+          className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-red-400 hover:bg-muted hover:text-red-300"
         >
+          <span className="inline-flex w-4 justify-center">
+            <Trash2 className="size-3.5" />
+          </span>
           Delete list
         </button>
       )}

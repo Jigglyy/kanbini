@@ -37,6 +37,8 @@ async function setSort(
   which = 0
 ): Promise<void> {
   await page.getByRole('button', { name: 'Edit list' }).nth(which).click()
+  // Sort cards is a fly-out row in the list menu.
+  await page.getByRole('button', { name: /^Sort cards/ }).click()
   await page.getByRole('button', { name: label, exact: true }).click()
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type {
   AttachmentView,
@@ -8,6 +8,7 @@ import type {
   Mutation
 } from '@kanbini/shared'
 import { CardMenu } from '../card-menu'
+import { ContextMenu } from '../ui/context-menu'
 import { kanbiniMock } from '../../__tests__/_kanbini-mock'
 
 // Tests for the right-click card menu - focused on the orchestration
@@ -48,9 +49,26 @@ function makeCard(overrides: Partial<CardView> = {}): CardView {
 
 const NO_LABELS: LabelView[] = []
 
+/** Open the menu for real: its fly-out rows need a ContextMenu around
+ *  them. The CardMenu's own `close` prop stays the test's spy. */
+function renderMenu(node: React.ReactElement): void {
+  render(
+    <ContextMenu menu={() => node}>
+      {(open) => <button onContextMenu={open}>open menu</button>}
+    </ContextMenu>
+  )
+  fireEvent.contextMenu(screen.getByRole('button', { name: 'open menu' }), {
+    clientX: 10,
+    clientY: 10
+  })
+}
+/** A fly-out row (its name starts with the label, then the value). */
+const flyoutRow = (label: string) =>
+  screen.getByRole('button', { name: new RegExp(`^${label}`) })
+
 describe('<CardMenu>', () => {
-  it('renders the section labels in order (Labels / Due date / Cover)', () => {
-    render(
+  it('lists the fly-out rows, each with its current value', () => {
+    renderMenu(
       <CardMenu
         card={makeCard()}
         labels={NO_LABELS}
@@ -59,16 +77,20 @@ describe('<CardMenu>', () => {
         onRequestCoverFromUrl={vi.fn()}
       />
     )
-    expect(screen.getByText('Labels')).toBeInTheDocument()
-    expect(screen.getByText('Due date')).toBeInTheDocument()
-    expect(screen.getByText('Cover')).toBeInTheDocument()
+    expect(flyoutRow('Labels')).toHaveTextContent('None')
+    expect(flyoutRow('Due date')).toHaveTextContent('None')
+    expect(flyoutRow('Repeat')).toHaveTextContent('Off')
+    expect(flyoutRow('Priority')).toHaveTextContent('None')
+    expect(flyoutRow('Cover')).toHaveTextContent('None')
+    // The options themselves wait in the fly-outs.
+    expect(screen.queryByText(/Set from file/)).toBeNull()
   })
 
   it('"Set from URL…" calls onRequestCoverFromUrl + closes the menu', async () => {
     const user = userEvent.setup()
     const close = vi.fn()
     const onRequestCoverFromUrl = vi.fn()
-    render(
+    renderMenu(
       <CardMenu
         card={makeCard()}
         labels={NO_LABELS}
@@ -77,6 +99,7 @@ describe('<CardMenu>', () => {
         onRequestCoverFromUrl={onRequestCoverFromUrl}
       />
     )
+    await user.click(flyoutRow('Cover'))
     await user.click(screen.getByText(/Set from URL/))
     expect(onRequestCoverFromUrl).toHaveBeenCalledTimes(1)
     expect(close).toHaveBeenCalledTimes(1)
@@ -97,7 +120,7 @@ describe('<CardMenu>', () => {
       createdAt: 0
     }
     mock.attachmentAdd.mockResolvedValueOnce(att)
-    render(
+    renderMenu(
       <CardMenu
         card={makeCard()}
         labels={NO_LABELS}
@@ -106,6 +129,7 @@ describe('<CardMenu>', () => {
         onRequestCoverFromUrl={vi.fn()}
       />
     )
+    await user.click(flyoutRow('Cover'))
     await user.click(screen.getByText(/Set from file/))
     // Menu closes immediately on click - before the IPC resolves.
     expect(close).toHaveBeenCalledTimes(1)
@@ -125,7 +149,7 @@ describe('<CardMenu>', () => {
     const user = userEvent.setup()
     const mock = kanbiniMock()
     mock.attachmentAdd.mockResolvedValueOnce(null)
-    render(
+    renderMenu(
       <CardMenu
         card={makeCard()}
         labels={NO_LABELS}
@@ -134,6 +158,7 @@ describe('<CardMenu>', () => {
         onRequestCoverFromUrl={vi.fn()}
       />
     )
+    await user.click(flyoutRow('Cover'))
     await user.click(screen.getByText(/Set from file/))
     await waitFor(() => {
       expect(mock.attachmentAdd).toHaveBeenCalled()
@@ -147,7 +172,7 @@ describe('<CardMenu>', () => {
     mock.attachmentAdd.mockRejectedValueOnce(new Error('upload failed'))
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
-      render(
+      renderMenu(
         <CardMenu
           card={makeCard()}
           labels={NO_LABELS}
@@ -156,6 +181,7 @@ describe('<CardMenu>', () => {
           onRequestCoverFromUrl={vi.fn()}
         />
       )
+      await user.click(flyoutRow('Cover'))
       await user.click(screen.getByText(/Set from file/))
       await waitFor(() => {
         expect(warnSpy).toHaveBeenCalled()
@@ -167,8 +193,8 @@ describe('<CardMenu>', () => {
     }
   })
 
-  it('"Remove cover" is hidden when the card has no cover', () => {
-    render(
+  it('"Remove cover" is hidden when the card has no cover', async () => {
+    renderMenu(
       <CardMenu
         card={makeCard({ coverAttachmentId: null })}
         labels={NO_LABELS}
@@ -177,6 +203,8 @@ describe('<CardMenu>', () => {
         onRequestCoverFromUrl={vi.fn()}
       />
     )
+    await userEvent.setup().click(flyoutRow('Cover'))
+    expect(screen.getByText(/Set from file/)).toBeInTheDocument()
     expect(screen.queryByText(/Remove cover/)).toBeNull()
   })
 
@@ -184,7 +212,7 @@ describe('<CardMenu>', () => {
     const user = userEvent.setup()
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
     const close = vi.fn()
-    render(
+    renderMenu(
       <CardMenu
         card={makeCard({ coverAttachmentId: 'att-1' })}
         labels={NO_LABELS}
@@ -193,6 +221,7 @@ describe('<CardMenu>', () => {
         onRequestCoverFromUrl={vi.fn()}
       />
     )
+    await user.click(flyoutRow('Cover'))
     await user.click(screen.getByText(/Remove cover/))
     expect(apply.mock.calls[0]![0]).toEqual({
       type: 'card.update',
@@ -205,7 +234,7 @@ describe('<CardMenu>', () => {
   it('"Mark complete" fires card.update toggling completed → true', async () => {
     const user = userEvent.setup()
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
-    render(
+    renderMenu(
       <CardMenu
         card={makeCard({ completed: false })}
         labels={NO_LABELS}
@@ -225,7 +254,7 @@ describe('<CardMenu>', () => {
   it('"Mark incomplete" appears + fires when the card is already complete', async () => {
     const user = userEvent.setup()
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
-    render(
+    renderMenu(
       <CardMenu
         card={makeCard({ completed: true })}
         labels={NO_LABELS}
@@ -246,7 +275,7 @@ describe('<CardMenu>', () => {
     const user = userEvent.setup()
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
     const close = vi.fn()
-    render(
+    renderMenu(
       <CardMenu
         card={makeCard()}
         labels={NO_LABELS}
@@ -263,11 +292,12 @@ describe('<CardMenu>', () => {
     expect(close).toHaveBeenCalledTimes(1)
   })
 
-  it('composed children render - LabelToggleList, DueEditor, PriorityPicker', () => {
+  it('composed children render in their fly-outs - LabelToggleList, PriorityPicker', async () => {
+    const user = userEvent.setup()
     const labels: LabelView[] = [
       { id: 'l1', name: 'Bug', color: 'oklch(0.62 0.17 25)' }
     ]
-    render(
+    renderMenu(
       <CardMenu
         card={makeCard({ priority: 'high' })}
         labels={labels}
@@ -276,17 +306,18 @@ describe('<CardMenu>', () => {
         onRequestCoverFromUrl={vi.fn()}
       />
     )
-    // LabelToggleList shows the label row.
-    expect(screen.getByRole('button', { name: /Bug/ })).toBeInTheDocument()
-    // PriorityPicker renders the four-level radio strip; "High" should
-    // appear (active state highlights it but the label is in the DOM).
-    expect(screen.getByText('High')).toBeInTheDocument()
+    // The row shows the current priority; the picker is in the fly-out.
+    expect(flyoutRow('Priority')).toHaveTextContent('High')
+    await user.click(flyoutRow('Labels'))
+    expect(screen.getByRole('menu', { name: 'Labels' })).toHaveTextContent('Bug')
+    await user.click(flyoutRow('Priority'))
+    expect(screen.getByRole('menu', { name: 'Priority' })).toHaveTextContent('Urgent')
   })
 
   it('offers Collapse card when the host supplies a toggle', async () => {
     const onToggleCollapse = vi.fn()
     const close = vi.fn()
-    render(
+    renderMenu(
       <CardMenu
         card={makeCard()}
         labels={NO_LABELS}
@@ -303,7 +334,7 @@ describe('<CardMenu>', () => {
   })
 
   it('says Expand card on a compact card', () => {
-    render(
+    renderMenu(
       <CardMenu
         card={makeCard()}
         labels={NO_LABELS}
@@ -318,7 +349,7 @@ describe('<CardMenu>', () => {
   })
 
   it('leaves the item out when there is no toggle', () => {
-    render(
+    renderMenu(
       <CardMenu
         card={makeCard()}
         labels={NO_LABELS}
@@ -329,5 +360,57 @@ describe('<CardMenu>', () => {
     )
     expect(screen.queryByText('Collapse card')).not.toBeInTheDocument()
     expect(screen.queryByText('Expand card')).not.toBeInTheDocument()
+  })
+
+  it('the rows read the card: its labels, due date, repeat, priority and cover', () => {
+    const labels: LabelView[] = [
+      { id: 'l1', name: 'Bug', color: 'red' },
+      { id: 'l2', name: 'UI', color: 'blue' },
+      { id: 'l3', name: 'Unused', color: 'green' }
+    ]
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    renderMenu(
+      <CardMenu
+        card={makeCard({
+          labelIds: ['l1', 'l2'],
+          dueAt: today.getTime(),
+          repeat: { unit: 'week', every: 1 },
+          priority: 'urgent',
+          coverAttachmentId: 'att-1'
+        })}
+        labels={labels}
+        apply={vi.fn()}
+        close={vi.fn()}
+        onRequestCoverFromUrl={vi.fn()}
+      />
+    )
+    expect(flyoutRow('Labels')).toHaveTextContent('Bug, UI')
+    expect(flyoutRow('Due date')).toHaveTextContent('Today')
+    expect(flyoutRow('Repeat')).toHaveTextContent('Every week')
+    expect(flyoutRow('Priority')).toHaveTextContent('Urgent')
+    expect(flyoutRow('Cover')).toHaveTextContent('On')
+  })
+
+  it('"Archive card" archives it (off the board, kept) + closes the menu', async () => {
+    const user = userEvent.setup()
+    const apply = vi.fn<(m: Mutation, o: unknown) => void>()
+    const close = vi.fn()
+    renderMenu(
+      <CardMenu
+        card={makeCard()}
+        labels={NO_LABELS}
+        apply={apply}
+        close={close}
+        onRequestCoverFromUrl={vi.fn()}
+      />
+    )
+    await user.click(screen.getByText('Archive card'))
+    expect(apply.mock.calls[0]![0]).toEqual({
+      type: 'card.update',
+      id: 'c1',
+      patch: { archived: true }
+    })
+    expect(close).toHaveBeenCalledTimes(1)
   })
 })

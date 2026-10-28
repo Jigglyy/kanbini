@@ -31,6 +31,8 @@ test('the Tomorrow shortcut sets local midnight and the chip says Tomorrow', asy
   const { page } = handle
   const card = page.locator(`[data-card-id="${cardId}"]`)
   await card.click({ button: 'right' })
+  // Due date is a fly-out row in the card menu.
+  await page.getByRole('button', { name: /^Due date/ }).click()
   await page
     .getByRole('group', { name: 'Due date shortcuts' })
     .getByRole('button', { name: 'Tomorrow' })
