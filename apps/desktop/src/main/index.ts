@@ -34,6 +34,8 @@ import {
   zBoardsListView,
   zAgendaRequest,
   zAgendaView,
+  zArchivedItemsView,
+  zGetArchivedItemsRequest,
   zBoardView,
   zExportSummary,
   zGetBoardViewRequest,
@@ -73,6 +75,7 @@ import {
   deleteTemplate,
   exportToFolder,
   getAgenda,
+  getArchivedItems,
   getBoardView,
   importFromFolder,
   importFromTrello,
@@ -423,6 +426,13 @@ function registerIpc(
   ipcMain.handle(IPC.agenda, (_event, raw: unknown) => {
     const req = zAgendaRequest.parse(raw ?? {})
     return zAgendaView.parse(getAgenda(db, req))
+  })
+
+  // The board's Archived view (the same read MCP's
+  // kanbini_list_archived uses).
+  ipcMain.handle(IPC.archivedItems, (_event, raw: unknown) => {
+    const { boardId } = zGetArchivedItemsRequest.parse(raw ?? {})
+    return zArchivedItemsView.nullable().parse(getArchivedItems(db, boardId))
   })
 
   ipcMain.handle(IPC.mutate, async (_event, raw: unknown) => {

@@ -3,6 +3,8 @@
 // payload shapes come from the shared contract.
 import type {
   AgendaRequest,
+  ArchivedItemsView,
+  GetArchivedItemsRequest,
   AgendaView,
   AppInfo,
   AttachmentView,
@@ -61,6 +63,7 @@ declare global {
       undoClear: () => Promise<UndoStatus>
       searchCards: (req: SearchCardsRequest) => Promise<SearchHits>
       agenda: (req: AgendaRequest) => Promise<AgendaView>
+      archivedItems: (req: GetArchivedItemsRequest) => Promise<ArchivedItemsView | null>
       appInfo: () => Promise<AppInfo>
       mcpInfo: () => Promise<McpInfo>
       obsidianPickVault: () => Promise<string | null>

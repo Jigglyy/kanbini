@@ -38,8 +38,9 @@ Nothing is sent anywhere else.
 - Move a card with `kanbini_move_card`. Don't delete and recreate it:
   that loses its comments, checklists, attachments, and history.
 - Prefer archiving (`kanbini_archive_card`, `kanbini_archive_list`) over
-  deleting. The app has no screen for archived items yet, so tell the
-  user what you archived; `kanbini_list_archived` finds it again.
+  deleting. Tell the user what you archived: they can see and restore
+  it in the app from the board's pencil menu > Archived..., and
+  `kanbini_list_archived` finds it again.
 - Due dates are epoch milliseconds at LOCAL midnight of the due day.
 - Priority is `low`, `medium`, `high`, `urgent`, or null.
 - Repeating cards: set `repeat: { unit: 'day' | 'week' | 'month' |

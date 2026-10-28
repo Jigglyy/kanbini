@@ -55,6 +55,9 @@ export const IPC = {
    *  upcoming / recently completed) for the boards home. Returns
    *  AgendaView. */
   agenda: 'agenda:get',
+  /** renderer -> main: a board's archived cards + closed lists (the
+   *  board's Archived view). Returns ArchivedItemsView | null. */
+  archivedItems: 'archived:get',
   /** renderer → main: app version + paths for Settings → About. */
   appInfo: 'app:info',
   /** renderer → main: MCP control-channel status + paths + copy-paste

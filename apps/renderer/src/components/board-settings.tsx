@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import { BookmarkPlus, Image as ImageIcon, Pencil, Rows3 } from 'lucide-react'
+import { Archive, BookmarkPlus, Image as ImageIcon, Pencil, Rows3 } from 'lucide-react'
 import type {
   BoardView,
   Mutation,
   SwimlaneMode
 } from '@kanbini/shared'
 import type { Optimistic } from '../hooks/useBoardMutation'
+import { ArchivedItemsDialog } from './archived-items'
 import { BackgroundPicker } from './background-picker'
 import { SaveTemplateDialog } from './templates'
 import { Popover } from './ui/popover'
@@ -30,6 +31,7 @@ export function BoardSettings({
 }) {
   const [bgOpen, setBgOpen] = useState(false)
   const [saveTplOpen, setSaveTplOpen] = useState(false)
+  const [archivedOpen, setArchivedOpen] = useState(false)
   return (
     <>
       <Popover
@@ -60,6 +62,10 @@ export function BoardSettings({
               close()
               setSaveTplOpen(true)
             }}
+            onOpenArchived={() => {
+              close()
+              setArchivedOpen(true)
+            }}
           />
         )}
       </Popover>
@@ -75,6 +81,16 @@ export function BoardSettings({
             }))
           }
           onClose={() => setBgOpen(false)}
+        />
+      )}
+      {/* Hosted here, above the popover, so it outlives the popover
+          closing (same as Background and Save as template). */}
+      {archivedOpen && (
+        <ArchivedItemsDialog
+          open
+          boardId={board.board.id}
+          boardName={board.board.name}
+          onClose={() => setArchivedOpen(false)}
         />
       )}
       <SaveTemplateDialog
@@ -93,13 +109,15 @@ function RenameBody({
   apply,
   close,
   onOpenBackground,
-  onSaveAsTemplate
+  onSaveAsTemplate,
+  onOpenArchived
 }: {
   board: BoardView
   apply: Apply
   close: () => void
   onOpenBackground: () => void
   onSaveAsTemplate: () => void
+  onOpenArchived: () => void
 }) {
   const [name, setName] = useState(board.board.name)
   // Re-sync if the board is renamed elsewhere while this popover is
@@ -148,6 +166,14 @@ function RenameBody({
       >
         <BookmarkPlus className="size-3.5 text-muted-foreground" />
         Save as template…
+      </button>
+      <button
+        type="button"
+        onClick={onOpenArchived}
+        className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-foreground hover:bg-muted"
+      >
+        <Archive className="size-3.5 text-muted-foreground" />
+        Archived…
       </button>
       <SwimlaneRow board={board} apply={apply} />
     </div>

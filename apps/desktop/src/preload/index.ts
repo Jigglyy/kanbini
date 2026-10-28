@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@kanbini/shared/channels'
 import type {
   AgendaRequest,
+  ArchivedItemsView,
+  GetArchivedItemsRequest,
   AgendaView,
   AppInfo,
   AttachmentView,
@@ -101,6 +103,9 @@ const api = {
   /** Cross-board agenda for the boards home. */
   agenda: (req: AgendaRequest): Promise<AgendaView> =>
     ipcRenderer.invoke(IPC.agenda, req),
+  /** A board's archived cards + closed lists. */
+  archivedItems: (req: GetArchivedItemsRequest): Promise<ArchivedItemsView | null> =>
+    ipcRenderer.invoke(IPC.archivedItems, req),
   /** M4-F: app version + userData paths for Settings → About. */
   appInfo: (): Promise<AppInfo> => ipcRenderer.invoke(IPC.appInfo),
   /** M4-F: MCP control-channel status + paths + copy-paste config

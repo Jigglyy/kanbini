@@ -350,8 +350,9 @@ on-disk export when the app is closed, like the other reads.
 #### `kanbini_list_archived`
 
 What a board has put away. Archived cards and lists don't show on the
-board, in search, or in the home counts, and **the app has no screen
-for them yet**, so this is how to find them again.
+board, in search, or in the home counts; in the app they're under the
+board's pencil menu > **Archived...**, and from an AI this is how to
+find them again.
 
 | Argument  | Type     | Required |
 |-----------|----------|----------|
@@ -783,7 +784,3 @@ as "app offline". Restart the desktop app.
   via resources; main already broadcasts `changed`, so wiring it
   into the control channel as a long-poll or SSE stream is a
   natural follow-up. Nice-to-have, not blocking.
-- **An in-app view of archived cards and lists**: the archive tools
-  and `kanbini_list_archived` make archiving reversible from the AI
-  side, but the app itself has no screen to browse or restore them
-  yet.

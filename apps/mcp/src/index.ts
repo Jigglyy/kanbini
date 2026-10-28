@@ -1016,9 +1016,9 @@ server.registerTool(
   ({ id }) => asToolResult(() => mutate({ type: 'label.delete', id }))
 )
 
-// Archive tools. The app has no screen for archived cards or closed
-// lists yet, so each description tells the AI how to find them again -
-// and to say so to the user, who would otherwise see the item vanish.
+// Archive tools. Each description tells the AI to say an item was
+// archived (not deleted) and where the user finds it again: the
+// board's pencil menu -> Archived... in the app.
 
 server.registerTool(
   'kanbini_archive_card',
@@ -1028,10 +1028,11 @@ server.registerTool(
       'Archive (archived: true) or restore (archived: false) a card. An ' +
       'archived card disappears from the board, search, and card counts ' +
       'but keeps its list, position, checklists, comments, and ' +
-      'attachments, so restoring puts it back exactly where it was. The ' +
-      'app has no view of archived cards yet: tell the user the card was ' +
-      'archived rather than deleted, and use kanbini_list_archived to ' +
-      'find it again. Prefer this over kanbini_delete_card when the user ' +
+      'attachments, so restoring puts it back exactly where it was. Tell ' +
+      'the user the card was archived rather than deleted: they can see ' +
+      'and restore it in the app from the board\'s pencil menu > ' +
+      'Archived..., and kanbini_list_archived finds it too. Prefer this ' +
+      'over kanbini_delete_card when the user ' +
       'wants a card "out of the way".',
     inputSchema: { id: z.string(), archived: z.boolean() }
   },
@@ -1050,9 +1051,9 @@ server.registerTool(
       '(column). An archived list is hidden from the board along with ' +
       'every card in it, and its cards drop out of search and counts; ' +
       'nothing is deleted, and restoring brings the list back in its ' +
-      'original slot with its cards. The app has no view of archived ' +
-      'lists yet: tell the user, and use kanbini_list_archived to find ' +
-      'it again.',
+      'original slot with its cards. Tell the user: they can see and ' +
+      'restore it in the app from the board\'s pencil menu > ' +
+      'Archived..., and kanbini_list_archived finds it too.',
     inputSchema: { id: z.string(), archived: z.boolean() }
   },
   ({ id, archived }) =>

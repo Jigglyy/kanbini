@@ -12,6 +12,8 @@ import { vi } from 'vitest'
 
 import type {
   AgendaRequest,
+  ArchivedItemsView,
+  GetArchivedItemsRequest,
   AgendaView,
   AppInfo,
   AttachmentView,
@@ -147,6 +149,13 @@ function makeBridge() {
     ),
     agenda: vi.fn(
       async (_req: AgendaRequest): Promise<AgendaView> => EMPTY_AGENDA
+    ),
+    archivedItems: vi.fn(
+      async (req: GetArchivedItemsRequest): Promise<ArchivedItemsView | null> => ({
+        boardId: req.boardId,
+        lists: [],
+        cards: []
+      })
     ),
     appInfo: vi.fn(
       async (): Promise<AppInfo> => ({

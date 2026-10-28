@@ -527,9 +527,9 @@ export type AgendaView = z.infer<typeof zAgendaView>
 
 /** What a board has hidden away: closed lists and archived cards.
  *  Neither shows on the board view, in search, or in the home counts,
- *  and the app has no screen for them yet - so this read is the only
- *  way to find them again (MCP `kanbini_list_archived`, which the
- *  archive tools point at). Ordered for a "what did I just put away?"
+ *  so this read is how they're found again: the board's Archived view
+ *  (pencil menu) and MCP `kanbini_list_archived`, which the archive
+ *  tools point at. Ordered for a "what did I just put away?"
  *  read: lists by board position, cards most-recently-touched first. */
 export const zArchivedItemsView = z.object({
   boardId: z.string(),

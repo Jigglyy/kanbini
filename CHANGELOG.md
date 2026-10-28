@@ -28,6 +28,10 @@ installer and portable app and publishes a GitHub Release (see
 
 - **Archive a card from its right-click menu.** It leaves the board
   but isn't deleted.
+- **See and restore archived cards and lists.** Open the board's pencil
+  menu and choose "Archived…" to see everything put away on that board,
+  with a Restore and a Delete button for each. Restoring a card whose
+  list was archived too brings the list back with it.
 - **The card detail says where the card lives**, like "in To Do ·
   Website", right under the title. Click it to close the card and see
   it on the board.

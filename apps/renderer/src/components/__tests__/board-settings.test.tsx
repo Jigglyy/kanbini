@@ -199,4 +199,15 @@ describe('<BoardSettings>', () => {
       screen.getByDisplayValue('Renamed externally')
     ).toBeInTheDocument()
   })
+
+  it('Archived… opens the board archive (and closes the popover)', async () => {
+    const user = userEvent.setup()
+    renderBoardSettings(makeBoard())
+    await user.click(screen.getByRole('button', { name: 'Rename board' }))
+    await user.click(screen.getByRole('button', { name: /archived/i }))
+    expect(
+      await screen.findByRole('dialog', { name: 'Archived on Welcome' })
+    ).toBeInTheDocument()
+    expect(screen.queryByDisplayValue('Welcome')).toBeNull()
+  })
 })
