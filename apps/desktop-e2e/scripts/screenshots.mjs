@@ -467,8 +467,13 @@ async function main() {
 
     // ── Home: agenda + boards ──────────────────────────────────────
     await page.getByRole('heading', { name: /your boards/i }).waitFor()
-    await page.getByRole('region', { name: 'Agenda' }).waitFor()
+    const agenda = page.getByRole('region', { name: 'Agenda' })
     await page.getByText('Product Roadmap', { exact: true }).waitFor()
+    // Collapsed to its one-line summary, so the boards grid leads.
+    const agendaToggle = agenda.getByRole('button', { expanded: true })
+    await agendaToggle.click()
+    await agenda.getByRole('button', { expanded: false }).waitFor()
+    await page.evaluate(() => document.activeElement?.blur())
     await restMouse()
     await sleep(700)
     await shot('home')
