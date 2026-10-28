@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { launchKanbini, type E2EHandle } from './_launch.js'
+import { isGlowing } from './_glow.js'
 
 // E2E for the cross-board command palette (M4-D, ADR-0030).
 // Welcome Board is pre-seeded on first boot with several cards
@@ -43,20 +44,26 @@ test('command palette finds a card by substring + navigates to it', async () => 
   const result = palette.getByText('Drag a card to another list')
   await expect(result).toBeVisible()
 
-  // Activate the hit - opens the CardDetail modal at that card.
+  // Activate the hit - points the card out on the board (scroll + glow)
+  // without opening it; keyboard focus lands on it, so Enter opens it.
   await result.click()
-  await expect(
-    page.getByRole('dialog', { name: 'Drag a card to another list' })
-  ).toBeVisible()
+  const card = page
+    .locator('[data-card-id]')
+    .filter({ has: page.getByText('Drag a card to another list', { exact: true }) })
+  await expect.poll(() => isGlowing(card)).toBe(true)
+  const detail = page.getByRole('dialog', { name: 'Drag a card to another list' })
+  await expect(detail).toHaveCount(0)
+  await page.keyboard.press('Enter')
+  await expect(detail).toBeVisible()
 })
 
-test('re-activating the SAME card from the palette reopens the detail', async () => {
+test('picking the SAME card from the palette again points it out again', async () => {
   const { page } = handle
 
   await page.getByText('Welcome Board', { exact: true }).click()
   await expect(page.getByRole('heading', { name: /^To Do\b/ })).toBeVisible()
 
-  const openViaPalette = async (): Promise<void> => {
+  const showViaPalette = async (): Promise<void> => {
     await page.getByRole('button', { name: 'Search' }).click()
     const palette = page.getByRole('dialog', { name: 'Command palette' })
     const input = palette.getByPlaceholder(/search cards or jump/i)
@@ -66,23 +73,20 @@ test('re-activating the SAME card from the palette reopens the detail', async ()
     await expect(result).toBeVisible()
     await result.click()
   }
+  const card = page
+    .locator('[data-card-id]')
+    .filter({ has: page.getByText('Drag a card to another list', { exact: true }) })
 
-  // First open via the palette.
-  await openViaPalette()
-  const detail = page.getByRole('dialog', {
-    name: 'Drag a card to another list'
-  })
-  await expect(detail).toBeVisible()
+  await showViaPalette()
+  await expect.poll(() => isGlowing(card)).toBe(true)
+  // Let the glow finish.
+  await expect.poll(() => isGlowing(card), { timeout: 5000 }).toBe(false)
 
-  // Close the card detail.
-  await page.keyboard.press('Escape')
-  await expect(detail).not.toBeVisible()
-
-  // Re-activate the SAME card. Before the one-shot-route fix this was a
-  // silent no-op: route.openCardId never changed, so <Board>'s mirror
-  // effect didn't re-fire and the detail stayed closed.
-  await openViaPalette()
-  await expect(detail).toBeVisible()
+  // Pick the SAME card again. The route's request is one-shot (cleared
+  // once Board consumes it), so the same id is a real change and the
+  // card is pointed out again instead of a silent no-op.
+  await showViaPalette()
+  await expect.poll(() => isGlowing(card)).toBe(true)
 })
 
 test('Ctrl+F opens the palette (matches the renderer shortcut)', async () => {

@@ -9,6 +9,24 @@ Releases are cut by pushing a `v*` tag, which builds the Windows
 installer and portable app and publishes a GitHub Release (see
 [`.github/workflows/release.yml`](.github/workflows/release.yml)).
 
+## [Unreleased]
+
+### Changed
+
+- **Ctrl+F shows you where a card is instead of opening it.** Pick a
+  card and Kanbini goes to its board, scrolls it into view and makes it
+  glow for a moment, so you can see which list it's in. Press Enter to
+  open it from there.
+
+### Added
+
+- **The card detail says where the card lives**, like "in To Do ·
+  Website", right under the title. Click it to close the card and see
+  it on the board.
+- If a label filter or "Hide completed" is hiding the card you're
+  looking for, Kanbini tells you and offers to show it, instead of
+  quietly changing your filters.
+
 ## [0.11.1] - 2026-10-28
 
 ### Added

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { launchKanbini, type E2EHandle } from './_launch.js'
 import { mutate, rpc, waitForDiscovery, type Discovery } from './_channel.js'
+import { isGlowing } from './_glow.js'
 
 // E2E for "Show first N" (list.visibleCardLimit). The limit only decides
 // which cards are mounted; these pin the rules that keep a hidden card
@@ -101,16 +102,16 @@ test('keyboard focus past the last visible card reveals the list', async () => {
   await expect(longCards(page)).toHaveCount(TOTAL)
 })
 
-test('opening a hidden card from search reveals its list', async () => {
+test('showing a hidden card from search reveals its list', async () => {
   const { page } = handle
   await expect(page.getByText('Card 25', { exact: true })).toHaveCount(0)
   await page.getByRole('button', { name: 'Search' }).click()
   const palette = page.getByRole('dialog', { name: 'Command palette' })
   await palette.getByPlaceholder(/search cards or jump/i).fill('Card 25')
   await palette.getByText('Card 25', { exact: true }).click()
-  await expect(page.getByRole('dialog', { name: 'Card 25' })).toBeVisible()
-  await page.keyboard.press('Escape')
-  await expect(page.locator(`[data-card-id="${ids.cards[24]}"]`)).toBeVisible()
+  const card = page.locator(`[data-card-id="${ids.cards[24]}"]`)
+  await expect(card).toBeInViewport()
+  await expect.poll(() => isGlowing(card)).toBe(true)
 })
 
 test('adding a card to a limited list reveals it, so the new card is visible', async () => {

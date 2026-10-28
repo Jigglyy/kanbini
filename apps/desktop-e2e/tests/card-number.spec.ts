@@ -47,7 +47,8 @@ test('cards show their #number, the setting hides it, and the palette finds it',
   await expect(card).toBeVisible()
   await expect(card).not.toContainText(tag)
 
-  // The palette still finds it by number, and opening the hit opens it.
+  // The palette still finds it by number; picking the hit points the
+  // card out on the board, and Enter then opens it.
   await page.getByRole('button', { name: 'Search' }).click()
   const palette = page.getByRole('dialog', { name: 'Command palette' })
   await palette.getByPlaceholder(/search cards or jump/i).fill(tag)
@@ -55,5 +56,7 @@ test('cards show their #number, the setting hides it, and the palette finds it',
   await expect(hit).toBeVisible()
   await expect(palette).toContainText(tag)
   await hit.click()
+  await expect(palette).not.toBeVisible()
+  await page.keyboard.press('Enter')
   await expect(page.getByRole('dialog', { name: 'Fix login redirect' })).toBeVisible()
 })

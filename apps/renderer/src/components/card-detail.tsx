@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { X } from 'lucide-react'
+import { LocateFixed, X } from 'lucide-react'
 import type { BoardView, CardView } from '@kanbini/shared'
 import { useBoard } from '../hooks/useBoard'
 import { useBoardMutation } from '../hooks/useBoardMutation'
@@ -35,6 +35,11 @@ const mapCard = (
   }))
 })
 
+/** Name of the list holding card `id`. */
+function listNameOf(b: BoardView | null | undefined, id: string): string | null {
+  return b?.lists.find((l) => l.cards.some((c) => c.id === id))?.name ?? null
+}
+
 function findCard(b: BoardView | null | undefined, id: string): CardView | null {
   if (!b) return null
   for (const l of b.lists) {
@@ -48,11 +53,16 @@ export function CardDetail({
   boardId,
   cardId,
   onClose,
+  onShowOnBoard,
   onOpenCard
 }: {
   boardId: string
   cardId: string | null
   onClose: () => void
+  /** Close the detail and point the card out on the board (the "in
+   *  List · Board" line under the title). Omitted = the line is plain
+   *  text. */
+  onShowOnBoard?: (cardId: string) => void
   /** Open another card (a "waiting on" link). Omitted = links show but
    *  their titles aren't clickable targets anywhere new. */
   onOpenCard?: (boardId: string, cardId: string) => void
@@ -168,6 +178,11 @@ export function CardDetail({
               }}
               className="-mx-1 rounded border border-transparent bg-transparent px-1 text-xl font-semibold text-foreground hover:border-border focus:border-ring focus:outline-none"
             />
+            <CardLocation
+              listName={listNameOf(data, card.id)}
+              boardName={data?.board.name ?? null}
+              onShow={onShowOnBoard ? () => onShowOnBoard(card.id) : undefined}
+            />
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
               <label className="flex cursor-pointer items-center gap-1.5">
                 <input
@@ -239,5 +254,41 @@ export function CardDetail({
       onClose={() => setUrlCoverOpen(false)}
     />
     </>
+  )
+}
+
+/** Where the card lives, under its title: "in To Do · Website". The
+ *  detail covers the board, so this is the one place it says which list
+ *  the card is in. Clicking it closes the detail and points the card out
+ *  on the board (scroll + glow). */
+function CardLocation({
+  listName,
+  boardName,
+  onShow
+}: {
+  listName: string | null
+  boardName: string | null
+  onShow?: () => void
+}) {
+  if (!listName) return null
+  const text = (
+    <>
+      in <span className="font-medium text-foreground">{listName}</span>
+      {boardName && <> · {boardName}</>}
+    </>
+  )
+  if (!onShow) {
+    return <p className="-mt-1 px-0.5 text-xs text-muted-foreground">{text}</p>
+  }
+  return (
+    <button
+      type="button"
+      onClick={onShow}
+      title="Show on board"
+      className="-mt-1 inline-flex w-fit items-center gap-1 rounded px-0.5 text-xs text-muted-foreground hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <LocateFixed className="size-3" aria-hidden />
+      {text}
+    </button>
   )
 }

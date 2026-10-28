@@ -23,12 +23,14 @@ import { LabelBar } from './components/labels'
 import { BoardSettings } from './components/board-settings'
 import { AppSettings } from './components/app-settings'
 import { CommandPalette } from './components/command-palette'
+import { HiddenCardNotice } from './components/hidden-card-notice'
 import { WelcomeModal } from './components/welcome-modal'
 import { ZoomControl } from './components/zoom-control'
 import { Tooltip } from './components/ui/tooltip'
 import { useSettings } from './lib/settings'
 import { recordOpened } from './lib/last-opened'
 import { filterByLabels, pruneLabelFilter } from './lib/label-filter'
+import { hiddenCardReason } from './lib/hidden-card'
 import { startupBoardId } from './lib/startup'
 import {
   countCompleted,
@@ -58,7 +60,7 @@ import {
 
 type Route =
   | { kind: 'home' }
-  | { kind: 'board'; id: string; openCardId?: string }
+  | { kind: 'board'; id: string; openCardId?: string; showCardId?: string }
   | { kind: 'settings' }
 
 // Show the platform-correct modifier in the search-button tooltip
@@ -107,6 +109,13 @@ export function App() {
     recordOpened(id)
     setRoute({ kind: 'board', id, openCardId })
   }, [])
+  // "Show on board" (a Ctrl+F card pick): go to the card's board and
+  // point the card out (scroll + glow, keyboard focus) without opening it.
+  const showBoardCard = useCallback((id: string, showCardId: string) => {
+    localStorage.setItem(LAST_BOARD_KEY, id)
+    recordOpened(id)
+    setRoute({ kind: 'board', id, showCardId })
+  }, [])
   const goHome = useCallback(() => setRoute({ kind: 'home' }), [])
   // Stable identity so <Board>'s memoised cards aren't re-rendered on
   // every parent render just because this handler changed (it only
@@ -141,7 +150,15 @@ export function App() {
   const clearRouteOpenCard = useCallback(() => {
     setRoute((prev) =>
       prev.kind === 'board' && prev.openCardId !== undefined
-        ? { kind: 'board', id: prev.id }
+        ? { ...prev, openCardId: undefined }
+        : prev
+    )
+  }, [])
+  // Same one-shot handshake for "show on board".
+  const clearRouteShowCard = useCallback(() => {
+    setRoute((prev) =>
+      prev.kind === 'board' && prev.showCardId !== undefined
+        ? { ...prev, showCardId: undefined }
         : prev
     )
   }, [])
@@ -335,6 +352,46 @@ export function App() {
       data ? filterCompleted(filterByLabels(data, activeLabels), hideCompleted) : null,
     [data, activeLabels, hideCompleted]
   )
+
+  // A card "show on board" couldn't point out because a filter hides it.
+  // The notice shows only while that's still true (clearing the filter
+  // by hand makes it go away) and never outlives the board.
+  // Keyed by board (not cleared in an effect on board change: when the
+  // target board is already cached, Board's mount effect reports the
+  // hidden card BEFORE such a parent effect would run, and it'd wipe it).
+  const [hiddenTarget, setHiddenTarget] = useState<{
+    boardId: string
+    cardId: string
+  } | null>(null)
+  const onShowCardHidden = useCallback(
+    (boardId: string, cardId: string) => setHiddenTarget({ boardId, cardId }),
+    []
+  )
+  const hiddenCardId =
+    hiddenTarget && hiddenTarget.boardId === currentBoardId
+      ? hiddenTarget.cardId
+      : null
+  const hiddenCard = useMemo(
+    () =>
+      hiddenCardId && data
+        ? hiddenCardReason(data, hiddenCardId, activeLabels, hideCompleted)
+        : null,
+    [hiddenCardId, data, activeLabels, hideCompleted]
+  )
+  // "Show it": clear only the filter(s) in the way, then point the card
+  // out (the one-shot route request re-fires against the new view).
+  const showHiddenCard = (): void => {
+    if (!hiddenCardId || !hiddenCard || !currentBoardId) return
+    if (hiddenCard.byLabels) setActiveLabels(new Set())
+    if (hiddenCard.byCompleted) {
+      saveHideCompleted(currentBoardId, false)
+      setHideCompleted(false)
+    }
+    setHiddenTarget(null)
+    setRoute((prev) =>
+      prev.kind === 'board' ? { ...prev, showCardId: hiddenCardId } : prev
+    )
+  }
 
   // Header label-bar order: DB gives creation order; this layers the
   // user's manual per-board order (localStorage) on top. `labelOrderTick`
@@ -542,7 +599,9 @@ export function App() {
         onClose={() => setPaletteOpen(false)}
         boards={boards ?? []}
         currentBoardId={route.kind === 'board' ? route.id : null}
-        onActivate={(boardId, cardId) => openBoard(boardId, cardId)}
+        onActivate={(boardId, cardId) =>
+          cardId ? showBoardCard(boardId, cardId) : openBoard(boardId)
+        }
       />
 
       {/* M5-B / ADR-0049 - first-run welcome. `hasSeenWelcome`
@@ -631,6 +690,15 @@ export function App() {
                     route.kind === 'board' ? route.openCardId : undefined
                   }
                   onConsumedOpenCard={clearRouteOpenCard}
+                  initialShowCardId={
+                    // Only once the view is the route's board: the card
+                    // is looked up in it.
+                    route.kind === 'board' && view.board.id === route.id
+                      ? route.showCardId
+                      : undefined
+                  }
+                  onConsumedShowCard={clearRouteShowCard}
+                  onShowCardHidden={onShowCardHidden}
                   onOpenBoardCard={openBoard}
                 />
               </div>
@@ -638,6 +706,13 @@ export function App() {
           </>
         )}
       </main>
+      {route.kind === 'board' && hiddenCard && (
+        <HiddenCardNotice
+          reason={hiddenCard}
+          onShow={showHiddenCard}
+          onDismiss={() => setHiddenTarget(null)}
+        />
+      )}
     </div>
   )
 }

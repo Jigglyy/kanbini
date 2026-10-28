@@ -25,9 +25,10 @@ interface Props {
   onClose: () => void
   boards: BoardSummary[]
   /** The board on screen, if any. Card numbers are per board, so its own
-   *  #N hit comes first: "#3" + Enter opens this board's #3. */
+   *  #N hit comes first: "#3" + Enter shows this board's #3. */
   currentBoardId?: string | null
-  /** Navigate to a board, optionally opening a card detail on arrival. */
+  /** Navigate to a board; with a card, point that card out on arrival
+   *  (scroll + glow, keyboard focus; Enter then opens it). */
   onActivate: (boardId: string, cardId?: string) => void
 }
 

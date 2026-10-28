@@ -69,6 +69,7 @@ import { type Optimistic, useBoardMutation } from '../hooks/useBoardMutation'
 import { boardKey } from '../hooks/useBoard'
 import { useSmoothHeight } from '../hooks/useSmoothHeight'
 import { useJustCompleted } from '../lib/animations'
+import { glowCard } from '../lib/card-glow'
 import { ipc } from '../lib/ipc'
 import { tint } from '../lib/palette'
 import { useSettings } from '../lib/settings'
@@ -543,6 +544,9 @@ export function Board({
   boardZoom,
   initialOpenCardId,
   onConsumedOpenCard,
+  initialShowCardId,
+  onConsumedShowCard,
+  onShowCardHidden,
   onOpenBoardCard,
   listsScrollSeparately = false
 }: {
@@ -585,6 +589,15 @@ export function Board({
    *  (undefined → id again) is then a real prop change that reopens the
    *  detail, instead of a silent no-op (the value never changed). */
   onConsumedOpenCard?: () => void
+  /** "Show on board" (a Ctrl+F pick): scroll to this card and glow it
+   *  without opening it. Same one-shot route handshake as
+   *  `initialOpenCardId`, via `onConsumedShowCard`. */
+  initialShowCardId?: string | null
+  onConsumedShowCard?: () => void
+  /** A card to show isn't on screen: a label filter or "Hide
+   *  completed" (applied by App before `board` reaches us) hides it, or
+   *  it's gone. App decides what to tell the user. */
+  onShowCardHidden?: (boardId: string, cardId: string) => void
   /** Open a card on ANOTHER board (a "waiting on" link can cross
    *  boards). App navigates there with the card's detail open. */
   onOpenBoardCard?: (boardId: string, cardId: string) => void
@@ -1017,6 +1030,58 @@ export function Board({
     },
     [ensureCardVisible]
   )
+
+  /** "Show on board" (a Ctrl+F pick, the card detail's location line):
+   *  find a card without opening it. Keyboard focus moves there (so
+   *  Enter opens it) but without the ring, which reads as "selected";
+   *  instead the card scrolls to the middle of its list / the board and
+   *  glows once (lib/card-glow.ts). Closes an open card detail, which
+   *  would cover it. Returns false when the card isn't on screen
+   *  (filtered out by App, or gone). */
+  const showCard = useCallback(
+    (id: string): boolean => {
+      const shown = boardRef.current.lists.some(
+        (l) => !l.closed && l.cards.some((c) => c.id === id)
+      )
+      if (!shown) return false
+      setOpenCardId(null)
+      setFocusedCardId(id)
+      setFocusRingVisible(false)
+      const go = (): void => {
+        const node = document.querySelector(
+          `[data-card-id="${window.CSS.escape(id)}"]`
+        )
+        if (!(node instanceof HTMLElement)) return
+        const reduceMotion = window.matchMedia?.(
+          '(prefers-reduced-motion: reduce)'
+        ).matches
+        node.scrollIntoView({
+          block: 'center',
+          inline: 'center',
+          behavior: reduceMotion ? 'auto' : 'smooth'
+        })
+        glowCard(node)
+      }
+      // Same frame dance as focusCard: a list revealed past its "show
+      // first N" cut needs one more frame to mount the card.
+      if (ensureCardVisible(id)) {
+        requestAnimationFrame(() => requestAnimationFrame(go))
+      } else {
+        requestAnimationFrame(go)
+      }
+      return true
+    },
+    [ensureCardVisible]
+  )
+  // One-shot from the route (App clears it via onConsumedShowCard), so
+  // showing the same card twice in a row re-fires.
+  useEffect(() => {
+    if (!initialShowCardId) return
+    if (!showCard(initialShowCardId)) {
+      onShowCardHidden?.(boardRef.current.board.id, initialShowCardId)
+    }
+    onConsumedShowCard?.()
+  }, [initialShowCardId, showCard, onShowCardHidden, onConsumedShowCard])
 
   /** Card-move handler (kept local so it can be reused by the keyboard
    *  Alt+arrow actions without going through the dnd-kit path). Same
@@ -2322,6 +2387,12 @@ export function Board({
       boardId={board.board.id}
       cardId={openCardId}
       onClose={() => setOpenCardId(null)}
+      onShowOnBoard={(cardId) => {
+        if (!showCard(cardId)) {
+          setOpenCardId(null)
+          onShowCardHidden?.(board.board.id, cardId)
+        }
+      }}
       onOpenCard={(targetBoardId, cardId) => {
         if (targetBoardId === board.board.id) {
           ensureCardVisible(cardId)

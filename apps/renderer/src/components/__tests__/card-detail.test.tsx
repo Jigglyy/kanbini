@@ -106,6 +106,7 @@ function renderWithBoard(
   options: {
     onClose?: () => void
     cardId?: string | null
+    onShowOnBoard?: (cardId: string) => void
   } = {}
 ) {
   const qc = new QueryClient({
@@ -127,12 +128,30 @@ function renderWithBoard(
         boardId="b1"
         cardId={options.cardId === undefined ? card.id : options.cardId}
         onClose={options.onClose ?? vi.fn()}
+        onShowOnBoard={options.onShowOnBoard}
       />
     </QueryClientProvider>
   )
 }
 
 describe('<CardDetail>', () => {
+  it('says which list and board the card is in', () => {
+    renderWithBoard(makeCard())
+    expect(screen.getByText(/^in/)).toHaveTextContent('in Todo · Board')
+    // Without a handler it's plain text, not a button.
+    expect(screen.queryByRole('button', { name: /in Todo/ })).toBeNull()
+  })
+
+  it('clicking the location shows the card on the board', async () => {
+    const user = userEvent.setup()
+    const onShowOnBoard = vi.fn()
+    renderWithBoard(makeCard(), { onShowOnBoard })
+    const where = screen.getByRole('button', { name: /in Todo · Board/ })
+    expect(where).toHaveAttribute('title', 'Show on board')
+    await user.click(where)
+    expect(onShowOnBoard).toHaveBeenCalledWith('c1')
+  })
+
   it('renders the title input with the current title pre-filled', () => {
     renderWithBoard(makeCard({ title: 'My card' }))
     expect(screen.getByDisplayValue('My card')).toBeInTheDocument()
