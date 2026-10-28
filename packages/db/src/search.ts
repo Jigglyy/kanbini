@@ -53,10 +53,16 @@ function snippetAround(text: string, qLower: string): string {
   return (start > 0 ? '…' : '') + text.slice(start, end) + (end < text.length ? '…' : '')
 }
 
+/** `preferBoardId`: the board on screen (the Ctrl+F palette passes it).
+ *  Its cards rank above every other board's, whatever matched them, and
+ *  the usual order applies inside each group. Sorted before the limit
+ *  is applied, so a busy query can't push them out. The MCP tool doesn't
+ *  pass it (the headless reader has no such option). */
 export function searchCards(
   db: Db,
   query: string,
-  limit: number = DEFAULT_LIMIT
+  limit: number = DEFAULT_LIMIT,
+  preferBoardId?: string
 ): SearchHit[] {
   const q = query.trim()
   if (q.length === 0) return []
@@ -146,11 +152,15 @@ export function searchCards(
     }
   }
 
-  // Tier sort: number (0) → title (1) → label (2) → description (3);
-  // tie → newer.
+  // The preferred board's cards first; then tier sort: number (0) →
+  // title (1) → label (2) → description (3); tie → newer.
   const tier = { number: 0, title: 1, label: 2, description: 3 } as const
+  const away = (h: SearchHit): number =>
+    preferBoardId !== undefined && h.boardId === preferBoardId ? 0 : 1
   return [...byCard.values()]
     .sort((a, b) => {
+      const p = away(a) - away(b)
+      if (p !== 0) return p
       const t = tier[a.matchKind] - tier[b.matchKind]
       if (t !== 0) return t
       return b.updatedAt - a.updatedAt

@@ -434,7 +434,9 @@ export type GetCardViewRequest = z.infer<typeof zGetCardViewRequest>
  *  (the renderer skips the IPC entirely; this guard is belt-and-braces). */
 export const zSearchCardsRequest = z.object({
   query: z.string(),
-  limit: z.number().int().positive().max(100).optional()
+  limit: z.number().int().positive().max(100).optional(),
+  /** Rank this board's cards first (the board on screen). */
+  preferBoardId: z.string().optional()
 })
 export type SearchCardsRequest = z.infer<typeof zSearchCardsRequest>
 

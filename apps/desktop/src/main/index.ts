@@ -416,8 +416,8 @@ function registerIpc(
   })
 
   ipcMain.handle(IPC.searchCards, (_event, raw: unknown) => {
-    const { query, limit } = zSearchCardsRequest.parse(raw ?? {})
-    return zSearchHits.parse(searchCards(db, query, limit))
+    const { query, limit, preferBoardId } = zSearchCardsRequest.parse(raw ?? {})
+    return zSearchHits.parse(searchCards(db, query, limit, preferBoardId))
   })
 
   ipcMain.handle(IPC.agenda, (_event, raw: unknown) => {

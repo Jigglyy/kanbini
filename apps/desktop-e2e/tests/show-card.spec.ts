@@ -140,6 +140,20 @@ test('a result appearing under a resting mouse does not steal Enter', async () =
   await expect.poll(() => isGlowing(cardEl(page, title))).toBe(true)
 })
 
+test("Ctrl+F lists the current board's cards before an exact #N on another board", async () => {
+  const { page } = handle
+  await page.keyboard.press('Control+f')
+  const palette = page.getByRole('dialog', { name: 'Command palette' })
+  // "1" is Elsewhere's exact #1 ("Far away card"), but this board's
+  // title matches ("Card 1", "Card 10", ...) come first.
+  await palette.getByPlaceholder(/search cards or jump/i).fill('1')
+  await expect(palette.getByText('Far away card', { exact: true })).toBeVisible()
+  await expect(palette.locator('[data-row="0"]')).toContainText(BOARD)
+  const rows = await palette.locator('[data-row]').allTextContents()
+  const farAway = rows.findIndex((t) => t.includes('Far away card'))
+  expect(rows.slice(0, farAway).every((t) => t.includes(BOARD))).toBe(true)
+})
+
 test('Ctrl+Enter in Ctrl+F opens the card straight away', async () => {
   const { page } = handle
   await page.keyboard.press('Control+f')

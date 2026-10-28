@@ -37,6 +37,9 @@ installer and portable app and publishes a GitHub Release (see
   could quietly take over Enter, and on some searches the highlighted
   row wasn't the one Enter used. Every new search now starts on the
   first result, and the selected row is much easier to see.
+- **Ctrl+F lists the board you're on first.** Its cards now come before
+  every other board's, even when another board has the exact `#N` you
+  typed.
 
 ## [0.11.1] - 2026-10-28
 

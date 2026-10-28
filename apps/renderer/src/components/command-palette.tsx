@@ -32,8 +32,9 @@ interface Props {
   open: boolean
   onClose: () => void
   boards: BoardSummary[]
-  /** The board on screen, if any. Card numbers are per board, so its own
-   *  #N hit comes first: "#3" + Enter shows this board's #3. */
+  /** The board on screen, if any. Its cards come first in the results
+   *  (any match, ahead of another board's exact #N), so "#3" + Enter
+   *  shows this board's #3. */
   currentBoardId?: string | null
   /** Navigate to a board; with a card, point that card out on arrival
    *  (scroll + glow, keyboard focus; Enter then opens it), or open it
@@ -98,9 +99,12 @@ export function CommandPalette({
     lastPointer.current = null
   }, [open])
 
+  // Search ranks the on-screen board's cards first (before its result
+  // limit), so the order it returns is the order shown and used.
+  const preferBoardId = currentBoardId ?? undefined
   const { data, isFetching, isError, isPlaceholderData, status } = useQuery({
-    queryKey: ['search', qTrim],
-    queryFn: () => ipc.searchCards({ query: qTrim, limit: 50 }),
+    queryKey: ['search', qTrim, preferBoardId ?? null],
+    queryFn: () => ipc.searchCards({ query: qTrim, limit: 50, preferBoardId }),
     enabled: open && qTrim.length > 0,
     staleTime: 5_000,
     // Hold the previous results visible while the next query is in
@@ -127,17 +131,13 @@ export function CommandPalette({
       .slice(0, 12)
   }, [boards, qTrim])
 
-  const items: PaletteItem[] = useMemo(() => {
-    // Stable sort: only the on-screen board's number hit moves up.
-    const here = (h: SearchHit): number =>
-      h.matchKind === 'number' && h.boardId === currentBoardId ? 0 : 1
-    return [
-      ...[...hits]
-        .sort((a, b) => here(a) - here(b))
-        .map((hit) => ({ kind: 'card' as const, hit })),
+  const items: PaletteItem[] = useMemo(
+    () => [
+      ...hits.map((hit) => ({ kind: 'card' as const, hit })),
       ...visibleBoards.map((board) => ({ kind: 'board' as const, board }))
-    ]
-  }, [hits, visibleBoards, currentBoardId])
+    ],
+    [hits, visibleBoards]
+  )
 
   // Every new set of results starts on the first one.
   useEffect(() => {

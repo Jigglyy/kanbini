@@ -122,21 +122,28 @@ describe('<CommandPalette>', () => {
     expect(screen.getByText('#142')).toBeInTheDocument()
   })
 
-  it("puts the on-screen board's #N first, so Enter opens that card", async () => {
+  it('asks search to put the on-screen board first, and keeps that order', async () => {
     const user = userEvent.setup()
-    // Search ranks the more recently edited #3 first, on another board.
-    kanbiniMock().searchCards.mockResolvedValue([
-      makeHit({ cardId: 'c-other', number: 3, title: 'Elsewhere', boardId: 'b2', matchKind: 'number' }),
-      makeHit({ cardId: 'c-here', number: 3, title: 'Here', boardId: 'b1', matchKind: 'number' })
+    // Search (given preferBoardId) returns this board's hit first, even a
+    // description match ahead of another board's exact #67.
+    const mock = kanbiniMock()
+    mock.searchCards.mockResolvedValue([
+      makeHit({ cardId: 'c-here', number: 194, title: 'Here', boardId: 'b1', matchKind: 'description' }),
+      makeHit({ cardId: 'c-other', number: 67, title: 'Elsewhere', boardId: 'b2', matchKind: 'number' })
     ])
     const onActivate = vi.fn()
     renderWithQuery(
       <CommandPalette open onClose={vi.fn()} boards={[]} currentBoardId="b1" onActivate={onActivate} />
     )
-    await user.type(await screen.findByPlaceholderText(/search cards/i), '#3')
+    await user.type(await screen.findByPlaceholderText(/search cards/i), '67')
     expect(await screen.findByText('Here')).toBeInTheDocument()
+    expect(mock.searchCards).toHaveBeenLastCalledWith({
+      query: '67',
+      limit: 50,
+      preferBoardId: 'b1'
+    })
     // The row on top is the one Enter takes (they used to differ: the
-    // rows rendered in search order, Enter used the re-sorted list).
+    // rows rendered in search order, Enter used a re-sorted list).
     expect(rowTexts()[0]).toContain('Here')
     await user.keyboard('{Enter}')
     expect(onActivate).toHaveBeenCalledWith('b1', 'c-here')

@@ -301,3 +301,66 @@ describe('searchCards by card number', () => {
     expect(hits.every((h) => h.matchKind === 'number' && h.number === 2)).toBe(true)
   })
 })
+
+// The palette passes the board on screen: its cards come first, ahead of
+// an exact #N on another board. Reported: on Dice Inc (whose #67 is
+// archived), "67" put My Crypt Farm's #67 above Dice Inc's #194, whose
+// description mentions 67.
+describe('searchCards with a preferred board', () => {
+  function twoBoards(): { here: string; there: string; hereIds: string[]; thereIds: string[] } {
+    const projectId = ensureDefaultProjectId(db)
+    const mk = (name: string) => {
+      const b = applyMutation(db, { type: 'board.create', projectId, name }).id
+      const l = applyMutation(db, { type: 'list.create', boardId: b, name: 'L' }).id
+      return { b, l }
+    }
+    const there = mk('My Crypt Farm')
+    const here = mk('Dice Inc')
+    // There: #1 is an exact number hit for "1"; #2 has "1" in its title.
+    const thereIds = ['Exact number elsewhere', 'Title 1 elsewhere'].map(
+      (title) => applyMutation(db, { type: 'card.create', listId: there.l, title }).id
+    )
+    // Here: #1 archived (like Dice Inc's #67), #2 matches by description,
+    // #3 by title.
+    const hereIds = ['Archived here', 'Description here', 'Title 1 here'].map(
+      (title) => applyMutation(db, { type: 'card.create', listId: here.l, title }).id
+    )
+    applyMutation(db, { type: 'card.update', id: hereIds[0]!, patch: { archived: true } })
+    applyMutation(db, {
+      type: 'card.update',
+      id: hereIds[1]!,
+      patch: { description: 'asset id 1234' }
+    })
+    return { here: here.b, there: there.b, hereIds, thereIds }
+  }
+
+  it("puts the preferred board's cards first, whatever matched them", () => {
+    const { here, hereIds, thereIds } = twoBoards()
+    expect(searchCards(db, '1', 50, here).map((h) => h.cardId)).toEqual([
+      // Here, in the usual order: title before description.
+      hereIds[2],
+      hereIds[1],
+      // Then everything else: number, then title.
+      thereIds[0],
+      thereIds[1]
+    ])
+  })
+
+  it('without a preferred board the order is unchanged', () => {
+    const { hereIds, thereIds } = twoBoards()
+    const ids = searchCards(db, '1').map((h) => h.cardId)
+    // Exact number first, description last; the two title hits tie on
+    // updatedAt (same millisecond), so their order isn't pinned here.
+    expect(ids[0]).toBe(thereIds[0])
+    expect(ids.slice(1, 3).sort()).toEqual([thereIds[1], hereIds[2]].sort())
+    expect(ids[3]).toBe(hereIds[1])
+  })
+
+  it("keeps the preferred board's cards inside the limit", () => {
+    const { here, hereIds } = twoBoards()
+    expect(searchCards(db, '1', 2, here).map((h) => h.cardId)).toEqual([
+      hereIds[2],
+      hereIds[1]
+    ])
+  })
+})
