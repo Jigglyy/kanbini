@@ -25,13 +25,21 @@ const here = dirname(fileURLToPath(import.meta.url))
 const MAIN_ENTRY = resolve(here, '../../desktop/out/main/index.js')
 const OUT_DIR = resolve(here, '../../../docs/screenshots')
 
-const DAY = 86_400_000
-const now = Date.now()
+// The renderer area every shot is framed at (CSS px; 2x on disk).
+const VIEW = { width: 1440, height: 900 }
 
-// Renderer accent palette (apps/renderer/src/lib/palette.ts).
+// Due dates are stored as LOCAL midnight (what the date picker writes),
+// so "Today" / "Tomorrow" / "Yesterday" read right on the badges.
+function day(offset) {
+  const d = new Date()
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + offset).getTime()
+}
+
+// The renderer's accent palette (ACCENT_PALETTE in
+// packages/shared/src/palette.ts). The control channel stores a colour
+// as given (only the MCP server translates names), so pass the values.
 const A = {
   red: 'oklch(0.63 0.19 25)',
-  orange: 'oklch(0.72 0.19 48)',
   amber: 'oklch(0.76 0.14 85)',
   lime: 'oklch(0.74 0.17 140)',
   green: 'oklch(0.64 0.15 160)',
@@ -39,8 +47,7 @@ const A = {
   sky: 'oklch(0.69 0.13 230)',
   blue: 'oklch(0.60 0.16 262)',
   indigo: 'oklch(0.56 0.17 292)',
-  purple: 'oklch(0.62 0.18 322)',
-  pink: 'oklch(0.67 0.20 352)'
+  purple: 'oklch(0.62 0.18 322)'
 }
 
 async function waitForDiscovery(userDataDir, timeoutMs = 10_000) {
@@ -69,7 +76,7 @@ function makeApi(port, token) {
       })
       if (!res.ok) {
         throw new Error(
-          `POST ${p} -> ${res.status}: ${await res.text()} for ${JSON.stringify(body)}`
+          `POST ${p} -> ${res.status}: ${await res.text()} for ${JSON.stringify(body).slice(0, 300)}`
         )
       }
       return res.json()
@@ -77,7 +84,73 @@ function makeApi(port, token) {
   }
 }
 
-async function seed(api) {
+// A cover image for one card, drawn in the renderer's own canvas so the
+// script needs no image files or extra dependencies: a warm gradient
+// with three columns of little cards (it's the "illustrations" card).
+function drawCover() {
+  const W = 1200
+  const H = 560
+  const c = document.createElement('canvas')
+  c.width = W
+  c.height = H
+  const g = c.getContext('2d')
+  const bg = g.createLinearGradient(0, 0, W, H)
+  bg.addColorStop(0, '#ffb38a')
+  bg.addColorStop(0.5, '#e0679f')
+  bg.addColorStop(1, '#6d5cf6')
+  g.fillStyle = bg
+  g.fillRect(0, 0, W, H)
+  const glow = (x, y, r, color) => {
+    const rg = g.createRadialGradient(x, y, 0, x, y, r)
+    rg.addColorStop(0, color)
+    rg.addColorStop(1, 'rgba(255,255,255,0)')
+    g.fillStyle = rg
+    g.fillRect(0, 0, W, H)
+  }
+  glow(180, 90, 360, 'rgba(255,255,255,0.35)')
+  glow(1060, 520, 420, 'rgba(40,20,120,0.35)')
+  const rect = (x, y, w, h, r) => {
+    g.beginPath()
+    g.roundRect(x, y, w, h, r)
+  }
+  const accents = ['#6d5cf6', '#e0679f', '#f59e0b', '#10b981', '#3b82f6']
+  const columns = [
+    [300, [92, 64, 118]],
+    [515, [72, 120]],
+    [730, [104, 70, 64]]
+  ]
+  let k = 0
+  for (const [x, heights] of columns) {
+    rect(x, 100, 190, 380, 24)
+    g.fillStyle = 'rgba(255,255,255,0.20)'
+    g.fill()
+    let y = 122
+    for (const h of heights) {
+      g.save()
+      g.shadowColor = 'rgba(30,10,60,0.28)'
+      g.shadowBlur = 20
+      g.shadowOffsetY = 8
+      rect(x + 14, y, 162, h, 14)
+      g.fillStyle = 'rgba(255,255,255,0.95)'
+      g.fill()
+      g.restore()
+      rect(x + 30, y + 18, 46, 10, 5)
+      g.fillStyle = accents[k++ % accents.length]
+      g.fill()
+      rect(x + 30, y + 38, 116, 8, 4)
+      g.fillStyle = 'rgba(40,30,70,0.18)'
+      g.fill()
+      if (h > 70) {
+        rect(x + 30, y + 54, 80, 8, 4)
+        g.fill()
+      }
+      y += h + 14
+    }
+  }
+  return c.toDataURL('image/png').split(',')[1]
+}
+
+async function seed(api, page) {
   const m = (body) => api.post('/mutate', body)
 
   // Start from a blank slate - drop the auto-seeded Welcome Board so
@@ -98,23 +171,24 @@ async function seed(api) {
     }
   })
 
+  const label = async (name, color) =>
+    (await m({ type: 'label.create', boardId: roadmap.id, name, color })).id
   const L = {
-    feature: (await m({ type: 'label.create', boardId: roadmap.id, name: 'Feature', color: A.blue })).id,
-    bug: (await m({ type: 'label.create', boardId: roadmap.id, name: 'Bug', color: A.red })).id,
-    design: (await m({ type: 'label.create', boardId: roadmap.id, name: 'Design', color: A.purple })).id,
-    docs: (await m({ type: 'label.create', boardId: roadmap.id, name: 'Docs', color: A.teal })).id,
-    research: (await m({ type: 'label.create', boardId: roadmap.id, name: 'Research', color: A.lime })).id
+    feature: await label('Feature', A.blue),
+    bug: await label('Bug', A.red),
+    design: await label('Design', A.purple),
+    docs: await label('Docs', A.teal),
+    research: await label('Research', A.lime)
   }
 
-  const list = (name, color) =>
-    m({ type: 'list.create', boardId: roadmap.id, name, color })
-  const backlog = await list('Backlog', A.sky)
-  const inProgress = await list('In Progress', A.amber)
-  const inReview = await list('In Review', A.purple)
-  const done = await list('Done', A.green)
+  const list = (boardId, name, color) => m({ type: 'list.create', boardId, name, color })
+  const backlog = await list(roadmap.id, 'Backlog', A.sky)
+  const inProgress = await list(roadmap.id, 'In Progress', A.amber)
+  const inReview = await list(roadmap.id, 'In Review', A.purple)
+  const done = await list(roadmap.id, 'Done', A.green)
 
   async function card(listId, title, opts = {}) {
-    const { priority, labels, due, completed, description } = opts
+    const { priority, labels, due, completed, description, repeat } = opts
     const c = await m({
       type: 'card.create',
       listId,
@@ -123,81 +197,111 @@ async function seed(api) {
     })
     const patch = {}
     if (due !== undefined) patch.dueAt = due
-    if (completed) patch.completed = true
     if (description !== undefined) patch.description = description
+    if (repeat) patch.repeat = repeat
     if (Object.keys(patch).length) await m({ type: 'card.update', id: c.id, patch })
+    // Completed on its own so it logs the "completed" activity the
+    // agenda's "Recently completed" section reads.
+    if (completed) await m({ type: 'card.update', id: c.id, patch: { completed: true } })
     if (labels?.length) await m({ type: 'card.setLabels', id: c.id, labelIds: labels })
     return c.id
+  }
+
+  async function checklist(cardId, name, items) {
+    const cl = await m({ type: 'checklist.create', cardId, name })
+    for (const [text, ticked] of items) {
+      const it = await m({ type: 'checklistItem.create', checklistId: cl.id, text })
+      if (ticked) {
+        await m({ type: 'checklistItem.update', id: it.id, patch: { completed: true } })
+      }
+    }
   }
 
   await card(backlog.id, 'Offline-first sync engine', {
     priority: 'high',
     labels: [L.feature, L.research],
-    due: now + 10 * DAY
+    due: day(12)
   })
-  await card(backlog.id, 'Dark mode contrast pass', {
-    priority: 'low',
-    labels: [L.design]
+  const cert = await card(backlog.id, 'Code-signing certificate', {
+    priority: 'medium',
+    labels: [L.research],
+    due: day(0)
   })
+  await card(backlog.id, 'Dark mode contrast pass', { priority: 'low', labels: [L.design] })
   await card(backlog.id, 'Keyboard shortcut cheatsheet', { labels: [L.docs] })
   await card(backlog.id, 'SQLite WAL checkpoint stalls', {
     priority: 'medium',
     labels: [L.bug, L.research]
   })
 
-  const rich = await card(inProgress.id, 'Drag-and-drop reorder animation', {
+  // The rich card: description, checklist, a "waiting on" link, and a
+  // human + an AI comment. It's the one the card-detail shot opens.
+  const installer = await card(inProgress.id, 'Ship the Windows installer', {
     priority: 'high',
-    labels: [L.feature, L.design],
-    due: now + 3 * DAY,
+    labels: [L.feature],
+    due: day(1),
     description:
-      'Smooth FLIP-based reordering for both cards and lists.\n\n' +
-      'The drag overlay animates only `transform` and `box-shadow`, so the ' +
-      'drop reads as "what you saw is what you get" - no snap-back to the ' +
-      'old slot.'
+      'One download that just works: an installer, a portable folder, and a ' +
+      'single portable `.exe`.\n\n' +
+      'A **Which file do I download?** table sits at the top of the ' +
+      'downloads page.'
   })
-  await card(inProgress.id, 'Command palette fuzzy ranking', {
-    priority: 'medium',
-    labels: [L.feature]
+  await checklist(installer, 'Release', [
+    ['Build all three downloads in CI', true],
+    ['Check every artifact before upload', true],
+    ['Write the release notes', false],
+    ['Sign the installer', false]
+  ])
+  await m({ type: 'card.addBlocker', id: installer, blockerId: cert })
+  await m({
+    type: 'comment.create',
+    cardId: installer,
+    body: 'Portable zip tested on a clean Windows VM. Starts in under a second.'
+  })
+  await m({
+    type: 'comment.create',
+    cardId: installer,
+    author: 'ai',
+    body:
+      'Ticked the two CI items and linked this card to the certificate, ' +
+      'since signing is waiting on it.'
   })
 
-  // Rich card detail: checklist + a human comment + an AI comment.
-  const cl = await m({ type: 'checklist.create', cardId: rich, name: 'Acceptance' })
-  const item = async (text, done2) => {
-    const it = await m({ type: 'checklistItem.create', checklistId: cl.id, text })
-    if (done2) await m({ type: 'checklistItem.update', id: it.id, patch: { completed: true } })
-  }
-  await item('Cross-list live reorder', true)
-  await item('Same-list glide via CSS transforms', true)
-  await item('No snap-back on drop', true)
-  await item('Multi-card group drag', false)
-  await m({
-    type: 'comment.create',
-    cardId: rich,
-    body: 'Tested on a 200-card board - stays buttery even mid-drag.'
+  const illustrations = await card(inProgress.id, 'Onboarding illustrations', {
+    priority: 'medium',
+    labels: [L.design]
   })
-  await m({
-    type: 'comment.create',
-    cardId: rich,
-    author: 'ai',
-    body: 'Moved this into In Progress and ticked the first three acceptance items for you.'
+  const cover = await page.evaluate(drawCover)
+  const att = await api.post('/attachments', {
+    cardId: illustrations,
+    filename: 'onboarding.png',
+    content: cover,
+    encoding: 'base64'
+  })
+  await m({ type: 'card.update', id: illustrations, patch: { coverAttachmentId: att.id } })
+
+  await card(inProgress.id, 'Weekly release notes', {
+    labels: [L.docs],
+    due: day(3),
+    repeat: { unit: 'week', every: 1 }
   })
 
   await card(inReview.id, 'Export round-trip test', {
     priority: 'medium',
     labels: [L.docs],
-    due: now + DAY
+    due: day(2)
   })
   await card(inReview.id, 'Label bar overflow on narrow windows', {
     priority: 'urgent',
     labels: [L.bug],
-    due: now - DAY
+    due: day(-1)
   })
 
   await card(done.id, 'MCP write tools', { labels: [L.feature], completed: true })
   await card(done.id, 'Board background presets', { labels: [L.design], completed: true })
   await card(done.id, 'Trello import', { labels: [L.feature], completed: true })
 
-  // ── Secondary boards for the home grid ────────────────────────────
+  // ── Secondary boards for the home grid + the agenda ───────────────
   async function simpleBoard(name, { color, gradient, lists }) {
     const b = await m({ type: 'board.create', name })
     const patch = {}
@@ -205,8 +309,11 @@ async function seed(api) {
     if (gradient) patch.background = { kind: 'gradient', preset: gradient }
     if (Object.keys(patch).length) await m({ type: 'board.update', id: b.id, patch })
     for (const [listName, cards] of lists) {
-      const l = await m({ type: 'list.create', boardId: b.id, name: listName })
-      for (const t of cards) await m({ type: 'card.create', listId: l.id, title: t })
+      const l = await list(b.id, listName)
+      for (const c of cards) {
+        const [title, opts] = typeof c === 'string' ? [c, {}] : c
+        await card(l.id, title, opts)
+      }
     }
     return b
   }
@@ -214,7 +321,10 @@ async function seed(api) {
   await simpleBoard('Trip to Japan', {
     gradient: 'ocean',
     lists: [
-      ['Itinerary', ['Book flights', 'Reserve ryokan in Kyoto', 'JR Pass order']],
+      [
+        'Itinerary',
+        [['Book flights', { due: day(5), priority: 'high' }], 'Reserve ryokan in Kyoto', 'JR Pass order']
+      ],
       ['Packing', ['Power adapters', 'Pocket wifi']],
       ['Booked', ['Tokyo hotel']]
     ]
@@ -222,23 +332,23 @@ async function seed(api) {
   await simpleBoard('Reading List', {
     color: A.teal,
     lists: [
-      ['To read', ['Designing Data-Intensive Apps', 'The Pragmatic Programmer']],
+      ['To read', ['Designing Data-Intensive Apps', 'Release It!', 'The Pragmatic Programmer']],
       ['Reading', ['Crafting Interpreters']],
-      ['Finished', ['Project Hail Mary']]
+      ['Finished', [['Project Hail Mary', { completed: true }]]]
     ]
   })
   await simpleBoard('Home Renovation', {
     gradient: 'sunset',
     lists: [
       ['Quotes', ['Kitchen counters', 'Repaint hallway']],
-      ['Scheduled', ['Electrician Tuesday']]
+      ['Scheduled', [['Electrician visit', { due: day(0) }]]]
     ]
   })
   await simpleBoard('Content Calendar', {
     gradient: 'rose',
     lists: [
-      ['Ideas', ['Offline-first deep dive', 'MCP walkthrough video']],
-      ['Drafting', ['Release notes v0.8']],
+      ['Ideas', ['Offline-first deep dive', 'MCP walkthrough video', 'Release recap video']],
+      ['Drafting', [['Release blog post', { due: day(4) }]]],
       ['Published', ['Why local-first matters']]
     ]
   })
@@ -274,27 +384,43 @@ async function main() {
     const page = await app.firstWindow()
     await page.waitForLoadState('domcontentloaded')
 
-    // Roomy content size for the screenshots (chrome-free renderer area).
-    await app.evaluate(({ BrowserWindow }) => {
-      const w = BrowserWindow.getAllWindows()[0]
-      if (w) w.setContentSize(1440, 900)
-    })
+    // Frame the renderer at exactly VIEW. setContentSize is unreliable
+    // for an off-screen window, so size the window and correct by the
+    // difference the renderer reports.
+    const fit = async () => {
+      for (let i = 0; i < 3; i++) {
+        const inner = await page.evaluate(() => ({ w: innerWidth, h: innerHeight }))
+        if (inner.w === VIEW.width && inner.h === VIEW.height) return
+        await app.evaluate(
+          ({ BrowserWindow }, { dw, dh }) => {
+            const w = BrowserWindow.getAllWindows()[0]
+            const [ow, oh] = w.getSize()
+            w.setSize(ow + dw, oh + dh)
+          },
+          { dw: VIEW.width - inner.w, dh: VIEW.height - inner.h }
+        )
+        await sleep(250)
+      }
+    }
+    await fit()
 
     const { port, token } = await waitForDiscovery(userDataDir)
     const api = makeApi(port, token)
-    await seed(api)
+    const { roadmap } = await seed(api, page)
 
-    // Force dark theme + named label chips, skip the welcome modal,
-    // then reload so the renderer paints the seeded data fresh.
-    await page.evaluate(() => {
-      const raw = localStorage.getItem('kanbini.settings')
-      const s = raw ? JSON.parse(raw) : {}
-      localStorage.setItem(
-        'kanbini.settings',
-        JSON.stringify({ ...s, theme: 'dark', labelsExpanded: true, hasSeenWelcome: true })
-      )
-    })
-    await page.reload({ waitUntil: 'domcontentloaded' })
+    const setSettings = async (patch) => {
+      await page.evaluate((p) => {
+        const raw = localStorage.getItem('kanbini.settings')
+        const s = raw ? JSON.parse(raw) : {}
+        localStorage.setItem('kanbini.settings', JSON.stringify({ ...s, ...p }))
+      }, patch)
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      await fit()
+    }
+
+    // Dark theme + named label chips for the main set, welcome modal
+    // skipped; the reload paints the seeded data fresh.
+    await setSettings({ theme: 'dark', labelsExpanded: true, hasSeenWelcome: true })
 
     // The in-list card runs a one-shot WAAPI height tween on reflow
     // (hooks/useSmoothHeight.ts) and pins an inline `height` while it
@@ -328,50 +454,81 @@ async function main() {
       console.log(`  wrote ${name}.png`)
     }
 
-    // ── Home grid ──────────────────────────────────────────────────
+    // Park the pointer in an empty corner so no hover state leaks in.
+    const restMouse = () => page.mouse.move(VIEW.width - 8, VIEW.height - 8)
+    const cardEl = (title) =>
+      page.locator('[data-card-id]').filter({ has: page.getByText(title, { exact: true }) })
+    const openRoadmap = async () => {
+      await page.getByText('Product Roadmap', { exact: true }).click()
+      await page.getByRole('heading', { name: /^Backlog\b/ }).waitFor()
+      await restMouse()
+      await sleep(900)
+    }
+
+    // ── Home: agenda + boards ──────────────────────────────────────
     await page.getByRole('heading', { name: /your boards/i }).waitFor()
+    await page.getByRole('region', { name: 'Agenda' }).waitFor()
     await page.getByText('Product Roadmap', { exact: true }).waitFor()
+    await restMouse()
     await sleep(700)
     await shot('home')
 
     // ── Board view (hero) ──────────────────────────────────────────
-    await page.getByText('Product Roadmap', { exact: true }).click()
-    await page.getByRole('heading', { name: /^Backlog\b/ }).waitFor()
-    await sleep(900)
+    await openRoadmap()
     await shot('board')
 
-    // Proof the checklist-preview row isn't clipped after settling.
-    const check = await page.evaluate(() => {
-      const card = [...document.querySelectorAll('[data-card-id]')].find((el) =>
-        el.textContent?.includes('Drag-and-drop reorder animation')
-      )
-      if (!card) return 'card-not-found'
-      const cr = card.getBoundingClientRect()
-      const pill = card.querySelector('[aria-expanded]')
-      const pr = pill?.getBoundingClientRect()
-      return {
-        clipPx: card.scrollHeight - card.clientHeight,
-        pillBelowCardPx: pr ? +(pr.bottom - cr.bottom).toFixed(1) : null,
-        inlineHeight: card.style.height || '(none)'
-      }
-    })
-    console.log('  board card check:', JSON.stringify(check))
-
     // ── Card detail ────────────────────────────────────────────────
-    await page.getByText('Drag-and-drop reorder animation', { exact: true }).click()
-    await page
-      .getByRole('dialog', { name: 'Drag-and-drop reorder animation' })
-      .waitFor()
+    await cardEl('Ship the Windows installer')
+      .getByText('Ship the Windows installer', { exact: true })
+      .click()
+    const detail = page.getByRole('dialog', { name: 'Ship the Windows installer' })
+    await detail.waitFor()
+    await restMouse()
     await sleep(1000)
     await shot('card-detail')
-    await page.getByRole('button', { name: 'Close' }).click()
-    await sleep(400)
+    // Same card, scrolled down to the comments (one from the AI) and
+    // the activity feed.
+    await detail.getByText('Comments', { exact: true }).evaluate((el) =>
+      el.scrollIntoView({ block: 'start' })
+    )
+    await sleep(500)
+    await shot('card-activity')
+    await page.keyboard.press('Escape')
+    await detail.waitFor({ state: 'detached' })
+    await sleep(300)
+
+    // ── Right-click menu with a fly-out open ───────────────────────
+    await cardEl('Offline-first sync engine').click({ button: 'right' })
+    const labelsRow = page.getByRole('button', { name: /^Labels/ })
+    await labelsRow.click()
+    await page.locator('[data-submenu-panel]').waitFor()
+    const panel = (await page.locator('[data-submenu-panel]').boundingBox()) ?? { x: 0, y: 0 }
+    // Rest the pointer inside the fly-out so it reads as "hovering here".
+    await page.mouse.move(panel.x + 60, panel.y + 52)
+    await sleep(500)
+    await shot('card-menu')
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Escape')
+    await sleep(300)
+
+    // ── Multi-select + the floating bulk-action bar ────────────────
+    for (const t of ['Dark mode contrast pass', 'Keyboard shortcut cheatsheet', 'SQLite WAL checkpoint stalls']) {
+      await cardEl(t).getByText(t, { exact: true }).click({ modifiers: ['Control'] })
+    }
+    // Drop focus so the last clicked card doesn't keep its checkbox
+    // column revealed (:focus-within).
+    await page.evaluate(() => document.activeElement?.blur())
+    await restMouse()
+    await sleep(500)
+    await shot('multi-select')
+    await page.keyboard.press('Escape')
+    await sleep(300)
 
     // ── Command palette / cross-board search ───────────────────────
     await page.keyboard.press('Control+f')
     await sleep(350)
-    await page.keyboard.type('reorder', { delay: 45 })
-    await sleep(800)
+    await page.keyboard.type('release', { delay: 45 })
+    await sleep(900)
     await shot('command-palette')
     await page.keyboard.press('Escape')
     await sleep(400)
@@ -381,8 +538,25 @@ async function main() {
     await page.getByRole('button', { name: 'Priority', exact: true }).click()
     await page.getByRole('heading', { name: 'Urgent' }).waitFor()
     await page.keyboard.press('Escape') // close the board-settings popover
+    await restMouse()
     await sleep(900)
     await shot('swimlanes')
+    await api.post('/mutate', {
+      type: 'board.update',
+      id: roadmap.id,
+      patch: { swimlaneMode: null }
+    })
+
+    // ── Light theme, with the default compact label bars ───────────
+    // On the plain board surface (no wallpaper) so the theme shows.
+    await api.post('/mutate', {
+      type: 'board.update',
+      id: roadmap.id,
+      patch: { background: null }
+    })
+    await setSettings({ theme: 'light', labelsExpanded: false })
+    await openRoadmap()
+    await shot('board-light')
 
     console.log(`\nScreenshots written to ${OUT_DIR}`)
   } finally {

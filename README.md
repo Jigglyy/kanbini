@@ -7,7 +7,7 @@
 > Offline-first. Plain text on disk. No cloud, no accounts, no telemetry.
 
 <p align="center">
-  <img src="docs/screenshots/board.png" alt="A Kanbini board with colour-coded lists, labelled cards, priorities, due dates, and a checklist preview" width="900">
+  <img src="docs/screenshots/board.png" alt="A Kanbini board with colour-coded lists and labelled cards showing priorities, due dates, card numbers, a cover image, a checklist, a repeating card, and a card waiting on another" width="900">
 </p>
 
 Kanbini is a Trello-style kanban app built for one person and their AI.
@@ -39,11 +39,15 @@ that never closes: a board that's yours, local, and always on.
 
 ## Screenshots
 
-| All your boards in one place | Card detail with checklists + comments |
+| Agenda + all your boards | Card detail, with where the card lives |
 | :---: | :---: |
-| [![Boards home](docs/screenshots/home.png)](docs/screenshots/home.png) | [![Card detail](docs/screenshots/card-detail.png)](docs/screenshots/card-detail.png) |
-| **Swimlanes - group by priority** | **Cross-board command palette** |
-| [![Swimlanes](docs/screenshots/swimlanes.png)](docs/screenshots/swimlanes.png) | [![Command palette](docs/screenshots/command-palette.png)](docs/screenshots/command-palette.png) |
+| [![Boards home with the agenda](docs/screenshots/home.png)](docs/screenshots/home.png) | [![Card detail](docs/screenshots/card-detail.png)](docs/screenshots/card-detail.png) |
+| **Waiting on, comments (one from the AI) + activity** | **Right-click menus with fly-outs** |
+| [![Card comments and activity](docs/screenshots/card-activity.png)](docs/screenshots/card-activity.png) | [![Card menu with the Labels fly-out open](docs/screenshots/card-menu.png)](docs/screenshots/card-menu.png) |
+| **Select several cards, act on all of them** | **Ctrl+F search across every board** |
+| [![Multi-select with the bulk action bar](docs/screenshots/multi-select.png)](docs/screenshots/multi-select.png) | [![Command palette](docs/screenshots/command-palette.png)](docs/screenshots/command-palette.png) |
+| **Swimlanes - group by priority** | **Light theme** |
+| [![Swimlanes](docs/screenshots/swimlanes.png)](docs/screenshots/swimlanes.png) | [![The board in the light theme](docs/screenshots/board-light.png)](docs/screenshots/board-light.png) |
 
 ## Features
 
