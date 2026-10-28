@@ -1,7 +1,8 @@
 // ADR-0056 - post-package payload guard. Runs after `electron-builder`
-// produces the Windows release artifacts - the NSIS installer and the
-// portable .zip (ADR-0071) - and asserts every file we expected to ship
-// is actually inside BOTH. Catches the "stale-installer trap" documented
+// produces the Windows release artifacts - the NSIS installer, the
+// portable .zip (ADR-0071) and the one-file portable .exe (ADR-0073) -
+// and asserts every file we expected to ship is actually inside ALL of
+// them. Catches the "stale-installer trap" documented
 // in ADR-0050 - `electron-builder.yml`'s `extraResources` was edited
 // after the build, the artifact shipped without the new files, and the
 // bug only surfaced when a user ran it and the app crashed looking for
@@ -139,11 +140,11 @@ function zipPaths(sevenZ, file) {
   return listPayloadPaths(sevenZ, file.full)
 }
 
-// The NSIS installer wraps its payload as a 7z archive inside the .exe;
-// 7z recognises the .exe as a 7z-format SFX, so extract
-// `$PLUGINSDIR/app-64.7z` (a path INSIDE the archive, not a shell
-// variable) to a temp dir and list that.
-function installerPaths(sevenZ, file) {
+// The NSIS installer AND the one-file portable .exe (both NSIS) wrap
+// their payload as a 7z archive inside the .exe; 7z recognises the .exe
+// as a 7z-format SFX, so extract `$PLUGINSDIR/app-64.7z` (a path INSIDE
+// the archive, not a shell variable) to a temp dir and list that.
+function nsisPayloadPaths(sevenZ, file) {
   const tmpDir = mkdtempSync(join(tmpdir(), 'kanbini-payload-'))
   try {
     const extract = spawnSync(
@@ -172,12 +173,17 @@ const ARTIFACTS = [
   {
     label: '`Kanbini Setup *.exe` (installer)',
     pattern: /^Kanbini Setup .+\.exe$/,
-    list: installerPaths
+    list: nsisPayloadPaths
   },
   {
-    label: '`Kanbini-*-win-*.zip` (portable)',
-    pattern: /^Kanbini-.+-win-.+\.zip$/,
+    label: '`Kanbini-*-win-*-portable.zip` (portable folder)',
+    pattern: /^Kanbini-.+-win-.+-portable\.zip$/,
     list: zipPaths
+  },
+  {
+    label: '`Kanbini-*-win-*-portable-single-file.exe` (one-file portable)',
+    pattern: /^Kanbini-.+-win-.+-portable-single-file\.exe$/,
+    list: nsisPayloadPaths
   }
 ]
 
@@ -232,7 +238,7 @@ function main() {
   // still succeeds, just without payload verification.
   if (process.platform !== 'win32') {
     console.log(
-      `[check-payload] SKIP - only the Windows installer + portable .zip are checked (current platform: ${process.platform}).`
+      `[check-payload] SKIP - only the Windows installer + portable .zip + one-file .exe are checked (current platform: ${process.platform}).`
     )
     process.exit(0)
   }
@@ -263,7 +269,7 @@ function main() {
       ok = false
     }
   }
-  if (ok) console.log('[check-payload] OK - installer and portable .zip both complete.')
+  if (ok) console.log('[check-payload] OK - installer, portable .zip and one-file .exe all complete.')
   process.exit(ok ? 0 : 1)
 }
 

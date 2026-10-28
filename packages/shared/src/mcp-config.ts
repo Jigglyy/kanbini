@@ -11,6 +11,19 @@ export interface McpSnippetInput {
   isPackaged: boolean;
   execPath: string;
   bundle: string | null;
+  /** Run the server on the system's `node` even though packaged. Set by
+   *  the one-file portable exe (ADR-0073), whose own binary lives in a
+   *  %TEMP% folder deleted on every exit: a client pointed at it loses
+   *  the server after each run, and a server still running from it keeps
+   *  the exe locked so that folder is never cleaned up. `bundle` is then
+   *  a copy staged somewhere that outlives the run. */
+  systemNode?: boolean;
+}
+
+/** True when the server runs on the system's `node`, so Node.js has to
+ *  be installed for an AI to start it (dev, and the one-file exe). */
+export function mcpServerNeedsNode(input: McpSnippetInput): boolean {
+  return !input.isPackaged || input.systemNode === true;
 }
 
 /** Placeholder used when the bundle isn't on disk, so the snippet
@@ -37,11 +50,13 @@ export const MCP_BUNDLE_PLACEHOLDER =
  *  - **Dev**: plain `node`. `process.execPath` in dev is the
  *    node_modules Electron dev binary, a worse thing to paste into a
  *    long-lived client config than the `node` a developer already has.
+ *  - **One-file portable exe** (`systemNode`): plain `node` too, on a
+ *    staged copy of the bundle, since its own exe lives in a temp folder
+ *    that's deleted on every exit (see `systemNode`).
  *
- *  The paths are as stable as the app's folder: the Windows build is a
- *  portable folder (ADR-0071), so they hold until that folder is moved
- *  or replaced. (The old single-file portable .exe unpacked to a fresh
- *  temp directory every launch, which made them go stale each run.) */
+ *  The paths are as stable as the app's folder: the installer and the
+ *  portable folder (ADR-0071) hold until that folder is moved or
+ *  replaced; the one-file exe's staged copy holds for good. */
 export function buildMcpClientSnippet(input: McpSnippetInput): string {
   const server = buildMcpServerEntry({
     ...input,
@@ -63,9 +78,9 @@ export function buildMcpServerEntry(
   input: McpSnippetInput & { bundle: string },
 ): McpServerEntry {
   const args = [input.bundle];
-  return input.isPackaged
-    ? { command: input.execPath, args, env: { ELECTRON_RUN_AS_NODE: "1" } }
-    : { command: "node", args };
+  return mcpServerNeedsNode(input)
+    ? { command: "node", args }
+    : { command: input.execPath, args, env: { ELECTRON_RUN_AS_NODE: "1" } };
 }
 
 /** File in `<userData>` that tells the Claude Code plugin's launcher

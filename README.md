@@ -99,15 +99,20 @@ that never closes: a board that's yours, local, and always on.
 ## Install
 
 **Windows:** the [Releases](https://github.com/Jigglyy/kanbini/releases)
-page has two downloads. Both use the same boards, in
-`%APPDATA%\Kanbini`.
+page has three downloads (the "Source code" ones are for developers).
+All three use the same boards, in `%APPDATA%\Kanbini`.
 
 - **`Kanbini.Setup.X.Y.Z.exe`** installs Kanbini for your user (no admin
   rights needed) with a Start menu entry and an uninstaller. To update,
   run the newer installer.
-- **`Kanbini-X.Y.Z-win-x64.zip`** is the portable version: extract it
-  anywhere and run `Kanbini.exe` inside. Nothing is installed and
-  nothing goes in the registry. To update, replace the folder.
+- **`Kanbini-X.Y.Z-win-x64-portable.zip`** is the portable folder:
+  extract it anywhere and run `Kanbini.exe` inside. Nothing is installed
+  and nothing goes in the registry. To update, replace the folder.
+- **`Kanbini-X.Y.Z-win-x64-portable-single-file.exe`** is the same
+  portable app as one file: just run it. It unpacks itself into a
+  temporary folder each time (so it takes a few seconds longer to open)
+  and cleans that up when you close it. Connecting an AI to it needs
+  Node.js installed.
 
 Builds are unsigned, so Windows SmartScreen warns on the first run
 ("More info", then "Run anyway").

@@ -170,7 +170,8 @@ function makeBridge() {
       async (): Promise<McpInfo> => ({
         channel: { running: false, port: null, token: null },
         paths: { mcpJson: '/mock/mcp.json', mcpToken: '/mock/mcp-token', bundle: null },
-        snippets: { mcpClientJson: '{}' }
+        snippets: { mcpClientJson: '{}' },
+        needsNode: false
       })
     ),
     obsidianPickVault: vi.fn(async (): Promise<string | null> => null),

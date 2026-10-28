@@ -1213,6 +1213,8 @@ function McpSection() {
             <>
               Most MCP-capable AIs accept the snippet below. Ask yours
               where it goes.
+              {info.needsNode &&
+                ' Your AI starts this connection with Node.js, so Node.js needs to be installed on this computer.'}
             </>
           }
           text={info.snippets.mcpClientJson}

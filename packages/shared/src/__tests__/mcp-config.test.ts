@@ -4,7 +4,8 @@ import {
   buildMcpServerEntry,
   buildMcpServerPointer,
   MCP_BUNDLE_PLACEHOLDER,
-  MCP_SERVER_POINTER_FILE
+  MCP_SERVER_POINTER_FILE,
+  mcpServerNeedsNode
 } from '../mcp-config'
 
 // Regression cover for the "works on the maintainer's machine" class
@@ -60,6 +61,24 @@ describe('buildMcpClientSnippet', () => {
     expect(cfg.mcpServers.kanbini.env).toBeUndefined()
   })
 
+  // The one-file portable exe (ADR-0073) runs from a %TEMP% folder it
+  // deletes on exit. Pointing the client at that exe broke the
+  // connection after every run, and a server still running from it
+  // kept the 223 MB exe locked so the folder was never cleaned up.
+  it('runs a one-file portable copy on system node, never its temp exe', () => {
+    const tempExe = String.raw`C:\Users\x\AppData\Local\Temp\nsb4ADE.tmp\app\Kanbini.exe`
+    const staged = String.raw`C:\Users\x\AppData\Roaming\Kanbini\mcp-server\index.js`
+    const cfg = JSON.parse(
+      buildMcpClientSnippet({
+        isPackaged: true,
+        execPath: tempExe,
+        bundle: staged,
+        systemNode: true
+      })
+    )
+    expect(cfg.mcpServers.kanbini).toEqual({ command: 'node', args: [staged] })
+  })
+
   it('falls back to a visible placeholder when the bundle is missing', () => {
     const cfg = JSON.parse(
       buildMcpClientSnippet({
@@ -86,10 +105,19 @@ describe('buildMcpClientSnippet', () => {
 describe('buildMcpServerEntry / buildMcpServerPointer', () => {
   it('is exactly the entry the Settings snippet shows', () => {
     for (const isPackaged of [true, false]) {
-      const input = { isPackaged, execPath: PACKAGED_EXE, bundle: BUNDLE }
-      const snippet = JSON.parse(buildMcpClientSnippet(input))
-      expect(buildMcpServerEntry(input)).toEqual(snippet.mcpServers.kanbini)
+      for (const systemNode of [true, false]) {
+        const input = { isPackaged, systemNode, execPath: PACKAGED_EXE, bundle: BUNDLE }
+        const snippet = JSON.parse(buildMcpClientSnippet(input))
+        expect(buildMcpServerEntry(input)).toEqual(snippet.mcpServers.kanbini)
+      }
     }
+  })
+
+  it('reports when the server needs Node.js installed', () => {
+    const base = { execPath: PACKAGED_EXE, bundle: BUNDLE }
+    expect(mcpServerNeedsNode({ ...base, isPackaged: true })).toBe(false)
+    expect(mcpServerNeedsNode({ ...base, isPackaged: true, systemNode: true })).toBe(true)
+    expect(mcpServerNeedsNode({ ...base, isPackaged: false })).toBe(true)
   })
 
   it('adds the writing app version and a timestamp to the pointer', () => {

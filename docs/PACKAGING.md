@@ -18,8 +18,10 @@ pnpm --filter @kanbini/desktop run package:dir
 
 # The release artifacts for the current platform.
 # Output (Windows): apps/desktop/release/Kanbini Setup X.Y.Z.exe (installer)
-#                   apps/desktop/release/Kanbini-X.Y.Z-win-x64.zip (portable:
-#                   the same app as win-unpacked/, zipped)
+#                   apps/desktop/release/Kanbini-X.Y.Z-win-x64-portable.zip
+#                   (portable folder: the same app as win-unpacked/, zipped)
+#                   apps/desktop/release/Kanbini-X.Y.Z-win-x64-portable-single-file.exe
+#                   (one-file portable: unpacks itself to %TEMP% each run)
 pnpm --filter @kanbini/desktop run package
 ```
 
@@ -123,7 +125,7 @@ step 1 installs a toolchain). So step 2 is usually a fast no-op after the
 first run.
 
 The `postpackage` `check-payload.mjs` guard inspects the Windows
-installer + portable `.zip` and is Windows-only; on Linux it logs `SKIP` and exits 0, so the
+installer, portable `.zip` and one-file `.exe` and is Windows-only; on Linux it logs `SKIP` and exits 0, so the
 AppImage build completes without payload verification (there is no
 AppImage equivalent yet).
 
@@ -161,9 +163,10 @@ exists yet.
 
 `apps/desktop/scripts/check-payload.mjs` runs automatically as
 `postpackage` after every `pnpm --filter
-@kanbini/desktop run package`. It checks BOTH Windows artifacts: the
-newest `Kanbini Setup *.exe` (its `$PLUGINSDIR/app-64.7z` payload) and
-the newest `Kanbini-*-win-*.zip` (listed directly), via `7z l`, and
+@kanbini/desktop run package`. It checks ALL THREE Windows artifacts:
+the newest `Kanbini Setup *.exe` and `Kanbini-*-portable-single-file.exe`
+(both NSIS, so their `$PLUGINSDIR/app-64.7z` payload) and the newest
+`Kanbini-*-win-*-portable.zip` (listed directly), via `7z l`, and
 asserts every required sentinel file is present in each - `resources/app.asar`,
 `NOTICES.md`, `mcp/index.js`,
 `drizzle/meta/_journal.json`, the asar-unpacked `better_sqlite3.node`.
@@ -293,7 +296,7 @@ If signing infra ever materialises, the wire-in points are:
 
 Until then, leave both blank - electron-builder will log "signing
 with signtool.exe" but the resulting .exe is unsigned (signtool with
-no cert is a no-op). The portable .exe still works fine.
+no cert is a no-op). All three Windows downloads still work fine.
 
 ## What's NOT done yet (other than signing)
 

@@ -122,10 +122,31 @@ installed app avoids requiring a separate Node.js install - it already
 contains one. Without the env var Electron boots a second copy of the
 UI and the client waits forever for a handshake.
 
-Known limit: the **portable** `.exe` unpacks itself to a fresh temp
-directory on every launch, so both paths in its snippet go stale the
-next time you run it. Use the installer if you want a config you can
-paste once.
+The portable folder (`.zip`) works the same way, with paths inside
+wherever you extracted it.
+
+The **one-file portable `.exe`** is the exception. It unpacks itself
+into a fresh temp folder on every launch and deletes it on exit, so its
+own `Kanbini.exe` can't run the server: the path would go stale every
+run, and a server still running from it would keep the temp folder
+from being cleaned up. Instead it copies the server bundle to
+`%APPDATA%\Kanbini\mcp-server\index.js` on each launch and the snippet
+runs it with the system `node`:
+
+```json
+{
+  "mcpServers": {
+    "kanbini": {
+      "command": "node",
+      "args": ["C:\\Users\\<you>\\AppData\\Roaming\\Kanbini\\mcp-server\\index.js"]
+    }
+  }
+}
+```
+
+So with the one-file `.exe`, Node.js 18+ has to be installed (Settings
+says so). The path never changes, so the config survives updates, and
+the server still answers reads from the export while the app is closed.
 
 ---
 

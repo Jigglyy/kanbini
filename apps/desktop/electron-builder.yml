@@ -78,18 +78,18 @@ extraMetadata:
   main: ./out/main/index.js
 
 # --- Windows ---------------------------------------------------------
-# Two release forms (ADR-0071):
+# Three release forms (ADR-0071, ADR-0073):
 #  - `nsis`: the installer, `Kanbini Setup X.Y.Z.exe` (see `nsis:`).
-#  - `zip`: the PORTABLE FOLDER, `Kanbini-X.Y.Z-win-x64.zip` - the
-#    unpacked app (Kanbini.exe + resources). No install, no registry,
-#    run it from wherever it's extracted. Opens in ~0.4 s.
-#
-# Not the `portable` target: that single .exe is an NSIS wrapper which,
-# on EVERY launch, wipes its temp folder, re-extracts the whole 370 MB
-# app into %TEMP%, runs it, and deletes it on exit (no reuse option in
-# app-builder-lib's portable.nsi). Measured +4.5 s before the app even
-# starts, more on a cold Defender scan, and the MCP server pointer it
-# writes goes stale every launch. The zip replaces it.
+#  - `zip`: the PORTABLE FOLDER, `Kanbini-X.Y.Z-win-x64-portable.zip` -
+#    the unpacked app (Kanbini.exe + resources). No install, no
+#    registry, run it from wherever it's extracted. Opens in ~0.4 s.
+#    The recommended portable form.
+#  - `portable`: the SINGLE FILE, `Kanbini-X.Y.Z-win-x64-portable-
+#    single-file.exe`, for people who want one file. It's an NSIS
+#    wrapper that, on EVERY launch, extracts the whole ~370 MB app into
+#    %TEMP%, runs it, and deletes it on exit (no reuse option in
+#    app-builder-lib's portable.nsi), so it starts ~4.5 s slower. See
+#    `portable:` below for how it's kept clean.
 win:
   target:
     - target: nsis
@@ -98,10 +98,13 @@ win:
     - target: zip
       arch:
         - x64
-  # The zip's name (nsis sets its own below). Windows' "Extract All"
-  # names the folder after the zip, so the version rides along in the
-  # folder name too.
-  artifactName: ${productName}-${version}-win-${arch}.${ext}
+    - target: portable
+      arch:
+        - x64
+  # The zip's name (nsis and portable set their own below). Windows'
+  # "Extract All" names the folder after the zip, so the version rides
+  # along in the folder name too.
+  artifactName: ${productName}-${version}-win-${arch}-portable.${ext}
   # Signing intentionally not configured (ADR-0040 - ship unsigned
   # for v1). Windows SmartScreen will warn on first launch; download-
   # page guidance lives in docs/PACKAGING.md. Wire `signtoolOptions`
@@ -146,6 +149,16 @@ nsis:
   # shortcut on its own since electron-builder no longer tracks it.
   createDesktopShortcut: false
   createStartMenuShortcut: true
+
+portable:
+  artifactName: ${productName}-${version}-win-${arch}-portable-single-file.${ext}
+  # Unpack into a fresh folder per launch, not one fixed per build. The
+  # wrapper wipes its folder before extracting and again on exit, so
+  # with a fixed folder a second launch while the app is open (a common
+  # double-click) deletes files out from under the running copy. `true`
+  # is the setting that skips the fixed name in app-builder-lib 26
+  # (`false` still falls back to a per-build ksuid, NsisTarget.js).
+  unpackDirName: true
 
 # --- macOS -----------------------------------------------------------
 # Universal binary (one .dmg, runs on Intel + Apple Silicon). Building

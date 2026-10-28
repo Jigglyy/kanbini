@@ -403,12 +403,14 @@ describe('zAppInfo / zMcpInfo (M4-F)', () => {
         mcpToken: '/u/mcp-token',
         bundle: '/repo/apps/mcp/dist/index.js'
       },
-      snippets: { mcpClientJson: '{}' }
+      snippets: { mcpClientJson: '{}' },
+      needsNode: true
     }
     const stopped = {
       channel: { running: false, port: null, token: null },
       paths: { mcpJson: '/u/mcp.json', mcpToken: '/u/mcp-token', bundle: null },
-      snippets: { mcpClientJson: '{}' }
+      snippets: { mcpClientJson: '{}' },
+      needsNode: false
     }
     expect(zMcpInfo.parse(running)).toEqual(running)
     expect(zMcpInfo.parse(stopped)).toEqual(stopped)

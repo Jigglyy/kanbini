@@ -484,6 +484,30 @@ describe('<AppSettings> AI integration - Claude Code plugin', () => {
   })
 })
 
+describe('<AppSettings> AI integration - Node.js note', () => {
+  const NODE_NOTE = /starts this connection with node\.js/i
+
+  it('says Node.js is needed when the snippet runs on node (one-file exe)', async () => {
+    const user = userEvent.setup()
+    const mock = kanbiniMock()
+    mock.mcpInfo.mockResolvedValue({
+      ...(await mock.mcpInfo()),
+      needsNode: true
+    })
+    renderAppSettings()
+    await user.click(screen.getByRole('button', { name: 'AI integration' }))
+    expect(await screen.findByText(NODE_NOTE)).toBeInTheDocument()
+  })
+
+  it('stays quiet when the app runs the connection itself', async () => {
+    const user = userEvent.setup()
+    renderAppSettings()
+    await user.click(screen.getByRole('button', { name: 'AI integration' }))
+    expect(await screen.findByText(/configure your ai/i)).toBeInTheDocument()
+    expect(screen.queryByText(NODE_NOTE)).toBeNull()
+  })
+})
+
 describe('<AppSettings> Cards - week start', () => {
   it('picks the first day of the week for the due-date shortcuts', async () => {
     const user = userEvent.setup()

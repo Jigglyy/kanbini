@@ -22,6 +22,7 @@ import {
   mutationName,
   buildMcpServerPointer,
   MCP_SERVER_POINTER_FILE,
+  mcpServerNeedsNode,
   IPC,
   newId,
   zAppInfo,
@@ -297,19 +298,46 @@ function registerAttachmentProtocol(
   })
 }
 
+/** True inside the one-file portable exe (ADR-0073). Its electron-builder
+ *  wrapper unpacks the app into a fresh %TEMP% folder, sets
+ *  PORTABLE_EXECUTABLE_FILE, runs it, and deletes the folder on exit. */
+const RUNNING_SINGLE_FILE =
+  app.isPackaged && Boolean(process.env['PORTABLE_EXECUTABLE_FILE'])
+
+/** Where the one-file exe keeps its copy of the MCP server bundle
+ *  (`<userData>/mcp-server/`): somewhere that outlives the temp folder,
+ *  so the AI's config keeps working after the app closes and nothing an
+ *  AI starts ever runs out of (and locks) that folder. */
+const STAGED_MCP_DIR = 'mcp-server'
+
+/** Copy the MCP server bundle out of the one-file exe's temp folder into
+ *  `<userData>/mcp-server/`, refreshed every launch so it always matches
+ *  this version. The bundle is one self-contained ESM file (tsup), plus
+ *  the package.json that marks it as ESM for `node`. */
+async function stageMcpBundle(userDataDir: string): Promise<void> {
+  const from = join(process.resourcesPath, 'mcp')
+  const to = join(userDataDir, STAGED_MCP_DIR)
+  await fsp.mkdir(to, { recursive: true })
+  for (const name of ['index.js', 'package.json']) {
+    await fsp.copyFile(join(from, name), join(to, name))
+  }
+}
+
 /** Resolve the absolute path to the built MCP server bundle, if it
  *  exists on disk. In dev the bundle lives at
  *  `<repo>/apps/mcp/dist/index.js` (from `pnpm --filter @kanbini/mcp
  *  run build`); the dev main script runs from
  *  `<repo>/apps/desktop/out/main/index.js`, so walk up four levels.
- *  Packaged builds (post-M5) will copy the bundle into resources -
- *  surface that path too. Returns null if neither exists yet, so the
- *  Settings → MCP snippet can render with a `<path-to-bundle>`
- *  placeholder instead of pretending. */
-function resolveMcpBundlePath(): string | null {
-  const candidates = app.isPackaged
-    ? [join(process.resourcesPath, 'mcp', 'index.js')]
-    : [resolve(__dirname, '../../../../apps/mcp/dist/index.js')]
+ *  Packaged builds copy the bundle into resources; the one-file exe uses
+ *  its staged copy instead (`stageMcpBundle`). Returns null if none
+ *  exists yet, so the Settings → MCP snippet can render with a
+ *  `<path-to-bundle>` placeholder instead of pretending. */
+function resolveMcpBundlePath(userDataDir: string): string | null {
+  const candidates = RUNNING_SINGLE_FILE
+    ? [join(userDataDir, STAGED_MCP_DIR, 'index.js')]
+    : app.isPackaged
+      ? [join(process.resourcesPath, 'mcp', 'index.js')]
+      : [resolve(__dirname, '../../../../apps/mcp/dist/index.js')]
   for (const c of candidates) {
     try {
       if (fsSync.existsSync(c)) return c
@@ -338,14 +366,24 @@ function isInstalledCopy(): boolean {
  *  update or a moved install re-points it; kept on quit because the
  *  server still answers reads from the export while the app is closed.
  *  Skipped when the bundle isn't built (dev before `pnpm --filter
- *  @kanbini/mcp run build`) - better no pointer than one to nothing. */
+ *  @kanbini/mcp run build`) - better no pointer than one to nothing.
+ *  The one-file exe stages its bundle first and points at system `node`
+ *  (see `RUNNING_SINGLE_FILE`). */
 async function writeMcpServerPointer(userDataDir: string): Promise<void> {
-  const bundle = resolveMcpBundlePath()
+  if (RUNNING_SINGLE_FILE) {
+    try {
+      await stageMcpBundle(userDataDir)
+    } catch (err) {
+      console.warn('[main] could not stage the MCP server bundle:', err)
+    }
+  }
+  const bundle = resolveMcpBundlePath(userDataDir)
   if (!bundle) return
   const pointer = buildMcpServerPointer({
     isPackaged: app.isPackaged,
     execPath: process.execPath,
     bundle,
+    systemNode: RUNNING_SINGLE_FILE,
     version: app.getVersion()
   })
   try {
@@ -803,7 +841,13 @@ function registerIpc(
   // bundle path resolution lives in one place.
   ipcMain.handle(IPC.mcpInfo, () => {
     const ch = getControlChannel()
-    const bundle = resolveMcpBundlePath()
+    const bundle = resolveMcpBundlePath(userDataDir)
+    const runtime = {
+      isPackaged: app.isPackaged,
+      execPath: process.execPath,
+      bundle,
+      systemNode: RUNNING_SINGLE_FILE
+    }
     return zMcpInfo.parse({
       channel: {
         running: ch !== null,
@@ -816,12 +860,9 @@ function registerIpc(
         bundle
       },
       snippets: {
-        mcpClientJson: buildMcpClientSnippet({
-          isPackaged: app.isPackaged,
-          execPath: process.execPath,
-          bundle
-        })
-      }
+        mcpClientJson: buildMcpClientSnippet(runtime)
+      },
+      needsNode: mcpServerNeedsNode(runtime)
     })
   })
 }

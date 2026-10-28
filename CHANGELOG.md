@@ -9,6 +9,25 @@ Releases are cut by pushing a `v*` tag, which builds the Windows
 installer and portable app and publishes a GitHub Release (see
 [`.github/workflows/release.yml`](.github/workflows/release.yml)).
 
+## [Unreleased]
+
+### Added
+
+- **A one-file portable version is back.** Next to the installer and the
+  portable folder, each release now has
+  `Kanbini-X.Y.Z-win-x64-portable-single-file.exe`: one file you just
+  run, nothing to extract. It unpacks itself into a temporary folder
+  every time, so it takes a few seconds longer to open, and cleans that
+  folder up when you close it. Connecting an AI to this version needs
+  Node.js installed.
+
+### Changed
+
+- **Easier to find the right download.** Each release now starts with a
+  short "Which file do I download?" table, and the portable folder is
+  named `Kanbini-X.Y.Z-win-x64-portable.zip` so it doesn't get mixed up
+  with GitHub's "Source code" zips.
+
 ## [0.11.0] - 2026-10-25
 
 ### Changed

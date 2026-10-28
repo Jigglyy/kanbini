@@ -201,7 +201,8 @@ for a future mobile companion.
 
 ## 9. Packaging
 
-electron-builder produces a Windows NSIS installer + a portable `.exe`;
+electron-builder produces a Windows NSIS installer, a portable folder
+(`.zip`) and a one-file portable `.exe` that unpacks itself per run;
 macOS `.dmg` and Linux AppImage build from the same codebase (Windows is
 the primary tested target). Auto-update is off; updates are a manual
 download. `better-sqlite3` is the only native dependency (asar-unpacked).

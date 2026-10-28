@@ -5,9 +5,10 @@ name: Release
 #   git tag v1.0.0
 #   git push origin v1.0.0
 #
-# This builds the two Windows release forms (ADR-0071) - the installer
-# (`Kanbini Setup X.Y.Z.exe`) and the portable app (a .zip of the
-# unpacked app) - and publishes a GitHub Release with both attached. The
+# This builds the three Windows release forms (ADR-0071, ADR-0073) - the
+# installer (`Kanbini Setup X.Y.Z.exe`), the portable folder (a .zip of
+# the unpacked app) and the one-file portable .exe - and publishes a
+# GitHub Release with all three attached. The
 # tag MUST start with `v` (e.g. v1.0.0); the version after the `v` is
 # written into apps/desktop/package.json before packaging so the artifact
 # filenames and the release tag stay in lockstep (electron-builder reads
@@ -92,10 +93,12 @@ jobs:
 
       # `package` runs package:prepare (MCP bundle + flip better-sqlite3
       # to the Electron ABI + electron-vite build), then electron-builder
-      # emits `Kanbini Setup <version>.exe` and
-      # `Kanbini-<version>-win-x64.zip` to apps/desktop/release/, then
-      # postpackage validates the required payload sentinels in both.
-      - name: Package (installer + portable .zip)
+      # emits `Kanbini Setup <version>.exe`,
+      # `Kanbini-<version>-win-x64-portable.zip` and
+      # `Kanbini-<version>-win-x64-portable-single-file.exe` to
+      # apps/desktop/release/, then postpackage validates the required
+      # payload sentinels in all three.
+      - name: Package (installer + portable .zip + one-file .exe)
         env:
           # Unsigned by design (ADR-0040). Stop electron-builder from
           # trying to auto-discover a signing certificate (and from
@@ -103,29 +106,39 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: pnpm --filter @kanbini/desktop run package
 
-      # Always keep both as run artifacts - the only output of a manual
-      # dispatch dry-run, and a backup on tag runs.
-      - name: Upload the installer + portable .zip as run artifacts
+      # Always keep all three as run artifacts - the only output of a
+      # manual dispatch dry-run, and a backup on tag runs.
+      - name: Upload the installer + portable .zip + one-file .exe as run artifacts
         uses: actions/upload-artifact@v4
         with:
           name: kanbini-windows
           path: |
             apps/desktop/release/Kanbini Setup *.exe
-            apps/desktop/release/Kanbini-*-win-*.zip
+            apps/desktop/release/Kanbini-*-win-*-portable.zip
+            apps/desktop/release/Kanbini-*-win-*-portable-single-file.exe
           if-no-files-found: error
 
-      # On a tag push, publish the GitHub Release and attach both files.
-      # `gh` is preinstalled on the runner; --generate-notes builds the
-      # changelog from commits/PRs since the previous tag.
+      # On a tag push, publish the GitHub Release and attach the three
+      # files. `gh` is preinstalled on the runner; --generate-notes builds
+      # the changelog from commits/PRs since the previous tag, and
+      # --notes prepends .github/release-downloads.md (which file is
+      # which - users couldn't tell the portable .zip from GitHub's own
+      # "Source code" zips). The `#...` after each file is its display
+      # label in the release's asset list.
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          R=apps/desktop/release
+          NOTES="$(sed "s/{{VERSION}}/$VERSION/g" .github/release-downloads.md)"
           gh release create "$GITHUB_REF_NAME" \
-            apps/desktop/release/Kanbini\ Setup\ *.exe \
-            apps/desktop/release/Kanbini-*-win-*.zip \
+            "$R/Kanbini Setup $VERSION.exe#Kanbini.Setup.$VERSION.exe (installer)" \
+            "$R/Kanbini-$VERSION-win-x64-portable.zip#Kanbini-$VERSION-win-x64-portable.zip (portable folder)" \
+            "$R/Kanbini-$VERSION-win-x64-portable-single-file.exe#Kanbini-$VERSION-win-x64-portable-single-file.exe (portable, one file)" \
             --title "Kanbini $GITHUB_REF_NAME" \
+            --notes "$NOTES" \
             --generate-notes \
             --verify-tag

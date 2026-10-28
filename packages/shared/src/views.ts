@@ -700,6 +700,9 @@ export const zMcpInfo = z.object({
    *  specific placement is something the user can ask their AI. */
   snippets: z.object({
     mcpClientJson: z.string()
-  })
+  }),
+  /** The snippet starts the server with the system's `node`, so Node.js
+   *  must be installed (dev, and the one-file portable exe, ADR-0073). */
+  needsNode: z.boolean()
 })
 export type McpInfo = z.infer<typeof zMcpInfo>
