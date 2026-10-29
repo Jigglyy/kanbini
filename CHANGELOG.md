@@ -5,9 +5,20 @@ All notable changes to Kanbini are recorded here. The format is based on
 aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 (pre-1.0: minor versions may still carry user-visible changes).
 
-Releases are cut by pushing a `v*` tag, which builds the Windows
-installer and portable app and publishes a GitHub Release (see
+Releases are cut by pushing a `v*` tag, which builds the Windows,
+macOS and Linux downloads and publishes a GitHub Release (see
 [`.github/workflows/release.yml`](.github/workflows/release.yml)).
+
+## [0.13.0] - 2026-10-29
+
+### Added
+
+- **Kanbini for macOS and Linux.** Every release now has a `.dmg` for
+  Macs (one app for both Apple Silicon and Intel) and, for Linux, a
+  `.deb` for Debian and Ubuntu plus an AppImage for other distros. The
+  Mac app isn't notarized by Apple, so the first time you open it, go
+  to System Settings → Privacy & Security and click "Open Anyway". These
+  builds are new, so please open an issue if anything's off.
 
 ## [0.12.0] - 2026-10-28
 

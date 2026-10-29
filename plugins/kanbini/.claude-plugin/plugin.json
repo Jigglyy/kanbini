@@ -1,7 +1,7 @@
 {
   "name": "kanbini",
   "displayName": "Kanbini",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "Work with your local Kanbini kanban boards from Claude Code: see your agenda, add cards, and log what you just did. Talks to the Kanbini desktop app on your machine; nothing leaves it.",
   "author": {
     "name": "Jigglyy",
