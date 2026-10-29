@@ -123,7 +123,12 @@ contains one. Without the env var Electron boots a second copy of the
 UI and the client waits forever for a handshake.
 
 The portable folder (`.zip`) works the same way, with paths inside
-wherever you extracted it.
+wherever you extracted it. So do the macOS app
+(`/Applications/Kanbini.app/Contents/MacOS/Kanbini` and
+`.../Contents/Resources/mcp/index.js`) and the Linux `.deb`
+(`/opt/Kanbini/kanbini` and `/opt/Kanbini/resources/mcp/index.js`). On
+a Mac, move the app into Applications before copying the snippet: run
+straight from Downloads, macOS starts it from a random temporary path.
 
 The **one-file portable `.exe`** is the exception. It unpacks itself
 into a fresh temp folder on every launch and deletes it on exit, so its
@@ -144,8 +149,12 @@ runs it with the system `node`:
 }
 ```
 
-So with the one-file `.exe`, Node.js 18+ has to be installed (Settings
-says so). The path never changes, so the config survives updates, and
+A Linux **AppImage** does the same: it mounts itself at a new
+`/tmp/.mount_*` folder on every launch, so it stages the bundle to
+`~/.config/Kanbini/mcp-server/index.js` and the snippet uses `node`.
+
+So with the one-file `.exe` or the AppImage, Node.js 18+ has to be
+installed (Settings says so). The path never changes, so the config survives updates, and
 the server still answers reads from the export while the app is closed.
 
 ---

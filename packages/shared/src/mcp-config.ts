@@ -11,17 +11,40 @@ export interface McpSnippetInput {
   isPackaged: boolean;
   execPath: string;
   bundle: string | null;
-  /** Run the server on the system's `node` even though packaged. Set by
-   *  the one-file portable exe (ADR-0073), whose own binary lives in a
-   *  %TEMP% folder deleted on every exit: a client pointed at it loses
-   *  the server after each run, and a server still running from it keeps
-   *  the exe locked so that folder is never cleaned up. `bundle` is then
-   *  a copy staged somewhere that outlives the run. */
+  /** Run the server on the system's `node` even though packaged. Set
+   *  when `runsFromTempFolder` (the one-file portable exe, ADR-0073, and
+   *  a Linux AppImage), whose own binary lives in a folder that's gone
+   *  once the app closes: a client pointed at it loses the server after
+   *  each run, and a server still running from the exe's folder keeps
+   *  it locked so it's never cleaned up. `bundle` is then a copy staged
+   *  somewhere that outlives the run. */
   systemNode?: boolean;
 }
 
+/** True when this packaged copy runs out of a folder that disappears
+ *  once the app closes, so nothing long-lived may point at
+ *  `process.execPath`:
+ *
+ *  - the one-file portable exe (ADR-0073): its wrapper unpacks the app
+ *    into a fresh %TEMP% folder, sets `PORTABLE_EXECUTABLE_FILE`, and
+ *    deletes the folder on exit;
+ *  - a Linux AppImage: it mounts itself at a new `/tmp/.mount_*` folder
+ *    on every launch, sets `APPIMAGE`, and unmounts it on exit.
+ *
+ *  Dev runs are never one, whatever the environment says. */
+export function runsFromTempFolder(
+  isPackaged: boolean,
+  env: Record<string, string | undefined>,
+): boolean {
+  return (
+    isPackaged &&
+    Boolean(env["PORTABLE_EXECUTABLE_FILE"] || env["APPIMAGE"])
+  );
+}
+
 /** True when the server runs on the system's `node`, so Node.js has to
- *  be installed for an AI to start it (dev, and the one-file exe). */
+ *  be installed for an AI to start it (dev, the one-file exe, and an
+ *  AppImage). */
 export function mcpServerNeedsNode(input: McpSnippetInput): boolean {
   return !input.isPackaged || input.systemNode === true;
 }
@@ -50,13 +73,13 @@ export const MCP_BUNDLE_PLACEHOLDER =
  *  - **Dev**: plain `node`. `process.execPath` in dev is the
  *    node_modules Electron dev binary, a worse thing to paste into a
  *    long-lived client config than the `node` a developer already has.
- *  - **One-file portable exe** (`systemNode`): plain `node` too, on a
- *    staged copy of the bundle, since its own exe lives in a temp folder
- *    that's deleted on every exit (see `systemNode`).
+ *  - **One-file portable exe / AppImage** (`systemNode`): plain `node`
+ *    too, on a staged copy of the bundle, since their own binary lives in
+ *    a temp folder that's gone on every exit (see `runsFromTempFolder`).
  *
- *  The paths are as stable as the app's folder: the installer and the
- *  portable folder (ADR-0071) hold until that folder is moved or
- *  replaced; the one-file exe's staged copy holds for good. */
+ *  The paths are as stable as the app's folder: the installer, the
+ *  portable folder (ADR-0071), the macOS .app and the .deb hold until
+ *  that folder is moved or replaced; a staged copy holds for good. */
 export function buildMcpClientSnippet(input: McpSnippetInput): string {
   const server = buildMcpServerEntry({
     ...input,

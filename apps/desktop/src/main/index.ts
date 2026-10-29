@@ -23,6 +23,7 @@ import {
   buildMcpServerPointer,
   MCP_SERVER_POINTER_FILE,
   mcpServerNeedsNode,
+  runsFromTempFolder,
   IPC,
   newId,
   zAppInfo,
@@ -301,19 +302,18 @@ function registerAttachmentProtocol(
   })
 }
 
-/** True inside the one-file portable exe (ADR-0073). Its electron-builder
- *  wrapper unpacks the app into a fresh %TEMP% folder, sets
- *  PORTABLE_EXECUTABLE_FILE, runs it, and deletes the folder on exit. */
-const RUNNING_SINGLE_FILE =
-  app.isPackaged && Boolean(process.env['PORTABLE_EXECUTABLE_FILE'])
+/** True inside the one-file portable exe (ADR-0073) or a Linux AppImage:
+ *  both run out of a temp folder that's gone once the app closes (see
+ *  `runsFromTempFolder`). */
+const RUNNING_FROM_TEMP = runsFromTempFolder(app.isPackaged, process.env)
 
-/** Where the one-file exe keeps its copy of the MCP server bundle
+/** Where a temp-folder copy keeps its copy of the MCP server bundle
  *  (`<userData>/mcp-server/`): somewhere that outlives the temp folder,
  *  so the AI's config keeps working after the app closes and nothing an
  *  AI starts ever runs out of (and locks) that folder. */
 const STAGED_MCP_DIR = 'mcp-server'
 
-/** Copy the MCP server bundle out of the one-file exe's temp folder into
+/** Copy the MCP server bundle out of the temp folder into
  *  `<userData>/mcp-server/`, refreshed every launch so it always matches
  *  this version. The bundle is one self-contained ESM file (tsup), plus
  *  the package.json that marks it as ESM for `node`. */
@@ -331,12 +331,12 @@ async function stageMcpBundle(userDataDir: string): Promise<void> {
  *  `<repo>/apps/mcp/dist/index.js` (from `pnpm --filter @kanbini/mcp
  *  run build`); the dev main script runs from
  *  `<repo>/apps/desktop/out/main/index.js`, so walk up four levels.
- *  Packaged builds copy the bundle into resources; the one-file exe uses
- *  its staged copy instead (`stageMcpBundle`). Returns null if none
- *  exists yet, so the Settings → MCP snippet can render with a
- *  `<path-to-bundle>` placeholder instead of pretending. */
+ *  Packaged builds copy the bundle into resources; the one-file exe and
+ *  an AppImage use their staged copy instead (`stageMcpBundle`). Returns
+ *  null if none exists yet, so the Settings → MCP snippet can render
+ *  with a `<path-to-bundle>` placeholder instead of pretending. */
 function resolveMcpBundlePath(userDataDir: string): string | null {
-  const candidates = RUNNING_SINGLE_FILE
+  const candidates = RUNNING_FROM_TEMP
     ? [join(userDataDir, STAGED_MCP_DIR, 'index.js')]
     : app.isPackaged
       ? [join(process.resourcesPath, 'mcp', 'index.js')]
@@ -370,10 +370,10 @@ function isInstalledCopy(): boolean {
  *  server still answers reads from the export while the app is closed.
  *  Skipped when the bundle isn't built (dev before `pnpm --filter
  *  @kanbini/mcp run build`) - better no pointer than one to nothing.
- *  The one-file exe stages its bundle first and points at system `node`
- *  (see `RUNNING_SINGLE_FILE`). */
+ *  The one-file exe and an AppImage stage their bundle first and point
+ *  at system `node` (see `RUNNING_FROM_TEMP`). */
 async function writeMcpServerPointer(userDataDir: string): Promise<void> {
-  if (RUNNING_SINGLE_FILE) {
+  if (RUNNING_FROM_TEMP) {
     try {
       await stageMcpBundle(userDataDir)
     } catch (err) {
@@ -386,7 +386,7 @@ async function writeMcpServerPointer(userDataDir: string): Promise<void> {
     isPackaged: app.isPackaged,
     execPath: process.execPath,
     bundle,
-    systemNode: RUNNING_SINGLE_FILE,
+    systemNode: RUNNING_FROM_TEMP,
     version: app.getVersion()
   })
   try {
@@ -856,7 +856,7 @@ function registerIpc(
       isPackaged: app.isPackaged,
       execPath: process.execPath,
       bundle,
-      systemNode: RUNNING_SINGLE_FILE
+      systemNode: RUNNING_FROM_TEMP
     }
     return zMcpInfo.parse({
       channel: {
@@ -1121,9 +1121,24 @@ void app.whenReady().then(async () => {
     app.setAppUserModelId('app.kanbini.desktop')
   }
 
-  // No native menu (offline single-user kanban); also removes the
-  // default menu's inconsistent zoom accelerators - see attachZoom.
-  Menu.setApplicationMenu(null)
+  // No native menu on Windows / Linux (offline single-user kanban); also
+  // removes the default menu's inconsistent zoom accelerators - see
+  // attachZoom. macOS needs one: Chromium hands Cmd+C / V / X / A / Z in
+  // a text field to the app menu there, so with no menu you couldn't
+  // copy or paste into a card title. App + Edit + Window only - no View
+  // menu, so zoom stays with attachZoom. The page sees each key before
+  // the menu does, so the board's own Cmd+Z / Cmd+Shift+Z undo (the
+  // shortcut registry, which preventDefaults) still wins outside text
+  // fields, and Edit > Undo only handles what the page leaves alone.
+  Menu.setApplicationMenu(
+    process.platform === 'darwin'
+      ? Menu.buildFromTemplate([
+          { role: 'appMenu' },
+          { role: 'editMenu' },
+          { role: 'windowMenu' }
+        ])
+      : null
+  )
 
   const userDataDir = app.getPath('userData')
   // Rename-from-Konbini migration before anything reads/writes inside.

@@ -5,7 +5,8 @@ import {
   buildMcpServerPointer,
   MCP_BUNDLE_PLACEHOLDER,
   MCP_SERVER_POINTER_FILE,
-  mcpServerNeedsNode
+  mcpServerNeedsNode,
+  runsFromTempFolder
 } from '../mcp-config'
 
 // Regression cover for the "works on the maintainer's machine" class
@@ -142,5 +143,35 @@ describe('buildMcpServerEntry / buildMcpServerPointer', () => {
     // plugins/kanbini/server/launch.mjs hardcodes this name (it has no
     // dependencies); the plugin test in @kanbini/mcp checks they match.
     expect(MCP_SERVER_POINTER_FILE).toBe('mcp-server.json')
+  })
+})
+
+describe('runsFromTempFolder', () => {
+  it('spots the one-file portable exe', () => {
+    expect(
+      runsFromTempFolder(true, { PORTABLE_EXECUTABLE_FILE: String.raw`C:\Downloads\Kanbini.exe` })
+    ).toBe(true)
+  })
+
+  // An AppImage mounts itself at a fresh /tmp/.mount_* folder on every
+  // launch and unmounts it on exit, so its process.execPath goes stale
+  // the same way the one-file exe's does.
+  it('spots a Linux AppImage', () => {
+    expect(
+      runsFromTempFolder(true, { APPIMAGE: '/home/x/Apps/Kanbini-1.0.0-linux-x64.AppImage' })
+    ).toBe(true)
+  })
+
+  it('leaves the installer, portable folder, .deb and .app alone', () => {
+    expect(runsFromTempFolder(true, {})).toBe(false)
+  })
+
+  it('ignores the variables in dev, where they could only be inherited', () => {
+    expect(runsFromTempFolder(false, { APPIMAGE: '/x.AppImage' })).toBe(false)
+    expect(runsFromTempFolder(false, { PORTABLE_EXECUTABLE_FILE: 'x.exe' })).toBe(false)
+  })
+
+  it('treats an empty value as unset', () => {
+    expect(runsFromTempFolder(true, { APPIMAGE: '', PORTABLE_EXECUTABLE_FILE: '' })).toBe(false)
   })
 })
