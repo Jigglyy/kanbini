@@ -5,6 +5,7 @@
   "license": "MIT",
   "description": "Kanbini desktop shell - Electron main + preload that hosts the renderer over typed IPC and exposes a loopback MCP control channel for AI tooling.",
   "author": "Kanbini",
+  "homepage": "https://github.com/Jigglyy/kanbini",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "node scripts/ensure-electron-abi.mjs && electron-vite dev",
