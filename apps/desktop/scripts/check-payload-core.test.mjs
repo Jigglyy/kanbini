@@ -11,7 +11,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   findMissingSentinels,
-  parsePathListing
+  parsePathListing,
+  toSentinelPath
 } from './check-payload-core.mjs'
 
 // ─── parsePathListing ────────────────────────────────────────────
@@ -150,5 +151,36 @@ test('findMissingSentinels treats Set membership case-sensitively', () => {
   assert.deepEqual(
     findMissingSentinels(present, ['Resources/App.asar']),
     ['Resources/App.asar']
+  )
+})
+
+// ─── toSentinelPath ──────────────────────────────────────────────
+
+test('toSentinelPath lowercases the macOS Resources folder only', () => {
+  // Kanbini.app/Contents/Resources/app.asar is the macOS spelling of
+  // the sentinel resources/app.asar.
+  assert.equal(toSentinelPath('Resources/app.asar'), 'resources/app.asar')
+  assert.equal(toSentinelPath('Resources'), 'resources')
+  assert.equal(
+    toSentinelPath(
+      'Resources/app.asar.unpacked/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+    ),
+    'resources/app.asar.unpacked/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+  )
+})
+
+test('toSentinelPath leaves Linux paths and deeper segments alone', () => {
+  // linux-unpacked/ already uses `resources/`, and a mis-cased file
+  // deeper down must still fail the check rather than be "fixed".
+  assert.equal(toSentinelPath('resources/mcp/index.js'), 'resources/mcp/index.js')
+  assert.equal(toSentinelPath('Resources/MCP/index.js'), 'resources/MCP/index.js')
+  assert.equal(toSentinelPath('MacOS/Kanbini'), 'MacOS/Kanbini')
+  assert.equal(toSentinelPath('ResourcesExtra/x'), 'ResourcesExtra/x')
+})
+
+test('toSentinelPath normalises backslashes', () => {
+  assert.equal(
+    toSentinelPath('resources\\drizzle\\meta\\_journal.json'),
+    'resources/drizzle/meta/_journal.json'
   )
 })

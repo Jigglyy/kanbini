@@ -76,14 +76,28 @@ builds - electron-builder just extracts the whole archive regardless.
 
 ## Building for Linux
 
-Linux ships as a single **AppImage** (`linux.target` in
-`electron-builder.yml`): a self-contained binary that runs across distros
-with no install step and no auto-updater pinging out, which fits the
-offline ethos. It runs unsigned with no Gatekeeper/SmartScreen-style gate:
+Linux ships two x64 files (`linux.target` in `electron-builder.yml`):
+
+- **`Kanbini-X.Y.Z-linux-x86_64.AppImage`**: a self-contained binary that
+  runs across distros with no install step and no auto-updater pinging
+  out, which fits the offline ethos. Needs FUSE 2 (`libfuse2`). It mounts
+  itself at a new `/tmp/.mount_*` path on every launch, so main treats it
+  like the one-file Windows exe (`runsFromTempFolder`): the MCP bundle is
+  staged to `~/.config/Kanbini/mcp-server/` and AIs start it with system
+  `node`. On Ubuntu 24.04+ AppArmor blocks the unprivileged user
+  namespaces Chromium's sandbox needs, and an AppImage can't install a
+  profile, so it has to be started with `--no-sandbox` there.
+- **`Kanbini-X.Y.Z-linux-amd64.deb`**: installs to `/opt/Kanbini` (stable
+  path, so the MCP snippet uses the app's own Electron like Windows),
+  adds a `.desktop` entry, and its post-install script (electron-builder's
+  template) installs an AppArmor profile on Ubuntu 24.04+, so the sandbox
+  works without flags. The recommended pick on Debian / Ubuntu.
 
 ```bash
-chmod +x Kanbini-X.Y.Z.AppImage
-./Kanbini-X.Y.Z.AppImage
+chmod +x Kanbini-X.Y.Z-linux-x86_64.AppImage
+./Kanbini-X.Y.Z-linux-x86_64.AppImage
+# or
+sudo apt install ./Kanbini-X.Y.Z-linux-amd64.deb
 ```
 
 **It must be built from a Linux host.** electron-builder cannot
@@ -111,10 +125,22 @@ pnpm --filter @kanbini/desktop run rebuild:native
 #    the launch-smoke (and e2e) in a virtual one.
 xvfb-run -a pnpm verify
 
-# 4. Package the AppImage.
-pnpm --filter @kanbini/desktop run package
-# Output: apps/desktop/release/Kanbini-X.Y.Z.AppImage
+# 4. Package the AppImage + .deb (the ABI probe spawns Electron, so a
+#    headless host needs the virtual display here too).
+xvfb-run -a pnpm --filter @kanbini/desktop run package
+# Output: apps/desktop/release/Kanbini-X.Y.Z-linux-x86_64.AppImage
+#         apps/desktop/release/Kanbini-X.Y.Z-linux-amd64.deb
+#         apps/desktop/release/linux-unpacked/ (what both are made from)
+
+# 5. Boot the packaged app (loads the native binding, runs migrations,
+#    exits 0/1).
+KANBINI_LAUNCH_SMOKE=1 xvfb-run -a apps/desktop/release/linux-unpacked/kanbini
 ```
+
+On Ubuntu 24.04+ the Electron binaries in steps 3-5 hit the AppArmor
+user-namespace block described above; either run them with
+`--no-sandbox` or, on a throwaway host, `sudo sysctl -w
+kernel.apparmor_restrict_unprivileged_userns=0` (what CI does).
 
 `prepackage.mjs` runs the same MCP-build + ABI-rebuild + electron-vite
 steps it does on Windows. `ensure-electron-abi.mjs` probes whether the
@@ -125,18 +151,39 @@ step 1 installs a toolchain). So step 2 is usually a fast no-op after the
 first run.
 
 The `postpackage` `check-payload.mjs` guard inspects the Windows
-installer, portable `.zip` and one-file `.exe` and is Windows-only; on Linux it logs `SKIP` and exits 0, so the
-AppImage build completes without payload verification (there is no
-AppImage equivalent yet).
+installer, portable `.zip` and one-file `.exe` by listing their
+payloads. On Linux and macOS it walks the unpacked app those platforms'
+files are made from (`release/linux-unpacked/`,
+`release/mac-universal/Kanbini.app/`) for the same sentinels and checks
+each release file was written (ADR-0077).
 
-> **Status (2026-06):** the codebase is Linux-clean - every `win32` /
-> `darwin` branch in `main` no-ops on Linux, the renderer falls back to
-> the correct userData path (`~/.config/Kanbini`) and modifier keys
-> (Ctrl, not Cmd), and the AppImage target + Linux icon
-> (`build/icon.png`) are already configured. But no Linux build has been
-> smoke-tested. Treat the first one as unverified until
-> `xvfb-run -a pnpm verify` and a manual launch pass are green on the
-> target host.
+> **Status (2026-10):** the release workflow builds Linux on
+> `ubuntu-latest` and boots the packaged app before publishing. No one
+> has done a manual GUI pass on a real Linux desktop yet; treat issues
+> from Linux users as first reports.
+
+## Building for macOS
+
+One universal `.dmg` (`mac.target` in `electron-builder.yml`):
+`Kanbini-X.Y.Z-mac-universal.dmg`, runs natively on Apple Silicon and
+Intel. electron-builder packages x64 and arm64 separately (rebuilding
+`better-sqlite3` for each arch from its prebuilt) and lipo-merges them.
+**It must be built on a Mac**; release.yml's macOS job does it on
+`macos-latest`.
+
+```bash
+pnpm install
+pnpm --filter @kanbini/desktop run build:notices
+CSC_IDENTITY_AUTO_DISCOVERY=false pnpm --filter @kanbini/desktop run package
+# Output: apps/desktop/release/Kanbini-X.Y.Z-mac-universal.dmg
+KANBINI_LAUNCH_SMOKE=1 apps/desktop/release/mac-universal/Kanbini.app/Contents/MacOS/Kanbini
+```
+
+macOS gets a minimal native menu (App, Edit, Window) where Windows and
+Linux get none: Chromium routes Cmd+C / V / X / A / Z in text fields
+through the app menu on macOS, so without one you couldn't paste into a
+card. The page sees each key first, so the board's own Cmd+Z undo still
+wins outside text fields.
 
 ## Verifying a packaged build
 
@@ -267,19 +314,27 @@ X.Y.Z.exe` portable both behave this way. Both are per-user installs
 
 ### macOS
 
-Gatekeeper blocks the .app entirely with "developer cannot be
-verified" and no obvious bypass. Effectively broken for non-technical
-users. Decision: **Mac is deferred from the v1 release**. The
-`mac:` target stays in `electron-builder.yml` for the day signing +
-notarization make sense ($99/yr Apple Developer Program + Mac
-host required).
+No Apple Developer ID, no notarization. With no identity,
+electron-builder falls back to an **ad-hoc** signature for arm64 /
+universal builds (Apple Silicon refuses to run a binary with no
+signature at all, and reports a modified one as "damaged"). Gatekeeper
+still blocks the first launch of a downloaded copy:
+
+> *"Kanbini" Not Opened. Apple could not verify "Kanbini" is free of
+> malware...* `[Done]` `[Move to Trash]`
+
+The user clicks Done, then System Settings → Privacy & Security →
+"Open Anyway" (once). The release notes and README walk through it.
+ADR-0040 originally deferred Mac over this; ADR-0077 ships it anyway
+with the instructions, since the alternative was no Mac build at all.
+Notarization ($99/yr Apple Developer Program) is the upgrade path, see
+below.
 
 ### Linux
 
-AppImage runs unsigned without any warning. `chmod +x
-Kanbini-X.Y.Z.AppImage && ./Kanbini-X.Y.Z.AppImage`. The painless
-platform. Linux build needs a Linux host (or WSL); not auto-built
-on Windows in v1.
+Neither the AppImage nor the `.deb` is signed, and neither needs to be:
+Linux has no SmartScreen / Gatekeeper-style gate. See "Building for
+Linux" for the Ubuntu 24.04 sandbox note.
 
 ## When / how to add signing later
 
@@ -301,8 +356,7 @@ no cert is a no-op). All three Windows downloads still work fine.
 ## What's NOT done yet (other than signing)
 
 - **macOS dmg build from Windows** - not supported by electron-builder;
-  the recipe in `electron-builder.yml` is correct but has to be run
-  from a Mac host (or a Mac CI runner). Moot for v1 (Mac deferred).
+  it runs on a Mac (release.yml's macOS job).
 - **App icon** - `directories.buildResources: build` is configured;
   drop `build/icon.ico` (Windows) + `build/icon.icns` (Mac) +
   `build/icon.png` (Linux, 512x512) and electron-builder picks them
@@ -493,9 +547,13 @@ git checkout apps/desktop/package.json
 ## CI integration
 
 GitHub Actions runs typecheck + the unit-test suite on pull requests
-(see `.github/workflows/ci.yml`). Packaging itself is not in CI: it
-needs a Windows host (and a virtual display for the Electron smoke /
-e2e tests), so installers are still built locally with `pnpm verify
-&& pnpm --filter @kanbini/desktop run package` (~3 minutes on a clean
-Windows machine). A commented-out e2e job in the workflow shows how
-to add the Electron-dependent coverage later.
+(see `.github/workflows/ci.yml`). Releases are built by
+`.github/workflows/release.yml` (ADR-0077): one job per platform
+(`windows-latest`, `macos-latest`, `ubuntu-latest`), each running
+typecheck + tests, `package` (with its postpackage payload check) and
+a launch smoke of the PACKAGED app (`KANBINI_LAUNCH_SMOKE=1`; on macOS
+the Intel half of the universal app runs under Rosetta too). A tag push
+then publishes one Release with all six files; a manual
+`workflow_dispatch` run (`gh workflow run release.yml --ref <branch>`)
+builds everything as run artifacts without publishing. The e2e suite
+is still local-only; a commented-out job in ci.yml shows how to add it.

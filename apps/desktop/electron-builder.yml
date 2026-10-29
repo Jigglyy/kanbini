@@ -161,33 +161,61 @@ portable:
   unpackDirName: true
 
 # --- macOS -----------------------------------------------------------
-# Universal binary (one .dmg, runs on Intel + Apple Silicon). Building
-# this from Windows isn't supported by electron-builder; needs to be
-# run from a Mac host. Config lives here so the recipe is ready -
-# M5-C will document the cross-build story alongside signing.
+# Universal binary (one .dmg, runs on Intel + Apple Silicon):
+# electron-builder packages x64 and arm64 separately, each with
+# better-sqlite3 rebuilt for that arch, then lipo-merges the two
+# (@electron/universal). Must be built on a Mac - release.yml's macos
+# job does it (ADR-0077).
+#
+# Not signed with an Apple Developer ID or notarized (ADR-0040). With no
+# identity electron-builder falls back to an AD-HOC signature for
+# arm64 / universal builds, which Apple Silicon requires to run at all.
+# Gatekeeper still stops the first launch ("Apple could not verify..."):
+# the user opens it once via System Settings > Privacy & Security >
+# Open Anyway. The README + release notes walk through it. Wire
+# `notarize` + a Developer ID here if that ever changes.
 mac:
   target:
     - target: dmg
       arch:
         - universal
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
   category: public.app-category.productivity
-  # macOS unsigned + un-notarized = Gatekeeper blocks the .app with
-  # "developer cannot be verified" and no obvious bypass. Effectively
-  # broken for non-technical users (ADR-0040). Mac is deferred from
-  # the v1 release; recipe stays here for the day notarization
-  # ($99/yr Apple Developer Program + Mac host) makes sense.
 
 # --- Linux -----------------------------------------------------------
-# AppImage: one self-contained binary that runs across distros with no
-# install step (chmod +x and run) and no built-in updater pinging out,
-# which fits the offline / no-auto-update ethos. Runs unsigned with no
-# Gatekeeper/SmartScreen-style gate. MUST be built from a Linux host -
-# electron-builder can't cross-compile the better-sqlite3 native binding
-# from Windows. The postpackage check-payload guard is NSIS-specific and
-# skips cleanly off-Windows (logs SKIP, exits 0). Step-by-step in
-# docs/PACKAGING.md "Building for Linux"; add deb/rpm to `target` here if
-# a distro-native package is ever wanted.
+# Two forms, both x64, built on a Linux host (release.yml's linux job;
+# electron-builder can't cross-compile the better-sqlite3 binding):
+#  - `AppImage`: one self-contained file that runs across distros with
+#    no install step (chmod +x and run). It mounts itself at a fresh
+#    /tmp/.mount_* path every launch, so main stages the MCP bundle and
+#    points AIs at system `node`, like the one-file Windows exe
+#    (`runsFromTempFolder`).
+#  - `deb`: for Debian / Ubuntu. Installs to /opt/Kanbini with a stable
+#    path, and its post-install script sets up the Chromium sandbox
+#    (an AppArmor profile on Ubuntu 24.04+, which an AppImage can't do:
+#    there the AppImage needs `--no-sandbox`, see the README).
 linux:
   target:
-    - AppImage
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+  # `kanbini`, not the package.json name (`@kanbini/desktop`).
+  executableName: kanbini
+  artifactName: ${productName}-${version}-linux-${arch}.${ext}
   category: Office
+  # The package.json description is engineer-facing; this is what a
+  # software centre shows.
+  synopsis: Offline kanban boards your AI can work on
+  description: >-
+    Kanbini is a Trello-style kanban board that lives on your computer.
+    No accounts, no cloud, no telemetry. A built-in local MCP server lets
+    an AI read and move your cards while you watch.
+  # deb needs a maintainer with an email; the repo's public noreply one.
+  maintainer: Jigglyy <38725880+Jigglyy@users.noreply.github.com>
+
+deb:
+  # Lowercase, as dpkg wants (the default would be the product name).
+  packageName: kanbini

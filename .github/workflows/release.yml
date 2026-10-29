@@ -5,30 +5,38 @@ name: Release
 #   git tag v1.0.0
 #   git push origin v1.0.0
 #
-# This builds the three Windows release forms (ADR-0071, ADR-0073) - the
-# installer (`Kanbini Setup X.Y.Z.exe`), the portable folder (a .zip of
-# the unpacked app) and the one-file portable .exe - and publishes a
-# GitHub Release with all three attached. The
-# tag MUST start with `v` (e.g. v1.0.0); the version after the `v` is
-# written into apps/desktop/package.json before packaging so the artifact
-# filenames and the release tag stay in lockstep (electron-builder reads
-# the version from package.json, not the git tag).
+# Each platform builds on its own runner (ADR-0077), since the
+# better-sqlite3 native binding can't be cross-compiled:
+#
+#  - Windows (ADR-0071, ADR-0073): the installer (`Kanbini Setup
+#    X.Y.Z.exe`), the portable folder (a .zip of the unpacked app) and
+#    the one-file portable .exe.
+#  - macOS: one universal .dmg (Intel + Apple Silicon).
+#  - Linux: an AppImage and a .deb, both x64.
+#
+# Every job typechecks, runs the unit tests, packages, checks the payload
+# (postpackage) and then boots the PACKAGED app in launch-smoke mode, so a
+# release can't ship a build whose native binding or migrations don't load
+# on that platform. The `publish` job then creates one GitHub Release
+# with all six files. The tag MUST start with `v` (e.g. v1.0.0); the
+# version after the `v` is written into apps/desktop/package.json before
+# packaging so the artifact filenames and the release tag stay in
+# lockstep (electron-builder reads the version from package.json, not the
+# git tag).
 #
 # Builds are UNSIGNED (ADR-0040): Windows SmartScreen shows a dismissible
-# "unknown publisher" warning on first run. macOS / Linux jobs are
-# intentionally omitted for now (Mac deferred from v1) - see the "Test +
-# build macOS without owning a Mac" backlog item for the wire-in plan; a
-# mac job would slot in alongside `windows` here once icon.icns + signing
-# are sorted.
+# "unknown publisher" warning on first run, and macOS asks the user to
+# allow the app once in System Settings > Privacy & Security (the .app is
+# ad-hoc signed, not notarized). The release notes explain both.
 
 on:
   push:
     tags:
       - 'v*'
-  # Manual dry-run from the Actions tab: builds + uploads the installer
-  # and the .zip as run artifacts, but does NOT create a Release (it only
-  # fires on a tag). Use it to validate the pipeline without cutting a
-  # release.
+  # Manual dry-run from the Actions tab (or `gh workflow run release.yml
+  # --ref <branch>`): builds and uploads every platform's files as run
+  # artifacts, but does NOT create a Release (publish only fires on a
+  # tag). Use it to validate the pipeline without cutting a release.
   workflow_dispatch:
 
 # Don't cancel a release build half-way through if another ref lands.
@@ -42,9 +50,36 @@ permissions:
   contents: write
 
 jobs:
-  windows:
-    name: Build Windows installer + portable app
-    runs-on: windows-latest
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Let every platform finish so one run reports every failure; the
+      # publish job still needs all three to pass.
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            artifact: kanbini-windows
+            files: |
+              apps/desktop/release/Kanbini Setup *.exe
+              apps/desktop/release/Kanbini-*-win-*-portable.zip
+              apps/desktop/release/Kanbini-*-win-*-portable-single-file.exe
+            app: apps/desktop/release/win-unpacked/Kanbini.exe
+          - name: macOS
+            os: macos-latest
+            artifact: kanbini-macos
+            files: |
+              apps/desktop/release/Kanbini-*-mac-universal.dmg
+            app: apps/desktop/release/mac-universal/Kanbini.app/Contents/MacOS/Kanbini
+          - name: Linux
+            os: ubuntu-latest
+            artifact: kanbini-linux
+            files: |
+              apps/desktop/release/Kanbini-*-linux-x86_64.AppImage
+              apps/desktop/release/Kanbini-*-linux-amd64.deb
+            app: apps/desktop/release/linux-unpacked/kanbini
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -59,6 +94,19 @@ jobs:
           # pnpm 11.x needs Node >= 22.13 (node:sqlite builtin).
           node-version: 22
           cache: pnpm
+
+      # Electron needs a display even for the headless ABI probe and the
+      # launch smoke, so Linux gets a virtual one (xvfb-run below). Ubuntu
+      # 24.04 also blocks the unprivileged user namespaces Chromium's
+      # sandbox uses unless an AppArmor profile allows the binary (the
+      # .deb installs one; the runner's Electron has none), so lift that
+      # restriction for this throwaway runner only.
+      - name: Linux prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo apt-get update
+          sudo apt-get install -y xvfb
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -78,8 +126,9 @@ jobs:
           node -e "const f='apps/desktop/package.json';const p=require('./'+f);p.version=process.env.VERSION;require('fs').writeFileSync(f,JSON.stringify(p,null,2)+'\n')"
 
       # Safety gate: typecheck + unit tests before we cut a build. PR CI
-      # already runs these, but tagging is a separate deliberate act -
-      # this stops a bad tag from shipping a broken build.
+      # already runs these (on Linux), but tagging is a separate
+      # deliberate act - this stops a bad tag from shipping a broken
+      # build, and runs the suite on each platform we ship for.
       - name: Typecheck + unit tests
         run: |
           pnpm typecheck
@@ -93,51 +142,97 @@ jobs:
 
       # `package` runs package:prepare (MCP bundle + flip better-sqlite3
       # to the Electron ABI + electron-vite build), then electron-builder
-      # emits `Kanbini Setup <version>.exe`,
-      # `Kanbini-<version>-win-x64-portable.zip` and
-      # `Kanbini-<version>-win-x64-portable-single-file.exe` to
-      # apps/desktop/release/, then postpackage validates the required
-      # payload sentinels in all three.
-      - name: Package (installer + portable .zip + one-file .exe)
+      # emits this platform's files to apps/desktop/release/, then
+      # postpackage (check-payload.mjs) validates the required payload
+      # sentinels.
+      - name: Package
+        shell: bash
         env:
           # Unsigned by design (ADR-0040). Stop electron-builder from
-          # trying to auto-discover a signing certificate (and from
-          # fetching the winCodeSign toolchain it doesn't need).
+          # trying to auto-discover a signing certificate (and, on
+          # Windows, from fetching the winCodeSign toolchain it doesn't
+          # need). On macOS it then falls back to an ad-hoc signature,
+          # which Apple Silicon needs to run the app at all.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: pnpm --filter @kanbini/desktop run package
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a pnpm --filter @kanbini/desktop run package
+          else
+            pnpm --filter @kanbini/desktop run package
+          fi
 
-      # Always keep all three as run artifacts - the only output of a
-      # manual dispatch dry-run, and a backup on tag runs.
-      - name: Upload the installer + portable .zip + one-file .exe as run artifacts
+      # Boot the packaged app far enough to load the native binding, run
+      # the migrations and open the control channel, then exit 0/1
+      # (main's KANBINI_LAUNCH_SMOKE mode). The release files are made
+      # from this same unpacked app. On macOS the runner is Apple
+      # Silicon, so the universal app's Intel half is launched under
+      # Rosetta too when the runner has it.
+      - name: Launch the packaged app
+        shell: bash
+        env:
+          KANBINI_LAUNCH_SMOKE: '1'
+          APP: ${{ matrix.app }}
+        run: |
+          case "$RUNNER_OS" in
+            Linux) xvfb-run -a "$APP" ;;
+            macOS)
+              "$APP"
+              if arch -x86_64 /usr/bin/true 2>/dev/null; then
+                echo "Launching the Intel (x64) half under Rosetta"
+                arch -x86_64 "$APP"
+              else
+                echo "Rosetta isn't installed on this runner; skipped the Intel half"
+              fi
+              ;;
+            *) "$APP" ;;
+          esac
+
+      # Always keep the files as run artifacts - the only output of a
+      # manual dispatch dry-run, and what the publish job attaches.
+      - name: Upload the release files as run artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: kanbini-windows
-          path: |
-            apps/desktop/release/Kanbini Setup *.exe
-            apps/desktop/release/Kanbini-*-win-*-portable.zip
-            apps/desktop/release/Kanbini-*-win-*-portable-single-file.exe
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.files }}
           if-no-files-found: error
 
-      # On a tag push, publish the GitHub Release and attach the three
-      # files. `gh` is preinstalled on the runner; --generate-notes builds
-      # the changelog from commits/PRs since the previous tag, and
-      # --notes prepends .github/release-downloads.md (which file is
-      # which - users couldn't tell the portable .zip from GitHub's own
-      # "Source code" zips). The `#...` after each file is its display
-      # label in the release's asset list.
+  # On a tag push, publish ONE GitHub Release with every platform's files
+  # once all three builds passed. --generate-notes builds the changelog
+  # from commits/PRs since the previous tag, and --notes prepends
+  # .github/release-downloads.md (which file is which - users couldn't
+  # tell the portable .zip from GitHub's own "Source code" zips). The
+  # `#...` after each file is its display label in the asset list.
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download the release files
+        uses: actions/download-artifact@v4
+        with:
+          # One folder per platform: dist/kanbini-windows/ etc.
+          path: dist
+
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          R=apps/desktop/release
+          W=dist/kanbini-windows
+          M=dist/kanbini-macos
+          L=dist/kanbini-linux
           NOTES="$(sed "s/{{VERSION}}/$VERSION/g" .github/release-downloads.md)"
           gh release create "$GITHUB_REF_NAME" \
-            "$R/Kanbini Setup $VERSION.exe#Kanbini.Setup.$VERSION.exe (installer)" \
-            "$R/Kanbini-$VERSION-win-x64-portable.zip#Kanbini-$VERSION-win-x64-portable.zip (portable folder)" \
-            "$R/Kanbini-$VERSION-win-x64-portable-single-file.exe#Kanbini-$VERSION-win-x64-portable-single-file.exe (portable, one file)" \
+            "$W/Kanbini Setup $VERSION.exe#Kanbini.Setup.$VERSION.exe (Windows installer)" \
+            "$W/Kanbini-$VERSION-win-x64-portable.zip#Kanbini-$VERSION-win-x64-portable.zip (Windows portable folder)" \
+            "$W/Kanbini-$VERSION-win-x64-portable-single-file.exe#Kanbini-$VERSION-win-x64-portable-single-file.exe (Windows portable, one file)" \
+            "$M/Kanbini-$VERSION-mac-universal.dmg#Kanbini-$VERSION-mac-universal.dmg (macOS, Apple Silicon + Intel)" \
+            "$L/Kanbini-$VERSION-linux-x86_64.AppImage#Kanbini-$VERSION-linux-x86_64.AppImage (Linux AppImage)" \
+            "$L/Kanbini-$VERSION-linux-amd64.deb#Kanbini-$VERSION-linux-amd64.deb (Debian / Ubuntu)" \
             --title "Kanbini $GITHUB_REF_NAME" \
             --notes "$NOTES" \
             --generate-notes \

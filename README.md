@@ -121,6 +121,26 @@ All three use the same boards, in `%APPDATA%\Kanbini`.
 Builds are unsigned, so Windows SmartScreen warns on the first run
 ("More info", then "Run anyway").
 
+**macOS:** download **`Kanbini-X.Y.Z-mac-universal.dmg`** (one app for
+both Apple Silicon and Intel Macs), open it and drag Kanbini into
+Applications. The app isn't notarized by Apple, so the first launch is
+blocked with "Apple could not verify..." Click "Done", then go to
+System Settings → Privacy & Security, scroll down and click "Open
+Anyway". You only do this once. Boards live in
+`~/Library/Application Support/Kanbini`.
+
+**Linux** (x64): two downloads, both using the same boards in
+`~/.config/Kanbini`.
+
+- **`Kanbini-X.Y.Z-linux-amd64.deb`** for Debian and Ubuntu:
+  `sudo apt install ./Kanbini-X.Y.Z-linux-amd64.deb`. The best pick on
+  Ubuntu 24.04 and newer, because it sets up the browser sandbox that
+  release needs.
+- **`Kanbini-X.Y.Z-linux-x86_64.AppImage`** for any distro: `chmod +x`
+  it and run it. Needs FUSE 2 (`libfuse2`). On Ubuntu 24.04 and newer,
+  run it with `--no-sandbox` (or use the `.deb`). Connecting an AI to it
+  needs Node.js installed.
+
 Or run it from source:
 
 ```sh
@@ -135,12 +155,14 @@ version bump, run the native rebuild once:
 pnpm --filter @kanbini/desktop rebuild:native
 ```
 
-To build it yourself, see [`docs/PACKAGING.md`](docs/PACKAGING.md)
-(Windows installer + portable `.zip`; macOS `.dmg`; and a Linux **AppImage**,
-built from a Linux host or WSL2 - see [Building for
-Linux](docs/PACKAGING.md#building-for-linux)). **Windows is the primary
-tested target**; the macOS and Linux recipes build from the same Electron
-source but haven't been smoke-tested yet.
+To build it yourself, see [`docs/PACKAGING.md`](docs/PACKAGING.md).
+Each platform builds on its own OS (Windows on Windows, the `.dmg` on a
+Mac, the AppImage + `.deb` on Linux or WSL2); the release workflow does
+all three on GitHub Actions and boots each packaged app before
+publishing. Windows is the platform used day to day; the macOS and Linux
+builds are newer, so please [open an
+issue](https://github.com/Jigglyy/kanbini/issues) if something's off
+there.
 
 ## Wire up an AI
 

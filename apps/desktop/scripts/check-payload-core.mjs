@@ -39,6 +39,16 @@ export function parsePathListing(stdout) {
   return present
 }
 
+/** Normalize a path listed from an unpacked app folder (macOS: relative
+ *  to `Kanbini.app/Contents`; Linux: relative to `linux-unpacked/`) to
+ *  the sentinel spelling: `/` separators, and a lowercase `resources/`
+ *  because macOS names that folder `Resources`. Every other segment is
+ *  left as-is, so a genuinely mis-cased file still fails the check. */
+export function toSentinelPath(relPath) {
+  const p = relPath.replace(/\\/g, '/')
+  return p === 'Resources' || p.startsWith('Resources/') ? `r${p.slice(1)}` : p
+}
+
 /** Given the Set of paths actually present in the payload + the
  *  list of paths we required to be there, return the missing ones
  *  in the original required-list order. Empty array = pass. */

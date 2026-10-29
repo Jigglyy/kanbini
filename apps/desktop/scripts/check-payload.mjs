@@ -12,6 +12,9 @@
 // source paths (writes nothing + completes happily). This script is
 // our backstop.
 //
+// On macOS and Linux it checks the unpacked app those platforms' release
+// files are made from instead (see `UNPACKED`, ADR-0077).
+//
 // Hooked into `pnpm --filter @kanbini/desktop run package` via the
 // `postpackage` npm lifecycle hook (pnpm respects it). Skipped for
 // `package:dir` since that produces only the unpacked folder.
@@ -31,7 +34,8 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   findMissingSentinels,
-  parsePathListing
+  parsePathListing,
+  toSentinelPath
 } from './check-payload-core.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -205,12 +209,17 @@ function checkArtifact(sevenZ, { label, pattern, list }) {
     return false
   }
   console.log(`[check-payload]   payload entries: ${listed.present.size}`)
+  return reportSentinels(file.name, listed.present)
+}
 
-  const missing = findMissingSentinels(listed.present, REQUIRED_SENTINELS)
+/** Diff a payload listing against REQUIRED_SENTINELS and print the
+ *  verdict; returns true when every sentinel is present. */
+function reportSentinels(name, present) {
+  const missing = findMissingSentinels(present, REQUIRED_SENTINELS)
   if (missing.length > 0) {
     console.error('')
     console.error(
-      `[check-payload] FAIL - missing required sentinel${missing.length === 1 ? '' : 's'} in ${file.name}:`
+      `[check-payload] FAIL - missing required sentinel${missing.length === 1 ? '' : 's'} in ${name}:`
     )
     for (const m of missing) console.error(`  - ${m}`)
     console.error('')
@@ -231,14 +240,87 @@ function checkArtifact(sevenZ, { label, pattern, list }) {
   return true
 }
 
+// macOS + Linux (ADR-0077). Their release files (.dmg, AppImage, .deb)
+// are all made from the unpacked app electron-builder leaves in
+// release/ during the same run, so walk that folder for the sentinels
+// and confirm each release file was written. Reading inside a .dmg
+// (hdiutil attach) or an AppImage (squashfs) isn't worth the moving
+// parts when both are built from this folder seconds later.
+const UNPACKED = {
+  darwin: {
+    label: 'mac-universal/Kanbini.app',
+    root: join(RELEASE_DIR, 'mac-universal', 'Kanbini.app', 'Contents'),
+    artifacts: [
+      {
+        label: '`Kanbini-*-mac-universal.dmg`',
+        pattern: /^Kanbini-.+-mac-universal\.dmg$/
+      }
+    ]
+  },
+  linux: {
+    label: 'linux-unpacked',
+    root: join(RELEASE_DIR, 'linux-unpacked'),
+    artifacts: [
+      {
+        label: '`Kanbini-*-linux-x86_64.AppImage`',
+        pattern: /^Kanbini-.+-linux-x86_64\.AppImage$/
+      },
+      {
+        label: '`Kanbini-*-linux-amd64.deb`',
+        pattern: /^Kanbini-.+-linux-amd64\.deb$/
+      }
+    ]
+  }
+}
+
+/** Every path under `root`, relative and in sentinel spelling.
+ *  Symlinks (the .app's framework `Versions/Current` links) are listed
+ *  but not followed. */
+function listTree(root) {
+  const present = new Set()
+  const walk = (dir, rel) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = rel ? `${rel}/${entry.name}` : entry.name
+      present.add(toSentinelPath(path))
+      if (entry.isDirectory()) walk(join(dir, entry.name), path)
+    }
+  }
+  walk(root, '')
+  return present
+}
+
+function checkUnpacked({ label, root, artifacts }) {
+  let ok = true
+  for (const a of artifacts) {
+    const found = findNewest(a.pattern, a.label)
+    if (found.error) {
+      console.error(`[check-payload] FAIL - ${found.error}`)
+      ok = false
+    } else {
+      console.log(
+        `[check-payload] found ${found.file.name} (built ${found.file.mtime.toISOString()})`
+      )
+    }
+  }
+  if (!existsSync(root)) {
+    console.error(`[check-payload] FAIL - unpacked app not found: ${root}`)
+    return false
+  }
+  console.log(`[check-payload] inspecting ${label}`)
+  if (!reportSentinels(label, listTree(root))) ok = false
+  return ok
+}
+
 function main() {
-  // Only the Windows artifacts are inspected today. Mac dmg + Linux
-  // AppImage have different payload formats this script doesn't know
-  // how to read. Skip cleanly (exit 0) on those platforms - the build
-  // still succeeds, just without payload verification.
+  const unpacked = UNPACKED[process.platform]
+  if (unpacked) {
+    const ok = checkUnpacked(unpacked)
+    if (ok) console.log(`[check-payload] OK - ${process.platform} release files complete.`)
+    process.exit(ok ? 0 : 1)
+  }
   if (process.platform !== 'win32') {
     console.log(
-      `[check-payload] SKIP - only the Windows installer + portable .zip + one-file .exe are checked (current platform: ${process.platform}).`
+      `[check-payload] SKIP - no release check for this platform (${process.platform}).`
     )
     process.exit(0)
   }
