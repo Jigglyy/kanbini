@@ -57,3 +57,12 @@ LICENSE         text eol=lf
 # Generated lockfiles: treated as text but collapse diffs in PR review
 package-lock.json  -diff
 pnpm-lock.yaml     -diff
+
+# Large source art left out of `git archive` and GitHub's source
+# tarballs/zips (still in the repo and every clone). Anthropic's plugin
+# directory validates from that archive and caps it at 50 MiB; these
+# ~56 MiB of PNGs pushed it over. Nothing a build reads: images/ only
+# feeds build:icons (its outputs are committed) and build/brand/ is the
+# unused brand-kit stash.
+images/**                  export-ignore
+apps/desktop/build/brand/** export-ignore
