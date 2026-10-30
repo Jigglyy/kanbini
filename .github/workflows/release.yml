@@ -220,20 +220,36 @@ jobs:
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+        # Draft first, then the files one at a time with retries, then
+        # publish. A single `gh release create` with every file attached
+        # failed twice on a transient uploads.github.com error (a 408 on
+        # v0.13.0, a 500 on v0.13.1) and threw the whole publish away.
+        # Re-running this job reuses a draft left by a failed attempt.
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           W=dist/kanbini-windows
           M=dist/kanbini-macos
           L=dist/kanbini-linux
           NOTES="$(sed "s/{{VERSION}}/$VERSION/g" .github/release-downloads.md)"
-          gh release create "$GITHUB_REF_NAME" \
-            "$W/Kanbini Setup $VERSION.exe#Kanbini.Setup.$VERSION.exe (Windows installer)" \
-            "$W/Kanbini-$VERSION-win-x64-portable.zip#Kanbini-$VERSION-win-x64-portable.zip (Windows portable folder)" \
-            "$W/Kanbini-$VERSION-win-x64-portable-single-file.exe#Kanbini-$VERSION-win-x64-portable-single-file.exe (Windows portable, one file)" \
-            "$M/Kanbini-$VERSION-mac-universal.dmg#Kanbini-$VERSION-mac-universal.dmg (macOS, Apple Silicon + Intel)" \
-            "$L/Kanbini-$VERSION-linux-x86_64.AppImage#Kanbini-$VERSION-linux-x86_64.AppImage (Linux AppImage)" \
-            "$L/Kanbini-$VERSION-linux-amd64.deb#Kanbini-$VERSION-linux-amd64.deb (Debian / Ubuntu)" \
-            --title "Kanbini $GITHUB_REF_NAME" \
-            --notes "$NOTES" \
-            --generate-notes \
-            --verify-tag
+          if ! gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --draft \
+              --title "Kanbini $GITHUB_REF_NAME" \
+              --notes "$NOTES" \
+              --generate-notes \
+              --verify-tag
+          fi
+          upload() {
+            for attempt in 1 2 3 4; do
+              gh release upload "$GITHUB_REF_NAME" "$1" --clobber && return 0
+              echo "Upload attempt $attempt failed: ${1%%#*}"
+              sleep $((attempt * 20))
+            done
+            return 1
+          }
+          upload "$W/Kanbini Setup $VERSION.exe#Kanbini.Setup.$VERSION.exe (Windows installer)"
+          upload "$W/Kanbini-$VERSION-win-x64-portable.zip#Kanbini-$VERSION-win-x64-portable.zip (Windows portable folder)"
+          upload "$W/Kanbini-$VERSION-win-x64-portable-single-file.exe#Kanbini-$VERSION-win-x64-portable-single-file.exe (Windows portable, one file)"
+          upload "$M/Kanbini-$VERSION-mac-universal.dmg#Kanbini-$VERSION-mac-universal.dmg (macOS, Apple Silicon + Intel)"
+          upload "$L/Kanbini-$VERSION-linux-x86_64.AppImage#Kanbini-$VERSION-linux-x86_64.AppImage (Linux AppImage)"
+          upload "$L/Kanbini-$VERSION-linux-amd64.deb#Kanbini-$VERSION-linux-amd64.deb (Debian / Ubuntu)"
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest
