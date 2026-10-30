@@ -291,7 +291,9 @@ export const zMutation = z.discriminatedUnion('type', [
   // card's coverAttachmentId if it pointed to the deleted attachment.
   z.object({ type: z.literal('attachment.delete'), id: z.string() }),
   // Reorder/move: main computes the fractional key from neighbours
-  // (ordering stays server-authoritative). null = list end/start.
+  // (ordering stays server-authoritative). beforeId = the card that ends
+  // up above, afterId = below; a missing side is filled in from the
+  // list's order, and neither = the end of the list (crud.ts slotKey).
   z.object({
     type: z.literal('card.move'),
     id: z.string(),

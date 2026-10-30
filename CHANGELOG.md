@@ -18,11 +18,13 @@ macOS and Linux downloads and publishes a GitHub Release (see
 
 ### Fixed
 
-- **Cards an AI moves land where it asked.** When an AI moved a card
-  without saying exactly where, or named only the card it should go
-  under, the card could end up in the wrong spot in the list. Now a
-  card moved with no position goes to the end of the list, and one
-  moved "under card X" goes right under it.
+- **Cards and lists an AI moves land where it asked.** When an AI (or a
+  script using the local HTTP API) moved a card without saying exactly
+  where, or named only the card it should go under, the card could end
+  up in the wrong spot. Now a card moved with no position goes to the
+  end of the list, and one moved "under card X" goes right under it.
+  The same fix applies to moving lists, boards and checklist items.
+  Dragging in the app was never affected.
 
 ## [0.13.0] - 2026-10-29
 

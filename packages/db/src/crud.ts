@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm'
 import {
   type Mutation,
   type MutationResult,
@@ -141,31 +141,27 @@ export function appendCardKey(db: Db, listId: string): string {
   return orderKeyBetween(last?.p ?? null, null)
 }
 
-/** Position key for a card dropped between `above` and `below` (the
- *  neighbours' keys, null when not given or not in the list). The
- *  renderer always names both, but MCP / HTTP callers often name one or
- *  none, and orderKeyBetween with a missing side can mint a key that an
- *  existing card already holds (no neighbours at all gave the same key
- *  every time). So the missing side is filled in from the list's current
- *  order, ignoring the moved card itself: no neighbours = the end of the
- *  list, only the card above = right below it, only the card below =
- *  right above it. Comparing with strict < / > also steps past cards
- *  that already share a key. */
+/** Position key for an item moved between the neighbours whose keys are
+ *  `above` and `below` (null when not given or not in the container).
+ *  `siblings` returns the container's other keys (the moved item left
+ *  out); it only runs when a side is missing. The renderer always names
+ *  both neighbours, but MCP / HTTP callers often name one or none, and
+ *  orderKeyBetween with a missing side can mint a key an existing item
+ *  already holds (no neighbours at all gave 'a0' every time). So the
+ *  missing side is filled in from the current order: no neighbours = the
+ *  end, only the item above = right after it, only the item below =
+ *  right before it. Strict < / > also steps past items that already
+ *  share a key, which containers moved into by the old code can hold.
+ *  Shared by card / list / board / checklist-item moves. */
 function slotKey(
-  db: Db,
-  listId: string,
-  movingId: string,
+  siblings: () => string[],
   above: string | null,
   below: string | null
 ): string {
   if (above !== null && below !== null) return orderKeyBetween(above, below)
-  const keys = db
-    .select({ p: card.position })
-    .from(card)
-    .where(and(eq(card.listId, listId), ne(card.id, movingId)))
-    .orderBy(asc(card.position))
-    .all()
-    .map((r) => r.p)
+  // Default sort = UTF-16 code-unit order, the same as SQLite's BINARY
+  // ORDER BY on these ASCII keys.
+  const keys = siblings().sort()
   if (above !== null) return orderKeyBetween(above, keys.find((k) => k > above) ?? null)
   if (below !== null) return orderKeyBetween(keys.filter((k) => k < below).at(-1) ?? null, below)
   return orderKeyBetween(keys.at(-1) ?? null, null)
@@ -303,7 +299,17 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
                 )
                 .get()?.p ?? null)
             : null
-        const position = orderKeyBetween(keyOf(m.beforeId), keyOf(m.afterId))
+        const position = slotKey(
+          () =>
+            tx
+              .select({ p: board.position })
+              .from(board)
+              .where(and(eq(board.projectId, projectIdRow.p), ne(board.id, m.id)))
+              .all()
+              .map((r) => r.p),
+          keyOf(m.beforeId),
+          keyOf(m.afterId)
+        )
         tx.update(board)
           .set({ position, updatedAt: now() })
           .where(eq(board.id, m.id))
@@ -490,7 +496,17 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
                 .where(and(eq(list.id, id), eq(list.boardId, boardIdRow.b)))
                 .get()?.p ?? null)
             : null
-        const position = orderKeyBetween(keyOf(m.beforeId), keyOf(m.afterId))
+        const position = slotKey(
+          () =>
+            tx
+              .select({ p: list.position })
+              .from(list)
+              .where(and(eq(list.boardId, boardIdRow.b), ne(list.id, m.id)))
+              .all()
+              .map((r) => r.p),
+          keyOf(m.beforeId),
+          keyOf(m.afterId)
+        )
         tx.update(list)
           .set({ position, updatedAt: now() })
           .where(eq(list.id, m.id))
@@ -687,7 +703,17 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
             : null
         const position = toListRow?.sortMode
           ? appendCardKey(tx as unknown as Db, m.toListId)
-          : slotKey(tx as unknown as Db, m.toListId, m.id, keyOf(m.beforeId), keyOf(m.afterId))
+          : slotKey(
+              () =>
+                tx
+                  .select({ p: card.position })
+                  .from(card)
+                  .where(and(eq(card.listId, m.toListId), ne(card.id, m.id)))
+                  .all()
+                  .map((r) => r.p),
+              keyOf(m.beforeId),
+              keyOf(m.afterId)
+            )
         // Card numbers are per board, so a card moving to another board
         // (MCP / HTTP only - the UI never does) takes a number there: the
         // next one, or the one undo / redo brings back (the
@@ -1038,7 +1064,22 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
                 )
                 .get()?.p ?? null)
             : null
-        const position = orderKeyBetween(keyOf(m.beforeId), keyOf(m.afterId))
+        const position = slotKey(
+          () =>
+            tx
+              .select({ p: checklistItem.position })
+              .from(checklistItem)
+              .where(
+                and(
+                  eq(checklistItem.checklistId, m.toChecklistId),
+                  ne(checklistItem.id, m.id)
+                )
+              )
+              .all()
+              .map((r) => r.p),
+          keyOf(m.beforeId),
+          keyOf(m.afterId)
+        )
         tx.update(checklistItem)
           .set({
             checklistId: m.toChecklistId,

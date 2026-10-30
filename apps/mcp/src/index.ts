@@ -931,17 +931,27 @@ server.registerTool(
   {
     title: 'Reorder a list',
     description:
-      'Move a list (column) to a new position on its board. `beforeId` ' +
-      'is the list that should sit immediately to the LEFT of it; ' +
-      '`afterId` the list immediately to the RIGHT. Omit or pass null ' +
-      'for the far left / far right. Both neighbours must be lists on ' +
-      'the same board, in their current left-to-right order (get it ' +
-      'from kanbini_get_board; closed lists count too, since they keep ' +
-      'their slot).',
+      'Move a list (column) to a new position on its board. Named from ' +
+      "the moved list's point of view: `beforeId` is the list that will " +
+      'sit directly to its LEFT, `afterId` the list directly to its ' +
+      'RIGHT. So to put list X just right of list Y, pass `beforeId: Y`. ' +
+      'One neighbour is enough, the server works out the other. Omit ' +
+      'both for the far right; pass only `afterId` = the first list for ' +
+      'the far left. Neighbours must be lists on the same board (get ' +
+      'the order from kanbini_get_board; closed lists count too, since ' +
+      'they keep their slot).',
     inputSchema: {
       id: z.string(),
-      beforeId: z.string().nullable().optional(),
-      afterId: z.string().nullable().optional()
+      beforeId: z
+        .string()
+        .nullable()
+        .optional()
+        .describe('List that will sit directly LEFT of the moved list'),
+      afterId: z
+        .string()
+        .nullable()
+        .optional()
+        .describe('List that will sit directly RIGHT of the moved list')
     }
   },
   ({ id, beforeId, afterId }) =>

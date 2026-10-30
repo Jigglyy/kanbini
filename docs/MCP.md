@@ -602,8 +602,11 @@ Reorder a list on its board.
 | Argument   | Type             | Notes |
 |------------|------------------|-------|
 | `id`       | `string`         | The list to move. |
-| `beforeId` | `string \| null` | List that should sit immediately to its **left**; omit for far left. |
-| `afterId`  | `string \| null` | List immediately to its **right**; omit for far right. |
+| `beforeId` | `string \| null` | List that will sit directly to its **left**. |
+| `afterId`  | `string \| null` | List that will sit directly to its **right**. |
+
+One neighbour is enough (the server fills in the other). Omit both for
+the far right; pass only `afterId` = the first list for the far left.
 
 #### `kanbini_archive_list`
 Archive or restore a whole list with its cards (`id`, `archived`).
