@@ -8,8 +8,9 @@ user-invocable: false
 
 Kanbini is an offline kanban desktop app running on the user's own
 computer. The `kanbini` MCP tools talk to that app: every change shows up
-live in its window, and the user can undo any of it there with Ctrl+Z.
-Nothing is sent anywhere else.
+live in its window (the cards you touch glow briefly), and one Ctrl+Z on
+a board takes back everything you changed there since the user last
+edited it themselves. Nothing is sent anywhere else.
 
 ## Finding things
 

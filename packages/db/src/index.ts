@@ -6,6 +6,7 @@ import { SCHEMA_VERSION } from '@kanbini/shared'
 
 export * as schema from './schema'
 export * from './agenda'
+export * from './ai-changes'
 export * from './attachments'
 export * from './client'
 export * from './crud'

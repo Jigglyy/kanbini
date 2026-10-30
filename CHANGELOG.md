@@ -20,6 +20,12 @@ macOS and Linux downloads and publishes a GitHub Release (see
   same name, or a new one there in the same colour. A copy brings the
   description, due date, checklists and attachments along, but not the
   comments. One Ctrl+Z on the board you moved it from puts it back.
+- **One Ctrl+Z undoes what the AI just did.** Everything an AI changes on
+  a board through the MCP tools, since you last changed something there
+  yourself, now comes back with a single Ctrl+Z instead of one step per
+  change.
+- **Cards the AI changes glow briefly** on the board you're looking at,
+  so you can see what it touched.
 
 ## [0.13.1] - 2026-10-30
 

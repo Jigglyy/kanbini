@@ -17,8 +17,11 @@ import {
   getArchivedItems,
   getBoardView,
   getCardView,
+  joinAiUndoGroup,
   listBoards,
-  searchCards
+  markAiWrite,
+  searchCards,
+  touchedCardIds
 } from '@kanbini/db'
 import {
   isInternalMutation,
@@ -99,11 +102,16 @@ const INFO_FILE = 'mcp.json'
 // loopback can send a body at all.
 const MAX_BODY_BYTES = 16 * 1024 * 1024 // 16 MB
 
+/** What a write tells the renderers: the board to refetch (null for
+ *  board-agnostic writes) and the cards it touched, so the board view can
+ *  glow what the AI just changed. */
+export type ChannelChange = (boardId: string | null, cardIds: string[]) => void
+
 /** Side-effects a method may want to fire after touching the DB. */
 interface MethodContext {
   /** Called after a successful write so renderers refetch and AI edits
-   *  show up live. Pass null for board-agnostic writes. */
-  onChange: (boardId: string | null) => void
+   *  show up live. */
+  onChange: ChannelChange
   /** `<userData>` - attachment files live under `attachments/` here. */
   userDataDir: string
 }
@@ -142,19 +150,24 @@ const methods: Record<string, Method> = {
   },
   'attachment.add': async (db, raw, ctx) => {
     const request = zAttachmentAddViaChannelRequest.parse(raw)
+    const mark = markAiWrite(db)
     const { attachment, boardId } = await addAttachmentFromRequest(db, {
       userDataDir: ctx.userDataDir,
       request
     })
-    ctx.onChange(boardId)
+    joinAiUndoGroup(db, mark)
+    ctx.onChange(boardId, [request.cardId])
     return zAttachmentAddResult.parse({ ...attachment, boardId })
   },
   'attachment.delete': async (db, raw, ctx) => {
     const { id } = zAttachmentDeleteRequest.parse(raw)
+    const touched = touchedCardIds(db, { type: 'attachment.delete', id })
+    const mark = markAiWrite(db)
     const result = zMutationResult.parse(
       await deleteAttachmentWithFile(db, { userDataDir: ctx.userDataDir, id })
     )
-    ctx.onChange(result.boardId)
+    joinAiUndoGroup(db, mark)
+    ctx.onChange(result.boardId, touched)
     return result
   },
   mutate: async (db, raw, ctx) => {
@@ -175,6 +188,9 @@ const methods: Record<string, Method> = {
       // them here.
       throw new Error(`${mutationName(mutation)} mutation not allowed via control channel`)
     }
+    // One undo group for the AI's run on a board (ai-changes.ts).
+    const touched = touchedCardIds(db, mutation)
+    const mark = markAiWrite(db)
     const result = zMutationResult.parse(
       mutation.type === 'attachment.delete'
         ? await deleteAttachmentWithFile(db, {
@@ -183,7 +199,8 @@ const methods: Record<string, Method> = {
           })
         : applyMutationRecorded(db, mutation)
     )
-    ctx.onChange(result.boardId)
+    joinAiUndoGroup(db, mark)
+    ctx.onChange(result.boardId, [...touched, ...touchedCardIds(db, mutation, result)])
     return result
   },
   'mutate.batch': (db, raw, ctx) => {
@@ -200,10 +217,16 @@ const methods: Record<string, Method> = {
         throw new Error(`${mutationName(m)} not allowed in a mutation batch`)
       }
     }
+    const touched = mutations.map((m) => touchedCardIds(db, m))
+    const mark = markAiWrite(db)
     const results = zMutationResults.parse(applyMutationsRecorded(db, mutations))
-    for (const boardId of new Set(results.map((r) => r.boardId))) {
-      ctx.onChange(boardId)
-    }
+    joinAiUndoGroup(db, mark)
+    const byBoard = new Map<string | null, string[]>()
+    results.forEach((r, i) => {
+      const ids = [...touched[i]!, ...touchedCardIds(db, mutations[i]!, r)]
+      byBoard.set(r.boardId, [...(byBoard.get(r.boardId) ?? []), ...ids])
+    })
+    for (const [boardId, ids] of byBoard) ctx.onChange(boardId, [...new Set(ids)])
     return results
   }
 }
@@ -295,8 +318,8 @@ export interface StartControlChannelOptions {
   db: Db
   userDataDir: string
   /** Fired after every successful write so renderers refetch and AI
-   *  edits are visible live. In main this is `broadcastChange`. */
-  onChange: (boardId: string | null) => void
+   *  edits are visible live. In main this broadcasts an 'ai' change. */
+  onChange: ChannelChange
 }
 
 /** Start the control channel, register the allow-list, and publish

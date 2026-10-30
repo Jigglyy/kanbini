@@ -10,6 +10,7 @@ import {
 } from './dependencies'
 import { parseRepeat, repeatSpawnPlan } from './repeat'
 import { missingLabels } from './card-copy'
+import { isAiUndoGroup } from './ai-changes'
 import {
   activity,
   attachment,
@@ -1500,20 +1501,28 @@ export function applyMutationRecorded(
       )
       // Cap at MAX_UNDO_LOG_SIZE - drop the oldest 'undoable' rows.
       // `id` (UUIDv7, monotonic within this process) tiebreaks rows
-      // recorded in the same millisecond - see undoOne for why.
-      const undoableIds = tx
-        .select({ id: undoLog.id })
+      // recorded in the same millisecond - see undoOne for why. A group
+      // is never split: a half-pruned group would undo only part of a
+      // gesture (an AI's run can be longer than the cap), so the rows of
+      // a group that still has a row inside the cap are all kept.
+      const undoable = tx
+        .select({ id: undoLog.id, groupId: undoLog.groupId })
         .from(undoLog)
         .where(eq(undoLog.status, 'undoable'))
         .orderBy(asc(undoLog.createdAt), asc(undoLog.id))
         .all()
-        .map((r) => r.id)
-      if (undoableIds.length > MAX_UNDO_LOG_SIZE) {
-        const toDrop = undoableIds.slice(
-          0,
-          undoableIds.length - MAX_UNDO_LOG_SIZE
+      if (undoable.length > MAX_UNDO_LOG_SIZE) {
+        const cut = undoable.length - MAX_UNDO_LOG_SIZE
+        const keptGroups = new Set(
+          undoable.slice(cut).map((r) => r.groupId).filter((g) => g !== null)
         )
-        tx.delete(undoLog).where(inArray(undoLog.id, toDrop)).run()
+        const toDrop = undoable
+          .slice(0, cut)
+          .filter((r) => r.groupId === null || !keptGroups.has(r.groupId))
+          .map((r) => r.id)
+        if (toDrop.length > 0) {
+          tx.delete(undoLog).where(inArray(undoLog.id, toDrop)).run()
+        }
       }
     }
     if (spawn) {
@@ -1614,6 +1623,9 @@ function describeEntry(
 ): string {
   if (!row.groupId) return row.description
   const n = groupSize(db, row.groupId, status)
+  if (isAiUndoGroup(row.groupId)) {
+    return n > 1 ? `The AI's changes (${n} changes)` : `${row.description} (by the AI)`
+  }
   return n > 1 ? `${row.description} (${n} changes)` : row.description
 }
 

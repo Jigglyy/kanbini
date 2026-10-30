@@ -38,6 +38,7 @@ import {
   loadHideCompleted,
   saveHideCompleted
 } from './lib/hide-completed'
+import { glowCardsById } from './lib/card-glow'
 import { applyLabelOrder, commitLabelOrder, moveLabelInOrder } from './lib/label-order'
 import { backgroundCss, tint } from './lib/palette'
 import { cn } from './lib/utils'
@@ -277,10 +278,16 @@ export function App() {
   }, [data])
 
   useEffect(() => {
-    return ipc.onChange(() => {
-      void qc.invalidateQueries({ queryKey: boardsRootKey })
+    return ipc.onChange((e) => {
+      const refetched = qc.invalidateQueries({ queryKey: boardsRootKey })
       void qc.invalidateQueries({ queryKey: boardsListKey })
       void qc.invalidateQueries({ queryKey: agendaKey })
+      // Cards the AI just changed glow briefly once the refetch has drawn
+      // them, so its edits are easy to spot while you watch.
+      const aiCards = e.source === 'ai' ? (e.cardIds ?? []) : []
+      if (aiCards.length > 0) {
+        void refetched.then(() => requestAnimationFrame(() => glowCardsById(aiCards)))
+      }
     })
   }, [qc])
 

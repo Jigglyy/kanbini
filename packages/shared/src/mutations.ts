@@ -445,6 +445,11 @@ export type MutationResults = z.infer<typeof zMutationResults>
 
 /** Pushed main → renderer after any successful mutation. */
 export const zChangeEvent = z.object({
-  boardId: z.string().nullable()
+  boardId: z.string().nullable(),
+  /** 'ai' for a change that came in over the control channel (the AI via
+   *  the MCP server, or a local script); omitted for the app's own. */
+  source: z.literal('ai').optional(),
+  /** The cards an AI change touched, for the board view to glow. */
+  cardIds: z.array(z.string()).optional()
 })
 export type ChangeEvent = z.infer<typeof zChangeEvent>

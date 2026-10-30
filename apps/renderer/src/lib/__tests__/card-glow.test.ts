@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { CARD_GLOW_MS, glowCard } from '../card-glow'
+import { CARD_GLOW_MS, glowCard, glowCardsById } from '../card-glow'
 
 describe('glowCard', () => {
   it('runs one box-shadow animation that fades back to nothing', () => {
@@ -35,5 +35,24 @@ describe('glowCard', () => {
     const el = document.createElement('li')
     ;(el as { animate?: unknown }).animate = undefined
     expect(glowCard(el)).toBeNull()
+  })
+})
+
+describe('glowCardsById', () => {
+  it('glows each listed card on screen once, skipping ones that are not there', () => {
+    const root = document.createElement('div')
+    const make = (id: string) => {
+      const li = document.createElement('li')
+      li.dataset.cardId = id
+      li.animate = vi.fn(() => ({ cancel: vi.fn() }) as unknown as Animation)
+      root.append(li)
+      return li
+    }
+    const a = make('a')
+    const b = make('b')
+    make('c')
+    expect(glowCardsById(['a', 'b', 'a', 'gone'], root)).toBe(2)
+    expect(a.animate).toHaveBeenCalledTimes(1)
+    expect(b.animate).toHaveBeenCalledTimes(1)
   })
 })

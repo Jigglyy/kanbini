@@ -34,3 +34,17 @@ export function glowCard(el: HTMLElement): Animation | null {
   running.set(el, anim)
   return anim
 }
+
+/** Glow every card on screen whose id is in `cardIds` - the cards an AI
+ *  change just touched (App's change listener, after the refetch has
+ *  drawn them). Cards on another board, or hidden by a filter, aren't in
+ *  the DOM and are skipped. Returns how many glowed. */
+export function glowCardsById(cardIds: readonly string[], root: ParentNode = document): number {
+  let n = 0
+  for (const id of new Set(cardIds)) {
+    for (const el of root.querySelectorAll<HTMLElement>(`[data-card-id="${id}"]`)) {
+      if (glowCard(el)) n++
+    }
+  }
+  return n
+}

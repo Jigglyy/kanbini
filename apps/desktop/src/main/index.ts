@@ -16,6 +16,7 @@ import {
   type WebContents
 } from 'electron'
 import {
+  type ChangeEvent,
   APP_CODENAME,
   buildMcpClientSnippet,
   isInternalMutation,
@@ -257,10 +258,13 @@ function applyCsp(): void {
   })
 }
 
-/** Push a coarse change event to every window so renderers refetch. */
-function broadcastChange(boardId: string | null): void {
+/** Push a coarse change event to every window so renderers refetch.
+ *  `ai` marks a control-channel write and names the cards it touched,
+ *  which the board view glows. */
+function broadcastChange(boardId: string | null, ai?: { cardIds: string[] }): void {
+  const event: ChangeEvent = ai ? { boardId, source: 'ai', cardIds: ai.cardIds } : { boardId }
   for (const w of BrowserWindow.getAllWindows()) {
-    w.webContents.send(IPC.changed, { boardId })
+    w.webContents.send(IPC.changed, event)
   }
 }
 
@@ -1174,7 +1178,7 @@ void app.whenReady().then(async () => {
     controlChannel = await startControlChannel({
       db,
       userDataDir,
-      onChange: broadcastChange
+      onChange: (boardId, cardIds) => broadcastChange(boardId, { cardIds })
     })
     console.log(
       `[main] MCP control channel on 127.0.0.1:${controlChannel.port}`

@@ -689,7 +689,12 @@ Same rules as the MCP hop apply:
   the on-disk export when the app is closed, see Architecture), the HTTP
   API needs the live DB - reads and writes both require the app open.
 - Writes land on the **same global undo stack** as everything else, so a
-  user can Ctrl+Z an API-driven change.
+  user can Ctrl+Z an API-driven change. Writes over this channel (the AI
+  and scripts alike) also form **one undo group per board**: everything
+  sent since the user last changed something on that board (or since 5
+  minutes of silence, or 500 changes) is undone by a single Ctrl+Z.
+- The open board **glows the cards** each write touched, so a user
+  watching sees what changed.
 
 ### Endpoints
 
