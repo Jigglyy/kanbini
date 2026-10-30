@@ -296,6 +296,7 @@ function mockAppInfo(installed: boolean) {
       db: '/mock/db',
       attachments: '/mock/att',
       export: '/mock/export',
+      backups: '/mock/backups',
       notices: '/mock/NOTICES.md'
     },
     platform: 'win32',
@@ -411,6 +412,7 @@ describe('<AppSettings> About - Third-party software', () => {
         db: '/mock/db',
         attachments: '/mock/att',
         export: '/mock/export',
+        backups: '/mock/backups',
         // Empty string is main's signal that build:notices was never
         // run + neither the dev nor packaged path resolves.
         notices: ''

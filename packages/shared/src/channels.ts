@@ -37,6 +37,11 @@ export const IPC = {
    *  the chosen export folder (M4-B). Wipes all local data. Returns
    *  ImportSummary, or null if the user cancelled the picker. */
   importFolder: 'import:folder',
+  /** renderer → main: the dated backups, newest first. Returns BackupList. */
+  backupsList: 'backups:list',
+  /** renderer → main: restore one of them (a safety backup of the current
+   *  state is taken first). Returns ImportSummary. */
+  backupsRestore: 'backups:restore',
   /** renderer → main: open a `.json` file picker, then import the
    *  chosen Trello board export as a NEW board (additive - does not
    *  wipe existing data, unlike importFolder). Returns

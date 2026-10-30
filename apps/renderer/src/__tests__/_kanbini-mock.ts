@@ -23,6 +23,8 @@ import type {
   BoardView,
   ChangeEvent,
   ExportSummary,
+  BackupList,
+  BackupRestoreRequest,
   ImportSummary,
   LinkPreviewRequest,
   LinkPreviewResult,
@@ -122,6 +124,12 @@ function makeBridge() {
       })
     ),
     importFolder: vi.fn(async (): Promise<ImportSummary | null> => null),
+    backupsList: vi.fn(async (): Promise<BackupList> => []),
+    backupsRestore: vi.fn(
+      async (_req: BackupRestoreRequest): Promise<ImportSummary> => {
+        throw new Error('backupsRestore not mocked')
+      }
+    ),
     importTrello: vi.fn(
       async (): Promise<TrelloImportSummary | null> => null
     ),
@@ -166,6 +174,7 @@ function makeBridge() {
           db: '/mock/db',
           attachments: '/mock/att',
           export: '/mock/export',
+          backups: '/mock/backups',
           notices: '/mock/NOTICES.md'
         },
         platform: 'linux',

@@ -608,6 +608,25 @@ export const zImportSummary = z.object({
 })
 export type ImportSummary = z.infer<typeof zImportSummary>
 
+/** One dated backup under `<userData>/backups/` (@kanbini/db backups.ts):
+ *  a daily one, or the safety copy taken right before a restore. */
+export const zBackupInfo = z.object({
+  /** Folder name: `YYYY-MM-DD`, or `YYYY-MM-DD_HH-MM-SS-before-restore`. */
+  name: z.string(),
+  kind: z.enum(['daily', 'before-restore']),
+  /** When it was taken (the export's `exportedAt`), epoch ms. */
+  takenAt: z.number(),
+  boards: z.number(),
+  cards: z.number()
+})
+export type BackupInfo = z.infer<typeof zBackupInfo>
+export const zBackupList = z.array(zBackupInfo)
+export type BackupList = z.infer<typeof zBackupList>
+
+/** `backups:restore` request: the backup's folder name. */
+export const zBackupRestoreRequest = z.object({ name: z.string() })
+export type BackupRestoreRequest = z.infer<typeof zBackupRestoreRequest>
+
 /** Returned by `app:info` (M4-F). Surfaced by the Settings → About
  *  panel and used by the Data section's "Show in folder" affordances.
  *  Pure read - no writes; safe to call any time after main is ready. */
@@ -623,6 +642,8 @@ export const zAppInfo = z.object({
     db: z.string(),
     attachments: z.string(),
     export: z.string(),
+    /** `<userData>/backups/` - the dated backups. */
+    backups: z.string(),
     /** ADR-0054 · absolute path to the bundled NOTICES.md (third-party
      *  licenses). May be empty string if main couldn't locate the file
      *  (e.g. someone packaged without running `build:notices` first);

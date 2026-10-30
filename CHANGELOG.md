@@ -26,6 +26,13 @@ macOS and Linux downloads and publishes a GitHub Release (see
   change.
 - **Cards the AI changes glow briefly** on the board you're looking at,
   so you can see what it touched.
+- **Daily backups.** Kanbini now keeps a copy of everything once a day
+  (when you close it, or after an hour if it stays open) and keeps the
+  last 7 days. Settings > Backup & restore lists them, and any one can be
+  restored with a click. Every restore, from a backup or from a folder,
+  first keeps a copy of how things are right now, so a restore can be
+  undone too. The copies share attachment files, so they take almost no
+  extra disk space.
 
 ## [0.13.1] - 2026-10-30
 

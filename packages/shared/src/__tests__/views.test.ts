@@ -387,6 +387,7 @@ describe('zAppInfo / zMcpInfo (M4-F)', () => {
         db: '/u/kanbini.sqlite',
         attachments: '/u/attachments',
         export: '/u/export',
+        backups: '/u/backups',
         notices: '/u/NOTICES.md'
       },
       platform: 'win32',

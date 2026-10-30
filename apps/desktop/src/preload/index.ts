@@ -13,6 +13,8 @@ import type {
   BoardView,
   ChangeEvent,
   ExportSummary,
+  BackupList,
+  BackupRestoreRequest,
   ImportSummary,
   LinkPreviewRequest,
   LinkPreviewResult,
@@ -78,6 +80,11 @@ const api = {
    *  after wiping and re-inserting. */
   importFolder: (): Promise<ImportSummary | null> =>
     ipcRenderer.invoke(IPC.importFolder),
+  /** The dated backups under userData/backups, newest first. */
+  backupsList: (): Promise<BackupList> => ipcRenderer.invoke(IPC.backupsList),
+  /** Restore one of them (main keeps a copy of the current state first). */
+  backupsRestore: (req: BackupRestoreRequest): Promise<ImportSummary> =>
+    ipcRenderer.invoke(IPC.backupsRestore, req),
   /** Import a Trello board export (.json) as a new board. Opens a
    *  file picker; resolves to null if cancelled, otherwise to a
    *  TrelloImportSummary. Additive - never wipes existing data. */

@@ -21,6 +21,7 @@ import {
 // Brand mark - see App.tsx import. Same source asset.
 import brandLogo from '../assets/logo.png'
 import { ipc } from '../lib/ipc'
+import { BackupList, backupsKey } from './backup-list'
 import { useBoardsList } from '../hooks/useBoardsList'
 import type { WeekStart } from '../lib/due-presets'
 import type { Settings, StartMode, Theme } from '../lib/settings'
@@ -915,6 +916,7 @@ function DataSection({
   const [importing, setImporting] = useState(false)
   const [lastImport, setLastImport] = useState<ImportSummary | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
+  const qc = useQueryClient()
 
   // App-info is cheap + pure - surface the export folder + userData
   // path so the user knows where backups live without digging.
@@ -961,7 +963,11 @@ function DataSection({
     setImportError(null)
     try {
       const summary = await ipc.importFolder()
-      if (summary) setLastImport(summary)
+      if (summary) {
+        setLastImport(summary)
+        // The restore kept a "before restore" copy.
+        void qc.invalidateQueries({ queryKey: backupsKey })
+      }
     } catch (err) {
       setImportError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -999,6 +1005,10 @@ function DataSection({
         </span>
       </Section>
 
+      <Section title="Daily backups">
+        <BackupList folder={info?.paths.backups} />
+      </Section>
+
       <Section title="Restore">
         <button
           onClick={() => void runImport()}
@@ -1017,7 +1027,8 @@ function DataSection({
           <span className="text-xs text-red-400">{importError}</span>
         )}
         <span className="text-xs text-warning">
-          Wipes everything and replaces it with the chosen folder.
+          Wipes everything and replaces it with the chosen folder. A copy of
+          what you have now is kept under Daily backups first.
         </span>
       </Section>
 

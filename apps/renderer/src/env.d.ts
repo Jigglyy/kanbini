@@ -14,6 +14,8 @@ import type {
   BoardView,
   ChangeEvent,
   ExportSummary,
+  BackupList,
+  BackupRestoreRequest,
   ImportSummary,
   LinkPreviewRequest,
   LinkPreviewResult,
@@ -53,6 +55,8 @@ declare global {
       ) => Promise<LinkPreviewResult>
       exportNow: () => Promise<ExportSummary>
       importFolder: () => Promise<ImportSummary | null>
+      backupsList: () => Promise<BackupList>
+      backupsRestore: (req: BackupRestoreRequest) => Promise<ImportSummary>
       importTrello: () => Promise<TrelloImportSummary | null>
       boardSetBackgroundImage: (
         req: BoardSetBackgroundImageRequest

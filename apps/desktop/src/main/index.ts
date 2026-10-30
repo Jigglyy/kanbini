@@ -41,6 +41,8 @@ import {
   zBoardView,
   zExportSummary,
   zGetBoardViewRequest,
+  zBackupList,
+  zBackupRestoreRequest,
   zImportSummary,
   zLinkPreviewRequest,
   zLinkPreviewResult,
@@ -67,6 +69,7 @@ import {
 } from '@kanbini/shared'
 import {
   type Db,
+  BACKUPS_DIR,
   addAttachmentFromBytes,
   addAttachmentFromPath,
   applyMutationRecorded,
@@ -78,11 +81,14 @@ import {
   exportToFolder,
   getAgenda,
   getArchivedItems,
+  backupPath,
   getBoardView,
+  hasDailyBackup,
   importFromFolder,
   importFromTrello,
   instantiateBoardTemplate,
   instantiateListTemplate,
+  listBackups,
   listBoards,
   listTemplates,
   mimeOf,
@@ -93,6 +99,8 @@ import {
   saveListTemplate,
   searchCards,
   seedSampleData,
+  takeDailyBackup,
+  takeSafetyBackup,
   undoOne,
   undoStatus
 } from '@kanbini/db'
@@ -654,8 +662,33 @@ function registerIpc(
   // `before-quit` below; this is the renderer-facing "Export now"
   // button (and the future settings screen).
   ipcMain.handle(IPC.exportNow, async () => {
-    const summary = await exportToFolder(db, userDataDir, exportRoot)
+    const summary = await serialExport(() => exportToFolder(db, userDataDir, exportRoot))
     return zExportSummary.parse(summary)
+  })
+
+  // Dated backups (ADR-0080). A restore of any kind keeps a copy of the
+  // current state first, so it can be undone by restoring that copy.
+  const backupsRoot = resolve(userDataDir, BACKUPS_DIR)
+  const restoreFrom = async (sourceRoot: string) => {
+    await serialExport(() =>
+      takeSafetyBackup({ db, userDataDir, exportRoot, backupsRoot })
+    )
+    const summary = await importFromFolder(db, userDataDir, sourceRoot)
+    // ADR-0036: the full-folder import wipes + re-inserts everything,
+    // so every id the undo log references is now (likely) dangling.
+    // Drop the entire log - the user just chose "restore from
+    // snapshot" anyway, undo history doesn't apply to the prior
+    // state.
+    clearUndoLog(db)
+    broadcastChange(null)
+    return zImportSummary.parse(summary)
+  }
+  ipcMain.handle(IPC.backupsList, async () => zBackupList.parse(await listBackups(backupsRoot)))
+  ipcMain.handle(IPC.backupsRestore, async (_e, raw) => {
+    const { name } = zBackupRestoreRequest.parse(raw)
+    const source = backupPath(backupsRoot, name)
+    if (!source) throw new Error(`no backup called ${name}`)
+    return restoreFrom(source)
   })
 
   // M4-B restore from a previous export. Opens a directory picker
@@ -672,16 +705,7 @@ function registerIpc(
     }
     const res = await showOpenDialogE2E(win, opts)
     if (res.canceled || res.filePaths.length === 0) return null
-    const sourceRoot = res.filePaths[0]!
-    const summary = await importFromFolder(db, userDataDir, sourceRoot)
-    // ADR-0036: the full-folder import wipes + re-inserts everything,
-    // so every id the undo log references is now (likely) dangling.
-    // Drop the entire log - the user just chose "restore from
-    // snapshot" anyway, undo history doesn't apply to the prior
-    // state.
-    clearUndoLog(db)
-    broadcastChange(null)
-    return zImportSummary.parse(summary)
+    return restoreFrom(res.filePaths[0]!)
   })
 
   // Import a Trello board export (.json) as a NEW board - additive,
@@ -790,6 +814,7 @@ function registerIpc(
         db: dbPath,
         attachments: attachmentsRoot,
         export: exportRoot,
+        backups: resolve(userDataDir, BACKUPS_DIR),
         notices: noticesPath
       },
       platform: process.platform,
@@ -1038,6 +1063,34 @@ let dbForQuit: Db | null = null
 let userDataDirForQuit: string | null = null
 let exportRootForQuit: string | null = null
 
+// Exports and backups run one at a time: "Export now", the hourly
+// backup check and the quit-time export all write `<userData>/export`
+// through a .staging / .backup swap that two overlapping runs would
+// break.
+let exportQueue: Promise<unknown> = Promise.resolve()
+function serialExport<T>(fn: () => Promise<T>): Promise<T> {
+  const run = exportQueue.then(fn, fn)
+  exportQueue = run.catch(() => {})
+  return run
+}
+
+/** The day's backup (ADR-0080): the fresh export kept as
+ *  `<userData>/backups/YYYY-MM-DD/`, at most once a calendar day. Quit
+ *  takes it right after the auto-export; an app left open also checks
+ *  every hour (`exported` false: export first). */
+async function dailyBackup(
+  db: Db,
+  userDataDir: string,
+  exportRoot: string,
+  exported: boolean
+): Promise<void> {
+  const backupsRoot = resolve(userDataDir, BACKUPS_DIR)
+  if (await hasDailyBackup(backupsRoot)) return
+  if (!exported) await exportToFolder(db, userDataDir, exportRoot)
+  const name = await takeDailyBackup({ exportRoot, backupsRoot })
+  if (name) console.log(`[main] daily backup -> ${name}`)
+}
+
 // `--round-trip-test` (M4-C): skip the entire app setup, run the
 // export/import round-trip against an in-memory DB + temp userData,
 // then exit with 0/1 so CI can gate on it.
@@ -1208,6 +1261,13 @@ void app.whenReady().then(async () => {
       .catch((err) => console.warn('[gc] sweep failed:', err))
   }, 15_000)
 
+  // A Kanbini that stays open for days still gets its daily backup.
+  setInterval(() => {
+    void serialExport(() => dailyBackup(db, userDataDir, exportRoot, false)).catch((err) =>
+      console.warn('[main] daily backup failed:', err)
+    )
+  }, 60 * 60 * 1000)
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
@@ -1225,18 +1285,23 @@ app.on('before-quit', (event) => {
   event.preventDefault()
   void (async () => {
     if (dbForQuit && userDataDirForQuit && exportRootForQuit) {
+      const qdb = dbForQuit
+      const qdir = userDataDirForQuit
+      const qroot = exportRootForQuit
       try {
-        const summary = await exportToFolder(
-          dbForQuit,
-          userDataDirForQuit,
-          exportRootForQuit
-        )
+        const summary = await serialExport(() => exportToFolder(qdb, qdir, qroot))
         console.log(
           `[main] auto-export → ${summary.destRoot} (` +
             `${summary.counts.boards} boards, ` +
             `${summary.counts.cards} cards, ` +
             `${summary.counts.attachments} attachments)`
         )
+        // Only after a good export: the backup is a copy of it.
+        try {
+          await serialExport(() => dailyBackup(qdb, qdir, qroot, true))
+        } catch (err) {
+          console.error('[main] daily backup failed:', err)
+        }
       } catch (err) {
         console.error('[main] auto-export failed:', err)
       }

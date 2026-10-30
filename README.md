@@ -84,6 +84,10 @@ that never closes: a board that's yours, local, and always on.
   and automation. Loopback only. See [`docs/MCP.md`](docs/MCP.md).
 - **Own your data** - lossless plain-text export/import (`kanbini.json` +
   `cards/*.md` + attachment files); Backup + Restore live in Settings.
+- **Daily backups** - a copy of everything once a day, the last 7 days
+  kept, restorable in one click from Settings (and a copy of the current
+  state is kept before any restore).
+- **Move or copy cards between boards** - labels follow by name.
 - **Cross-board search** via a Ctrl/Cmd+F command palette.
 - **Repeating cards** - make a card repeat daily, weekly, monthly, yearly,
   or every N of those. Completing it adds the next one with its due date
@@ -94,7 +98,8 @@ that never closes: a board that's yours, local, and always on.
   this week, and recently completed, across every board. Tick a card off
   right there, or click it to jump to the card.
 - **Templates** for boards and lists.
-- **Undo / redo** with full snapshot restore on delete.
+- **Undo / redo** with full snapshot restore on delete. One Ctrl+Z takes
+  back everything an AI just changed on a board.
 - **Customizable keyboard shortcuts.**
 - **Board backgrounds** (colour / gradient / image) and continuous zoom.
 - **Trello import** - bring an exported Trello board JSON in as a new board.

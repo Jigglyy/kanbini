@@ -68,11 +68,15 @@ export interface ExportSummary {
  *
  * `userDataDir` is the parent of `userDataDir/attachments/` - used to
  * resolve each attachment row's `relPath` into an absolute source path.
+ * `reuseFrom` is an earlier export whose unchanged files are hardlinked
+ * instead of copied (default: the previous export at `destRoot`); a
+ * backup written to a new folder passes the main export folder.
  */
 export async function exportToFolder(
   db: Db,
   userDataDir: string,
-  destRoot: string
+  destRoot: string,
+  { reuseFrom = destRoot }: { reuseFrom?: string } = {}
 ): Promise<ExportSummary> {
   const stage = `${destRoot}.staging`
   const backup = `${destRoot}.backup`
@@ -208,7 +212,7 @@ export async function exportToFolder(
   for (const att of attachments) {
     const src = join(userDataDir, att.relPath)
     const dest = join(stage, att.relPath)
-    const prev = join(destRoot, att.relPath)
+    const prev = join(reuseFrom, att.relPath)
     await fsp.mkdir(dirname(dest), { recursive: true })
     const ok = await stageFile(src, dest, prev)
     if (!ok) {
@@ -227,7 +231,7 @@ export async function exportToFolder(
     if (!bg || bg.kind !== 'image' || !bg.relPath) continue
     const src = join(userDataDir, bg.relPath)
     const dest = join(stage, bg.relPath)
-    const prev = join(destRoot, bg.relPath)
+    const prev = join(reuseFrom, bg.relPath)
     await fsp.mkdir(dirname(dest), { recursive: true })
     const ok = await stageFile(src, dest, prev)
     if (!ok) {

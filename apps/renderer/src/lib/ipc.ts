@@ -11,6 +11,8 @@ import type {
   BoardView,
   ChangeEvent,
   ExportSummary,
+  BackupList,
+  BackupRestoreRequest,
   ImportSummary,
   LinkPreviewRequest,
   LinkPreviewResult,
@@ -59,6 +61,9 @@ export const ipc = {
     bridge().linkPreviewCreate(req),
   exportNow: (): Promise<ExportSummary> => bridge().exportNow(),
   importFolder: (): Promise<ImportSummary | null> => bridge().importFolder(),
+  backupsList: (): Promise<BackupList> => bridge().backupsList(),
+  backupsRestore: (req: BackupRestoreRequest): Promise<ImportSummary> =>
+    bridge().backupsRestore(req),
   importTrello: (): Promise<TrelloImportSummary | null> =>
     bridge().importTrello(),
   boardSetBackgroundImage: (
