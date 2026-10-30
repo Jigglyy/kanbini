@@ -31,7 +31,10 @@ test('opens the chosen board on the next launch', async () => {
   await pick.selectOption({ label: 'Morning routine' })
 
   // Open a DIFFERENT board last, so "last opened" would pick it instead.
-  await page.getByRole('button', { name: 'Back', exact: true }).click()
+  // Escape leaves Settings even with the (closed) dropdown still focused:
+  // it used to be swallowed by any focused input or select.
+  await pick.focus()
+  await page.keyboard.press('Escape')
   await expect(page.getByRole('heading', { name: 'Your boards' })).toBeVisible()
   await page.getByText('Side project', { exact: true }).click()
   await expect(page.getByText('Side project', { exact: true }).first()).toBeVisible()

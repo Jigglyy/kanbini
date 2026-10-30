@@ -320,6 +320,39 @@ export function isTypingTarget(target: EventTarget | null): boolean {
   return false
 }
 
+/** Input types that take typed text. Escape in one cancels the edit, so
+ *  it mustn't also leave the screen. A checkbox, radio, range, button or
+ *  colour input takes no text. */
+const TEXT_INPUT_TYPES: ReadonlySet<string> = new Set([
+  'text',
+  'search',
+  'email',
+  'url',
+  'tel',
+  'password',
+  'number',
+  'date',
+  'datetime-local',
+  'month',
+  'time',
+  'week'
+])
+
+/** True when Escape on `target` belongs to the field, so App's "Escape
+ *  goes back" must leave it alone: a text input, a textarea, or rich
+ *  text. Narrower than isTypingTarget on purpose: a focused checkbox,
+ *  radio or closed dropdown (where a letter would pick an option, but
+ *  Escape does nothing) used to swallow Escape, so Settings couldn't be
+ *  left after clicking a toggle. An OPEN dropdown handles Escape itself
+ *  before the page sees it. */
+export function holdsEscape(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  if (target.tagName === 'INPUT') {
+    return TEXT_INPUT_TYPES.has((target as HTMLInputElement).type)
+  }
+  return target.tagName === 'TEXTAREA' || target.isContentEditable === true
+}
+
 /** Merge user customizations over the registry defaults. Unknown ids
  *  in storage are ignored; missing ids fall back to defaults so new
  *  actions added in a build light up without the user touching their

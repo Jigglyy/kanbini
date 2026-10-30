@@ -41,6 +41,12 @@ macOS and Linux downloads and publishes a GitHub Release (see
 - **Card numbers on "waiting on" links and in the Agenda**, so you can
   tell which card is which at a glance.
 
+### Fixed
+
+- **Escape leaves Settings again after you click a toggle.** With a
+  checkbox, option or dropdown focused, Escape used to do nothing; now
+  only a text field you're typing in keeps it.
+
 ## [0.13.1] - 2026-10-30
 
 ### Added

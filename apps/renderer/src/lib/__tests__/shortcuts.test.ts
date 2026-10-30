@@ -6,6 +6,7 @@ import {
   actionFromEvent,
   bindingFromEvent,
   formatBinding,
+  holdsEscape,
   isTypingTarget,
   matchBinding,
   normalizeKey,
@@ -130,6 +131,30 @@ describe('formatBinding', () => {
 
   it('renders a bare letter capitalised + alone', () => {
     expect(formatBinding({ key: 'j' })).toBe('J')
+  })
+})
+
+describe('holdsEscape', () => {
+  const input = (type: string) => {
+    const el = document.createElement('input')
+    el.type = type
+    return el
+  }
+
+  it('keeps Escape for fields you type in', () => {
+    for (const t of ['text', 'search', 'number', 'email', 'date']) {
+      expect(holdsEscape(input(t)), t).toBe(true)
+    }
+    expect(holdsEscape(document.createElement('textarea'))).toBe(true)
+  })
+
+  it('lets Escape through from checkboxes, radios, sliders, dropdowns and buttons', () => {
+    for (const t of ['checkbox', 'radio', 'range', 'color', 'button']) {
+      expect(holdsEscape(input(t)), t).toBe(false)
+    }
+    expect(holdsEscape(document.createElement('select'))).toBe(false)
+    expect(holdsEscape(document.createElement('button'))).toBe(false)
+    expect(holdsEscape(null)).toBe(false)
   })
 })
 

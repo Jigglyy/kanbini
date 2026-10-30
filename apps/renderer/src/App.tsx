@@ -43,6 +43,7 @@ import { applyLabelOrder, commitLabelOrder, moveLabelInOrder } from './lib/label
 import { backgroundCss, tint } from './lib/palette'
 import { cn } from './lib/utils'
 import {
+  holdsEscape,
   resolveBindings,
   useShortcutDispatch,
   type ActionId
@@ -296,18 +297,13 @@ export function App() {
   // via role="dialog", context menu / popover via data-overlay) so the
   // first Escape closes that surface and a second Escape navigates -
   // matches what users expect from a stacked back-stack. Also bails
-  // when focus is in an editable field (input/textarea/contenteditable)
-  // so cancelling an inline rename doesn't yank the user out.
+  // when focus is in a text field (holdsEscape) so cancelling an inline
+  // rename doesn't yank the user out.
   useEffect(() => {
     if (route.kind === 'home') return
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape') return
-      const a = document.activeElement as HTMLElement | null
-      if (a) {
-        const tag = a.tagName
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
-        if (a.isContentEditable) return
-      }
+      if (holdsEscape(document.activeElement)) return
       if (document.querySelector('[role="dialog"], [data-overlay]')) return
       if (route.kind === 'settings') closeSettings()
       else goHome()
