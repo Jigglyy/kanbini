@@ -9,6 +9,7 @@ import {
   APP_CODENAME,
   MAX_VISIBLE_CARD_LIMIT,
   decodeEscapedWhitespace,
+  parseCardNumberRef,
   resolveAccentColor,
   AGENDA_MAX_DAYS,
   zListSortMode,
@@ -456,6 +457,31 @@ server.registerTool(
 const mutate = (m: Mutation): Promise<MutationResult> =>
   rpc('mutate', m) as Promise<MutationResult>
 
+// Card write tools take a card id OR the card's number (#142 / 142), the
+// way the user names cards. Numbers are counted per board, so a number
+// comes with `boardId`; it's turned into the id through card.get.
+const CARD_REF_HINT =
+  'A card can be named by its id, or by its number (`#142`, as shown on ' +
+  'the card) together with `boardId`, the board it is on.'
+
+const zRefBoardId = z
+  .string()
+  .optional()
+  .describe('Only when a card is given by number (#142): the board it is on')
+
+async function cardIdOf(ref: string, boardId: string | undefined): Promise<string> {
+  if (parseCardNumberRef(ref) === null) return ref
+  if (boardId === undefined) {
+    throw new Error(
+      `"${ref}" is a card number, and numbers are per board: pass the ` +
+        '`boardId` of the board it is on (or use the card id).'
+    )
+  }
+  const card = (await rpc('card.get', { id: ref, boardId })) as { id: string } | null
+  if (!card) throw new Error(`There is no card ${ref} on that board.`)
+  return card.id
+}
+
 server.registerTool(
   'kanbini_create_board',
   {
@@ -551,9 +577,11 @@ server.registerTool(
       'the list it was worked in, due one repeat after the old due date ' +
       '(always in the future), with the same title, description, labels, ' +
       'priority, and unticked checklists; the rule moves to the new card. ' +
-      'Omit fields you do not want to change.',
+      'Omit fields you do not want to change. ' +
+      CARD_REF_HINT,
     inputSchema: {
       id: z.string(),
+      boardId: zRefBoardId,
       patch: z.object({
         title: z.string().min(1).optional(),
         description: z.string().nullable().optional(),
@@ -575,11 +603,11 @@ server.registerTool(
       })
     }
   },
-  ({ id, patch }) =>
-    asToolResult(() =>
+  ({ id, boardId, patch }) =>
+    asToolResult(async () =>
       mutate({
         type: 'card.update',
-        id,
+        id: await cardIdOf(id, boardId),
         // Decode a description that was sent with literal "\n" escapes
         // instead of real line breaks (see decodeEscapedWhitespace).
         patch:
@@ -612,9 +640,13 @@ server.registerTool(
       'lands wherever the sort puts it, not at the requested slot. ' +
       'Card numbers are per board: a move to a list on another board ' +
       "gives the card that board's next number (kanbini_get_card " +
-      'shows it).',
+      "shows it), and its labels follow by name: the other board's " +
+      'label with the same name, or a new one there in the same colour. ' +
+      CARD_REF_HINT +
+      ' A card number in `beforeId` / `afterId` needs the same board.',
     inputSchema: {
       id: z.string(),
+      boardId: zRefBoardId,
       toListId: z.string(),
       beforeId: z
         .string()
@@ -628,14 +660,61 @@ server.registerTool(
         .describe('Card that will sit directly BELOW the moved card')
     }
   },
-  ({ id, toListId, beforeId, afterId }) =>
-    asToolResult(() =>
+  ({ id, boardId, toListId, beforeId, afterId }) =>
+    asToolResult(async () =>
       mutate({
         type: 'card.move',
-        id,
+        id: await cardIdOf(id, boardId),
         toListId,
-        beforeId: beforeId ?? null,
-        afterId: afterId ?? null
+        beforeId: beforeId ? await cardIdOf(beforeId, boardId) : null,
+        afterId: afterId ? await cardIdOf(afterId, boardId) : null
+      })
+    )
+)
+
+server.registerTool(
+  'kanbini_copy_card',
+  {
+    title: 'Copy a card',
+    description:
+      'Make a copy of a card in any list, on this board or another one. ' +
+      'The copy gets the title (or `title`), description, due date, ' +
+      'priority, repeat rule, completion, labels (on another board: the ' +
+      'label with the same name there, or a new one in the same colour), ' +
+      'checklists with their ticks, and attachments. Comments, activity ' +
+      'and "waiting on" links stay with the original. Position works like ' +
+      'kanbini_move_card: `beforeId` is the card that will sit directly ' +
+      'ABOVE the copy, `afterId` the one directly BELOW; omit both for the ' +
+      'end of the list. So to put the copy right under the original, pass ' +
+      'the original as `beforeId`. Returns { id, boardId } of the copy, ' +
+      'which gets its own card number. ' +
+      CARD_REF_HINT,
+    inputSchema: {
+      id: z.string(),
+      boardId: zRefBoardId,
+      toListId: z.string(),
+      title: z.string().min(1).optional(),
+      beforeId: z
+        .string()
+        .nullable()
+        .optional()
+        .describe('Card that will sit directly ABOVE the copy'),
+      afterId: z
+        .string()
+        .nullable()
+        .optional()
+        .describe('Card that will sit directly BELOW the copy')
+    }
+  },
+  ({ id, boardId, toListId, title, beforeId, afterId }) =>
+    asToolResult(async () =>
+      mutate({
+        type: 'card.copy',
+        id: await cardIdOf(id, boardId),
+        toListId,
+        ...(title !== undefined ? { title } : {}),
+        beforeId: beforeId ? await cardIdOf(beforeId, boardId) : null,
+        afterId: afterId ? await cardIdOf(afterId, boardId) : null
       })
     )
 )
@@ -648,10 +727,12 @@ server.registerTool(
       'Permanently delete a card. Its checklists, comments, and ' +
       'attachment rows are removed by the FK cascade. Files attached ' +
       'to the card stay on disk until the GC sweep - they cannot be ' +
-      'restored from the UI, so confirm intent before calling.',
-    inputSchema: { id: z.string() }
+      'restored from the UI, so confirm intent before calling. ' +
+      CARD_REF_HINT,
+    inputSchema: { id: z.string(), boardId: zRefBoardId }
   },
-  ({ id }) => asToolResult(() => mutate({ type: 'card.delete', id }))
+  ({ id, boardId }) =>
+    asToolResult(async () => mutate({ type: 'card.delete', id: await cardIdOf(id, boardId) }))
 )
 
 server.registerTool(
@@ -662,14 +743,18 @@ server.registerTool(
       'Replace the full set of label ids on a card (idempotent). Pass ' +
       'an empty array to remove all labels. Label ids come from the ' +
       "board view's top-level `labels[]`, and must belong to the card's " +
-      'board; make a missing one with kanbini_create_label.',
+      'board; make a missing one with kanbini_create_label. ' +
+      CARD_REF_HINT,
     inputSchema: {
       id: z.string(),
+      boardId: zRefBoardId,
       labelIds: z.array(z.string())
     }
   },
-  ({ id, labelIds }) =>
-    asToolResult(() => mutate({ type: 'card.setLabels', id, labelIds }))
+  ({ id, boardId, labelIds }) =>
+    asToolResult(async () =>
+      mutate({ type: 'card.setLabels', id: await cardIdOf(id, boardId), labelIds })
+    )
 )
 
 server.registerTool(
@@ -684,12 +769,19 @@ server.registerTool(
       'ids are the same card, or when `blockerId` already waits on ' +
       '`cardId` directly or through other cards (that would make a loop). ' +
       "A card's links are in the `blockedBy` and `blocking` arrays of " +
-      'kanbini_get_card / kanbini_get_board. The user can undo in the app.',
-    inputSchema: { cardId: z.string(), blockerId: z.string() }
+      'kanbini_get_card / kanbini_get_board. The user can undo in the app. ' +
+      CARD_REF_HINT +
+      ' Two numbers must both be on that board; for a blocker on another ' +
+      'board, use its id.',
+    inputSchema: { cardId: z.string(), blockerId: z.string(), boardId: zRefBoardId }
   },
-  ({ cardId, blockerId }) =>
-    asToolResult(() =>
-      mutate({ type: 'card.addBlocker', id: cardId, blockerId })
+  ({ cardId, blockerId, boardId }) =>
+    asToolResult(async () =>
+      mutate({
+        type: 'card.addBlocker',
+        id: await cardIdOf(cardId, boardId),
+        blockerId: await cardIdOf(blockerId, boardId)
+      })
     )
 )
 
@@ -700,12 +792,17 @@ server.registerTool(
     description:
       'Remove the link that makes card `cardId` wait on card `blockerId`. ' +
       "Removing a link that doesn't exist does nothing. Neither card " +
-      'changes otherwise.',
-    inputSchema: { cardId: z.string(), blockerId: z.string() }
+      'changes otherwise. ' +
+      CARD_REF_HINT,
+    inputSchema: { cardId: z.string(), blockerId: z.string(), boardId: zRefBoardId }
   },
-  ({ cardId, blockerId }) =>
-    asToolResult(() =>
-      mutate({ type: 'card.removeBlocker', id: cardId, blockerId })
+  ({ cardId, blockerId, boardId }) =>
+    asToolResult(async () =>
+      mutate({
+        type: 'card.removeBlocker',
+        id: await cardIdOf(cardId, boardId),
+        blockerId: await cardIdOf(blockerId, boardId)
+      })
     )
 )
 
@@ -718,17 +815,19 @@ server.registerTool(
       'so it renders with the AI badge in the UI (and is distinguishable ' +
       'from human-written comments). Body is Markdown - put real line ' +
       'breaks between paragraphs and list items. A literal backslash-n ' +
-      'renders as the text "\\n", not a line break.',
+      'renders as the text "\\n", not a line break. ' +
+      CARD_REF_HINT,
     inputSchema: {
       cardId: z.string(),
+      boardId: zRefBoardId,
       body: z.string().min(1)
     }
   },
-  ({ cardId, body }) =>
-    asToolResult(() =>
+  ({ cardId, boardId, body }) =>
+    asToolResult(async () =>
       mutate({
         type: 'comment.create',
-        cardId,
+        cardId: await cardIdOf(cardId, boardId),
         // Recover line breaks if the client sent literal "\n" escapes
         // instead of real ones (see decodeEscapedWhitespace).
         body: decodeEscapedWhitespace(body),
@@ -738,19 +837,78 @@ server.registerTool(
 )
 
 server.registerTool(
+  'kanbini_update_comment',
+  {
+    title: 'Edit a comment',
+    description:
+      'Replace the text of a comment (ids are in the `comments` of ' +
+      'kanbini_get_card). Markdown, with real line breaks. Comments the ' +
+      "user wrote (author null) are theirs: change one only when they ask. " +
+      'The user can undo in the app.',
+    inputSchema: { id: z.string(), body: z.string().min(1) }
+  },
+  ({ id, body }) =>
+    asToolResult(() =>
+      mutate({ type: 'comment.update', id, patch: { body: decodeEscapedWhitespace(body) } })
+    )
+)
+
+server.registerTool(
+  'kanbini_delete_comment',
+  {
+    title: 'Delete a comment',
+    description:
+      'Delete a comment from a card. Comments the user wrote (author ' +
+      'null) are theirs: delete one only when they ask. The user can undo ' +
+      'in the app.',
+    inputSchema: { id: z.string() }
+  },
+  ({ id }) => asToolResult(() => mutate({ type: 'comment.delete', id }))
+)
+
+server.registerTool(
   'kanbini_create_checklist',
   {
     title: 'Add a checklist to a card',
     description:
       'Create a new checklist on a card. Returns { id, boardId }; use ' +
-      'the returned id with kanbini_add_checklist_item to populate it.',
+      'the returned id with kanbini_add_checklist_item to populate it. ' +
+      CARD_REF_HINT,
     inputSchema: {
       cardId: z.string(),
+      boardId: zRefBoardId,
       name: z.string().min(1)
     }
   },
-  ({ cardId, name }) =>
-    asToolResult(() => mutate({ type: 'checklist.create', cardId, name }))
+  ({ cardId, boardId, name }) =>
+    asToolResult(async () =>
+      mutate({ type: 'checklist.create', cardId: await cardIdOf(cardId, boardId), name })
+    )
+)
+
+server.registerTool(
+  'kanbini_rename_checklist',
+  {
+    title: 'Rename a checklist',
+    description:
+      "Rename a card's checklist (ids are in the `checklists` of " +
+      'kanbini_get_card).',
+    inputSchema: { id: z.string(), name: z.string().min(1) }
+  },
+  ({ id, name }) =>
+    asToolResult(() => mutate({ type: 'checklist.update', id, patch: { name } }))
+)
+
+server.registerTool(
+  'kanbini_delete_checklist',
+  {
+    title: 'Delete a checklist',
+    description:
+      'Delete a whole checklist with all of its items. The user can undo ' +
+      'in the app.',
+    inputSchema: { id: z.string() }
+  },
+  ({ id }) => asToolResult(() => mutate({ type: 'checklist.delete', id }))
 )
 
 server.registerTool(
@@ -786,6 +944,81 @@ server.registerTool(
     asToolResult(() =>
       mutate({ type: 'checklistItem.update', id, patch: { completed } })
     )
+)
+
+server.registerTool(
+  'kanbini_update_checklist_item',
+  {
+    title: 'Edit a checklist item',
+    description:
+      "Change a checklist item's `text`, and/or tick it (`completed`). " +
+      'Omit what you do not want to change.',
+    inputSchema: {
+      id: z.string(),
+      text: z.string().min(1).optional(),
+      completed: z.boolean().optional()
+    }
+  },
+  ({ id, text, completed }) =>
+    asToolResult(() => {
+      if (text === undefined && completed === undefined) {
+        throw new Error('Pass `text`, `completed`, or both.')
+      }
+      return mutate({
+        type: 'checklistItem.update',
+        id,
+        patch: {
+          ...(text !== undefined ? { text } : {}),
+          ...(completed !== undefined ? { completed } : {})
+        }
+      })
+    })
+)
+
+server.registerTool(
+  'kanbini_move_checklist_item',
+  {
+    title: 'Reorder or move a checklist item',
+    description:
+      'Move a checklist item within its checklist or to another checklist ' +
+      '(`toChecklistId`, which may be on another card). `beforeId` is the ' +
+      'item that will sit directly ABOVE it, `afterId` the one directly ' +
+      'BELOW; one is enough, and omitting both puts it at the end.',
+    inputSchema: {
+      id: z.string(),
+      toChecklistId: z.string(),
+      beforeId: z
+        .string()
+        .nullable()
+        .optional()
+        .describe('Item that will sit directly ABOVE the moved item'),
+      afterId: z
+        .string()
+        .nullable()
+        .optional()
+        .describe('Item that will sit directly BELOW the moved item')
+    }
+  },
+  ({ id, toChecklistId, beforeId, afterId }) =>
+    asToolResult(() =>
+      mutate({
+        type: 'checklistItem.move',
+        id,
+        toChecklistId,
+        beforeId: beforeId ?? null,
+        afterId: afterId ?? null
+      })
+    )
+)
+
+server.registerTool(
+  'kanbini_delete_checklist_item',
+  {
+    title: 'Delete a checklist item',
+    description: 'Remove one item from a checklist. The user can undo in the app.',
+    inputSchema: { id: z.string() }
+  },
+  ({ id }) => asToolResult(() => mutate({ type: 'checklistItem.delete', id }))
 )
 
 // ─── board / list / label / archive / attachment tools ───────────
@@ -1056,12 +1289,13 @@ server.registerTool(
       'and restore it in the app from the board\'s pencil menu > ' +
       'Archived..., and kanbini_list_archived finds it too. Prefer this ' +
       'over kanbini_delete_card when the user ' +
-      'wants a card "out of the way".',
-    inputSchema: { id: z.string(), archived: z.boolean() }
+      'wants a card "out of the way". ' +
+      CARD_REF_HINT,
+    inputSchema: { id: z.string(), boardId: zRefBoardId, archived: z.boolean() }
   },
-  ({ id, archived }) =>
-    asToolResult(() =>
-      mutate({ type: 'card.update', id, patch: { archived } })
+  ({ id, boardId, archived }) =>
+    asToolResult(async () =>
+      mutate({ type: 'card.update', id: await cardIdOf(id, boardId), patch: { archived } })
     )
 )
 
@@ -1104,6 +1338,34 @@ server.registerTool(
 )
 
 server.registerTool(
+  'kanbini_delete_list',
+  {
+    title: 'Delete a list',
+    description:
+      'Permanently delete a list (column) and every card in it. Prefer ' +
+      'kanbini_archive_list unless the user asks for it to be deleted, and ' +
+      'say how many cards go with it before you do. The user can undo it ' +
+      'in the app (Ctrl+Z on that board).',
+    inputSchema: { id: z.string() }
+  },
+  ({ id }) => asToolResult(() => mutate({ type: 'list.delete', id }))
+)
+
+server.registerTool(
+  'kanbini_delete_board',
+  {
+    title: 'Delete a board',
+    description:
+      'Permanently delete a board with all of its lists, cards and ' +
+      'labels. Prefer kanbini_archive_board unless the user clearly asks ' +
+      'for it to be deleted; confirm the board by name first. The user can ' +
+      'undo it in the app (Ctrl+Z from the boards home).',
+    inputSchema: { id: z.string() }
+  },
+  ({ id }) => asToolResult(() => mutate({ type: 'board.delete', id }))
+)
+
+server.registerTool(
   'kanbini_list_archived',
   {
     title: 'List archived cards and lists',
@@ -1142,17 +1404,20 @@ server.registerTool(
       'are replaced. Returns the stored attachment ({ id, filename, ' +
       'mime, size, ... , boardId }). To show an image as the card\'s ' +
       'cover, pass the returned id as `coverAttachmentId` to ' +
-      'kanbini_update_card.',
+      'kanbini_update_card. ' +
+      CARD_REF_HINT,
     inputSchema: {
       cardId: z.string(),
+      boardId: zRefBoardId,
       path: z.string().min(1).optional(),
       filename: z.string().min(1).max(255).optional(),
       content: z.string().optional(),
       encoding: z.enum(['utf8', 'base64']).optional()
     }
   },
-  ({ cardId, path, filename, content, encoding }) =>
+  ({ cardId: ref, boardId, path, filename, content, encoding }) =>
     asToolResult(async () => {
+      const cardId = await cardIdOf(ref, boardId)
       const inline = filename !== undefined || content !== undefined
       if (path !== undefined && inline) {
         throw new Error(

@@ -148,6 +148,7 @@ export function dependencyRefs(
 } {
   const refCols = {
     cardId: card.id,
+    number: sql<number>`coalesce(${card.number}, 0)`,
     title: card.title,
     completed: card.completed,
     archived: card.archived,

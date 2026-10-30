@@ -19,9 +19,9 @@ edited it themselves. Nothing is sent anywhere else.
   card by words in its title, description, or label names.
 - Every card has a short number the app shows on it, like #142 (`number`
   in reads), counted per board: each board has its own #1, #2, ...
-  Users refer to cards that way. `kanbini_get_card` takes `#142` plus
-  the card's `boardId` in place of an id: use it to get the card's `id`,
-  since the write tools take the id, not the number. Don't reuse a
+  Users refer to cards that way. `kanbini_get_card` and every write
+  tool that takes a card accept `#142` plus the card's `boardId` in
+  place of an id. Don't reuse a
   number from earlier in a long session without its board; look the
   card up again. When you mention a card to the user, add its number,
   e.g. "Fix login redirect (#142)", and name its board when the
@@ -36,8 +36,10 @@ edited it themselves. Nothing is sent anywhere else.
 
 ## Changing things
 
-- Move a card with `kanbini_move_card`. Don't delete and recreate it:
-  that loses its comments, checklists, attachments, and history.
+- Move a card with `kanbini_move_card`, to any list on any board (its
+  labels follow by name). Don't delete and recreate it: that loses its
+  comments, checklists, attachments, and history. For a copy, use
+  `kanbini_copy_card`.
 - Prefer archiving (`kanbini_archive_card`, `kanbini_archive_list`) over
   deleting. Tell the user what you archived: they can see and restore
   it in the app from the board's pencil menu > Archived..., and

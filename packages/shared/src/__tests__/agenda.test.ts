@@ -27,6 +27,7 @@ function cand(over: Partial<AgendaCandidate> = {}): AgendaCandidate {
   seq += 1
   return {
     cardId: `c${String(seq).padStart(3, '0')}`,
+    number: seq,
     title: `Card ${seq}`,
     boardId: 'b1',
     boardName: 'Board',

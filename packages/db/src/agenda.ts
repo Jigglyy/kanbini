@@ -58,6 +58,7 @@ export function getAgenda(db: Db, opts: AgendaOptions = {}): AgendaView {
   const rows = db
     .select({
       cardId: card.id,
+      number: card.number,
       title: card.title,
       dueAt: card.dueAt,
       priority: card.priority,
@@ -99,6 +100,7 @@ export function getAgenda(db: Db, opts: AgendaOptions = {}): AgendaView {
 
   const candidates: AgendaCandidate[] = rows.map((r) => ({
     cardId: r.cardId,
+    number: r.number ?? 0,
     title: r.title,
     boardId: r.boardId,
     boardName: r.boardName,

@@ -33,6 +33,13 @@ macOS and Linux downloads and publishes a GitHub Release (see
   first keeps a copy of how things are right now, so a restore can be
   undone too. The copies share attachment files, so they take almost no
   extra disk space.
+- **More for your AI to work with.** It can now rename and delete
+  checklists, edit, reorder and delete checklist items, edit and delete
+  comments, delete lists and boards (it's told to prefer archiving), and
+  copy cards. It can also name cards by their number, like #142, instead
+  of looking up the id first.
+- **Card numbers on "waiting on" links and in the Agenda**, so you can
+  tell which card is which at a glance.
 
 ## [0.13.1] - 2026-10-30
 

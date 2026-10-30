@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Archive, Check, Circle, Lock, Plus, X } from 'lucide-react'
 import {
+  formatCardNumber,
   isOpenBlocker,
   type CardRef,
   type CardView,
@@ -220,10 +221,11 @@ function LinkRow({
   onRemove: () => void
   removeLabel: string
 }) {
-  const where =
+  const place =
     refCard.boardId === currentBoardId
       ? refCard.listName
       : `${refCard.boardName} · ${refCard.listName}`
+  const where = refCard.number > 0 ? `${formatCardNumber(refCard.number)} · ${place}` : place
   const state = refCard.archived ? 'archived' : refCard.completed ? 'done' : 'open'
   return (
     <li className="group flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-muted/60">

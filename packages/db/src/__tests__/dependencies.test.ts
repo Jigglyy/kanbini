@@ -72,6 +72,8 @@ describe('adding and removing links', () => {
     expect(cardView.blockedBy).toEqual([
       {
         cardId: b,
+        // Each card is #1 on its own board.
+        number: 1,
         title: 'Buy stamps',
         completed: false,
         archived: false,
@@ -90,6 +92,7 @@ describe('adding and removing links', () => {
     expect(getBoardView(db, home.boardId)!.lists[0]!.cards[0]!.blocking).toEqual([
       {
         cardId: a,
+        number: 1,
         title: 'Ship release',
         completed: false,
         archived: false,

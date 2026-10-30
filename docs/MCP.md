@@ -387,6 +387,13 @@ board, for scoped refetch). Every successful write fires
 `broadcastChange(boardId)` on the desktop side, so the open
 renderer reflects the edit live.
 
+**Cards by number.** Every tool that takes a card (`id`, `cardId`,
+`blockerId`, and `beforeId` / `afterId` in the card moves) also accepts
+the card's number, `#142` or `142`, together with an optional `boardId`
+argument naming the board it is on (numbers are counted per board). The
+MCP server turns it into the id through `card.get`. A number without
+`boardId` is an error that says so.
+
 #### `kanbini_create_board`
 Create a new empty board (no lists, no cards). Auto-assigned to
 Kanbini's default project (projects are hidden in the UI).
@@ -454,7 +461,27 @@ under card Y, pass `beforeId: Y`. One neighbour is enough (the server
 fills in the other from the list's current order); omit both to append
 to the end. Server mints the fractional-index position between the two
 neighbours - concurrent moves never collide. A move to a list on another board gives the card that board's
-next number (numbers are per board); undo gives the old one back.
+next number (numbers are per board); undo gives the old one back. Its
+labels follow by name: the other board's label with the same name (any
+case), or a new one there in the same colour.
+
+#### `kanbini_copy_card`
+Copy a card into any list, on its own board or another one.
+
+| Argument    | Type             | Notes                                              |
+|-------------|------------------|----------------------------------------------------|
+| `id`        | `string`         | Card to copy.                                      |
+| `toListId`  | `string`         | Where the copy goes.                               |
+| `title`     | `string`         | Optional new title; default is the original's.     |
+| `beforeId`  | `string \| null` | Card that will sit directly ABOVE the copy.        |
+| `afterId`   | `string \| null` | Card that will sit directly BELOW the copy.        |
+
+The copy gets the description, due date, priority, repeat rule,
+completion, labels (by name on another board, like a move), checklists
+with their ticks, and attachments (sharing the original's files).
+Comments, activity and "waiting on" links stay with the original. It
+gets its own card number. Pass the original as `beforeId` to put the
+copy right under it.
 
 #### `kanbini_delete_card`
 Permanently delete a card. Checklists, comments, and attachment rows
@@ -530,6 +557,27 @@ Mark a checklist item complete (`true`) or reopen it (`false`).
 |-------------|-----------|----------|
 | `id`        | `string`  | yes      |
 | `completed` | `boolean` | yes      |
+
+#### `kanbini_update_checklist_item`
+Change an item's `text` and/or `completed` (pass at least one).
+
+#### `kanbini_move_checklist_item`
+Move an item within its checklist or to another checklist
+(`toChecklistId`, possibly on another card). `beforeId` / `afterId` are
+the items that will sit directly above / below it, like a card move;
+omit both for the end.
+
+#### `kanbini_delete_checklist_item`
+Remove one item. Argument: `id`.
+
+#### `kanbini_rename_checklist` / `kanbini_delete_checklist`
+Rename a checklist (`id`, `name`), or delete it with all of its items
+(`id`).
+
+#### `kanbini_update_comment` / `kanbini_delete_comment`
+Replace a comment's `body` (Markdown), or delete it. Ids are in the
+card's `comments`. The tool descriptions ask the AI to change a comment
+the user wrote (author `null`) only when asked.
 
 #### `kanbini_archive_card`
 Archive (`archived: true`) or restore (`archived: false`) a card. An
@@ -607,6 +655,12 @@ Reorder a list on its board.
 
 One neighbour is enough (the server fills in the other). Omit both for
 the far right; pass only `afterId` = the first list for the far left.
+
+#### `kanbini_delete_list` / `kanbini_delete_board`
+Permanently delete a list with all of its cards, or a board with all of
+its lists, cards and labels (`id`). The descriptions steer the AI to
+archiving unless the user asks for a delete. Both are undoable in the
+app: Ctrl+Z on the board for a list, from the boards home for a board.
 
 #### `kanbini_archive_list`
 Archive or restore a whole list with its cards (`id`, `archived`).

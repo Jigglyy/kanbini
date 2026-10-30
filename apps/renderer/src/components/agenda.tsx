@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Check, ChevronDown, Flag, Lock } from 'lucide-react'
-import type { AgendaItem, AgendaView } from '@kanbini/shared'
+import { formatCardNumber, type AgendaItem, type AgendaView } from '@kanbini/shared'
 import { agendaKey, useAgenda } from '../hooks/useAgenda'
 import {
   AGENDA_PREVIEW_COUNT,
@@ -305,6 +305,7 @@ function AgendaRow({
             style={item.boardColor ? { backgroundColor: item.boardColor, borderColor: item.boardColor } : undefined}
           />
           <span className="truncate">
+            {item.number > 0 && `${formatCardNumber(item.number)} · `}
             {item.boardName} · {item.listName}
           </span>
         </span>

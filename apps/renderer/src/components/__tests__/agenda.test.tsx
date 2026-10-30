@@ -17,6 +17,7 @@ function item(over: Partial<AgendaItem> = {}): AgendaItem {
   seq += 1
   return {
     cardId: `card-${seq}`,
+    number: seq,
     title: `Card ${seq}`,
     boardId: 'b1',
     boardName: 'Work',
@@ -51,6 +52,12 @@ function renderPanel(view: AgendaView, onOpenCard = vi.fn()) {
 }
 
 describe('<AgendaPanel>', () => {
+  it("shows each card's number next to its board and list", async () => {
+    renderPanel(agenda({ today: [item({ number: 42, title: 'Pay rent' }), item({ number: 0, title: 'No number' })] }))
+    expect(await screen.findByText('#42 · Work · Todo')).toBeInTheDocument()
+    expect(screen.getByText('Work · Todo')).toBeInTheDocument()
+  })
+
   it('shows a hint when nothing is due or done', async () => {
     renderPanel(agenda())
     expect(await screen.findByText(/nothing due in the next 7 days/i)).toBeInTheDocument()

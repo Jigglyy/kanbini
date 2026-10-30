@@ -350,6 +350,7 @@ describe('<BoardsHome> agenda', () => {
       today: [
         {
           cardId: 'c-9',
+          number: 9,
           title: 'Pay rent',
           boardId: 'b1',
           boardName: 'Welcome',

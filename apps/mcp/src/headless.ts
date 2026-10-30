@@ -704,6 +704,7 @@ function dependencyIndex(dump: ExportDump): {
     if (!c || !l || !b) return null
     return {
       cardId: c.id,
+      number: c.number ?? 0,
       title: c.title,
       completed: c.completed,
       archived: c.archived,
@@ -989,6 +990,7 @@ export function headlessAgenda(
     if (!b || b.archived) continue
     candidates.push({
       cardId: c.id,
+      number: c.number ?? 0,
       title: c.title,
       boardId: b.id,
       boardName: b.name,

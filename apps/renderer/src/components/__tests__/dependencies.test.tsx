@@ -12,6 +12,7 @@ import { renderWithQuery } from '../../__tests__/_render'
 function ref(over: Partial<CardRef> = {}): CardRef {
   return {
     cardId: 'r1',
+    number: 7,
     title: 'Other card',
     completed: false,
     archived: false,
@@ -111,6 +112,7 @@ describe('<CardDependencies>', () => {
           ref({ cardId: 'same', title: 'Same board', listName: 'Doing' }),
           ref({
             cardId: 'far',
+            number: 0,
             title: 'Other board',
             boardId: 'b2',
             boardName: 'Home',
@@ -120,7 +122,8 @@ describe('<CardDependencies>', () => {
       })
     )
     const list = screen.getByRole('list', { name: /cards this is waiting on/i })
-    expect(within(list).getByText('Doing')).toBeInTheDocument()
+    // With its card number when it has one.
+    expect(within(list).getByText('#7 · Doing')).toBeInTheDocument()
     expect(within(list).getByText('Home · Errands')).toBeInTheDocument()
 
     await user.click(within(list).getByRole('button', { name: 'Other board' }))

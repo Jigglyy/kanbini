@@ -216,6 +216,8 @@ export type CardRepeat = z.infer<typeof zCardRepeat>
  *  board. */
 export const zCardRef = z.object({
   cardId: z.string(),
+  /** The card's #N on its board (0 when it has none yet). */
+  number: z.number().int(),
   title: z.string(),
   completed: z.boolean(),
   archived: z.boolean(),
@@ -485,6 +487,8 @@ export type AgendaRequest = z.infer<typeof zAgendaRequest>
  *  navigate to it without a follow-up fetch. */
 export const zAgendaItem = z.object({
   cardId: z.string(),
+  /** The card's #N on its board (0 when it has none yet). */
+  number: z.number().int(),
   title: z.string(),
   boardId: z.string(),
   boardName: z.string(),
