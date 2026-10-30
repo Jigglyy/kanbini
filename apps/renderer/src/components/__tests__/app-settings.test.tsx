@@ -352,6 +352,23 @@ describe('<AppSettings> Backup & restore - uninstall toggle', () => {
   })
 })
 
+describe('<AppSettings> About - GitHub links', () => {
+  it('links to the repo and its issues in a new window', async () => {
+    const user = userEvent.setup()
+    renderAppSettings()
+    await user.click(screen.getByRole('button', { name: 'About' }))
+    const star = screen.getByRole('link', { name: 'Star on GitHub' })
+    expect(star).toHaveAttribute('href', 'https://github.com/Jigglyy/kanbini')
+    expect(star).toHaveAttribute('target', '_blank')
+    const issues = screen.getByRole('link', { name: 'Report a problem' })
+    expect(issues).toHaveAttribute(
+      'href',
+      'https://github.com/Jigglyy/kanbini/issues'
+    )
+    expect(issues).toHaveAttribute('target', '_blank')
+  })
+})
+
 // ADR-0054 - Settings → About → Third-party software section. The
 // "Open NOTICES.md" button calls main's `notices:open` IPC which
 // shell.openPath's the bundled NOTICES.md (committed to repo, shipped

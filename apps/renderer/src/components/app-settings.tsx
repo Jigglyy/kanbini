@@ -9,6 +9,7 @@ import {
   EyeOff,
   Plus,
   RotateCcw,
+  Star,
   Upload,
   X
 } from 'lucide-react'
@@ -1351,6 +1352,8 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   )
 }
 
+const REPO_URL = 'https://github.com/Jigglyy/kanbini'
+
 // About - version, runtime versions, and the data-location read-out
 // (mirrored from the Data section so users who land here for the
 // "where is my data?" question find it without a second click).
@@ -1385,6 +1388,32 @@ function AboutSection() {
           Offline desktop kanban. No accounts, no telemetry. Your
           data stays on your machine.
         </p>
+        <p className="px-1 text-xs leading-snug text-muted-foreground">
+          Kanbini is free and open source. If it's useful to you, a star
+          on GitHub helps other people find it.
+        </p>
+        {/* Plain links: main's setWindowOpenHandler hands http(s) to
+            shell.openExternal, so the browser opens them and the app
+            itself still makes no network call. */}
+        <div className="flex flex-wrap gap-2 px-1">
+          <a
+            href={REPO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm hover:bg-accent"
+          >
+            <Star className="size-3.5" aria-hidden />
+            Star on GitHub
+          </a>
+          <a
+            href={`${REPO_URL}/issues`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center rounded-md border border-border px-3 py-1.5 text-sm hover:bg-accent"
+          >
+            Report a problem
+          </a>
+        </div>
       </Section>
 
       {info && (
