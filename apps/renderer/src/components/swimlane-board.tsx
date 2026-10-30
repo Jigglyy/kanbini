@@ -287,6 +287,7 @@ function LaneCell({
   return (
     <section
       ref={setNodeRef}
+      data-lane-cell={laneKey}
       style={list.color ? { borderColor: list.color } : undefined}
       // No per-cell header - the top row carries the list title once.
       // Cells get a subtle border + bg so they still read as discrete

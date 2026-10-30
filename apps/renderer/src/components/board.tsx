@@ -2052,23 +2052,23 @@ export function Board({
       void qc.invalidateQueries({ queryKey: key })
       return
     }
-    void ipc
-      .mutate({
-        type: 'card.move',
-        id: activeId,
-        toListId: plan.toListId,
-        beforeId: plan.beforeId,
-        afterId: plan.afterId
-      })
-      .then(() => {
-        if (plan.kind === 'move-and-update') {
-          return ipc.mutate({
-            type: 'card.update',
-            id: activeId,
-            patch: { priority: plan.newPriority }
-          })
-        }
-      })
+    const move: Mutation = {
+      type: 'card.move',
+      id: activeId,
+      toListId: plan.toListId,
+      beforeId: plan.beforeId,
+      afterId: plan.afterId
+    }
+    // A drop into another lane also changes the card's priority. Both go
+    // as one batch: one transaction, and one Ctrl+Z undoes the whole drop.
+    void (
+      plan.kind === 'move-and-update'
+        ? ipc.mutateBatch([
+            move,
+            { type: 'card.update', id: activeId, patch: { priority: plan.newPriority } }
+          ])
+        : ipc.mutate(move)
+    )
       .catch(() => {
         /* let the invalidate snap state back to truth */
       })
