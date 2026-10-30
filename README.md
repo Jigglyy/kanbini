@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/Jigglyy/kanbini/actions/workflows/ci.yml/badge.svg)](https://github.com/Jigglyy/kanbini/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Jigglyy/kanbini MCP server](https://glama.ai/mcp/servers/Jigglyy/kanbini/badges/score.svg)](https://glama.ai/mcp/servers/Jigglyy/kanbini)
 
 > **A kanban board that lives on your machine - and lets your AI move the cards.**
 > Offline-first. Plain text on disk. No cloud, no accounts, no telemetry.
