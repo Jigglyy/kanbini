@@ -50,6 +50,8 @@ macOS and Linux downloads and publishes a GitHub Release (see
   One Ctrl+Z used to put the card back but leave it ticked off.
 - **A drag into another swimlane is one Ctrl+Z.** It moved the card and
   changed its priority as two separate steps.
+- **A dropped card no longer stays in its hover look** (checkbox showing,
+  title nudged right) after the mouse has moved away.
 
 ## [0.13.1] - 2026-10-30
 

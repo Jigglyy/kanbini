@@ -3271,7 +3271,7 @@ const SortableCard = memo(function SortableCard({
             'transition-[margin-left] duration-200 ease-out',
             card.completed
               ? 'ml-1'
-              : 'ml-0 group-hover/card:ml-4 group-focus-within/card:ml-4'
+              : 'ml-0 group-hover/card:ml-4 group-has-[:focus-visible]/card:ml-4'
           )}
         >
           <CardChecklistPreview card={card} apply={apply} />
@@ -3422,7 +3422,11 @@ const SortableCard = memo(function SortableCard({
                 // if the cursor isn't already over the dropped card.
                 card.completed || isDragging || postDropHold
                   ? 'w-6'
-                  : 'w-0 group-hover/card:w-6 group-focus-within/card:w-6'
+                  : // Keyboard focus INSIDE the card (Tab to its checkbox)
+                    // also opens it. Not focus-within: dnd-kit focuses the
+                    // <li> itself after a drop, which kept the column open
+                    // until something else took focus.
+                    'w-0 group-hover/card:w-6 group-has-[:focus-visible]/card:w-6'
               )}
             >
               <button
@@ -3434,11 +3438,10 @@ const SortableCard = memo(function SortableCard({
                 onClick={(e) => {
                   toggleComplete()
                   // Drop focus immediately - Chrome focuses buttons on
-                  // mouse click, which would otherwise leave the
-                  // wrapper's group-focus-within state "on" and the
-                  // checkbox stuck visible after a click (especially
-                  // noticeable on cards with covers). Keyboard Tab
-                  // navigation still triggers focus-within naturally.
+                  // mouse click; the reveal only follows :focus-visible
+                  // (keyboard focus), but blurring keeps a later key
+                  // press from turning this click focus visible. Keyboard
+                  // Tab navigation still reveals the column.
                   ;(e.currentTarget as HTMLButtonElement).blur()
                 }}
                 className={cn(
