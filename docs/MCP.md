@@ -449,9 +449,11 @@ Move a card between lists, or reorder within its list.
 | `beforeId`  | `string \| null` | Card that should sit immediately ABOVE the moved card. |
 | `afterId`   | `string \| null` | Card that should sit immediately BELOW.            |
 
-Pass both `null` to append to the end. Server mints the fractional-
-index position between the two neighbours - concurrent moves never
-collide. A move to a list on another board gives the card that board's
+Both are named from the moved card's point of view: to put a card right
+under card Y, pass `beforeId: Y`. One neighbour is enough (the server
+fills in the other from the list's current order); omit both to append
+to the end. Server mints the fractional-index position between the two
+neighbours - concurrent moves never collide. A move to a list on another board gives the card that board's
 next number (numbers are per board); undo gives the old one back.
 
 #### `kanbini_delete_card`

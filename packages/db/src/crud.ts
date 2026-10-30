@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm'
 import {
   type Mutation,
   type MutationResult,
@@ -139,6 +139,36 @@ export function appendCardKey(db: Db, listId: string): string {
     .limit(1)
     .get()
   return orderKeyBetween(last?.p ?? null, null)
+}
+
+/** Position key for a card dropped between `above` and `below` (the
+ *  neighbours' keys, null when not given or not in the list). The
+ *  renderer always names both, but MCP / HTTP callers often name one or
+ *  none, and orderKeyBetween with a missing side can mint a key that an
+ *  existing card already holds (no neighbours at all gave the same key
+ *  every time). So the missing side is filled in from the list's current
+ *  order, ignoring the moved card itself: no neighbours = the end of the
+ *  list, only the card above = right below it, only the card below =
+ *  right above it. Comparing with strict < / > also steps past cards
+ *  that already share a key. */
+function slotKey(
+  db: Db,
+  listId: string,
+  movingId: string,
+  above: string | null,
+  below: string | null
+): string {
+  if (above !== null && below !== null) return orderKeyBetween(above, below)
+  const keys = db
+    .select({ p: card.position })
+    .from(card)
+    .where(and(eq(card.listId, listId), ne(card.id, movingId)))
+    .orderBy(asc(card.position))
+    .all()
+    .map((r) => r.p)
+  if (above !== null) return orderKeyBetween(above, keys.find((k) => k > above) ?? null)
+  if (below !== null) return orderKeyBetween(keys.filter((k) => k < below).at(-1) ?? null, below)
+  return orderKeyBetween(keys.at(-1) ?? null, null)
 }
 
 export function listBoardId(db: Db, listId: string): string | null {
@@ -657,7 +687,7 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
             : null
         const position = toListRow?.sortMode
           ? appendCardKey(tx as unknown as Db, m.toListId)
-          : orderKeyBetween(keyOf(m.beforeId), keyOf(m.afterId))
+          : slotKey(tx as unknown as Db, m.toListId, m.id, keyOf(m.beforeId), keyOf(m.afterId))
         // Card numbers are per board, so a card moving to another board
         // (MCP / HTTP only - the UI never does) takes a number there: the
         // next one, or the one undo / redo brings back (the

@@ -596,11 +596,16 @@ server.registerTool(
     title: 'Move or reorder a card',
     description:
       'Move a card between lists, or reorder within its current list. ' +
-      '`toListId` is the destination list. `beforeId` is the id of the ' +
-      'card that should sit immediately ABOVE the moved card; `afterId` ' +
-      'is the card immediately BELOW. Pass null/omit either for ' +
-      'start/end of list. Server mints a fractional-index position ' +
-      'between the two neighbours, so calls never collide. Respect the ' +
+      '`toListId` is the destination list. The position is optional and ' +
+      'named from the moved card\'s point of view: `beforeId` is the card ' +
+      'that will sit directly ABOVE it, `afterId` the card directly BELOW ' +
+      'it. So to put card X right under card Y, pass `beforeId: Y` (not ' +
+      '`afterId`). One neighbour is enough, the server works out the ' +
+      'other. Omit both to add the card to the END of the list; pass ' +
+      'only `afterId` = the first card to put it at the top. To place ' +
+      'several cards in order (e.g. most urgent first), move the first ' +
+      'one, then move each next one with `beforeId` = the card you just ' +
+      'moved. Respect the ' +
       "destination list's `wipLimit` when one is set (advisory, not " +
       'enforced server-side - check its card count first). Note: lists ' +
       'with a non-null sortMode order themselves; a move into one ' +
@@ -611,8 +616,16 @@ server.registerTool(
     inputSchema: {
       id: z.string(),
       toListId: z.string(),
-      beforeId: z.string().nullable().optional(),
-      afterId: z.string().nullable().optional()
+      beforeId: z
+        .string()
+        .nullable()
+        .optional()
+        .describe('Card that will sit directly ABOVE the moved card'),
+      afterId: z
+        .string()
+        .nullable()
+        .optional()
+        .describe('Card that will sit directly BELOW the moved card')
     }
   },
   ({ id, toListId, beforeId, afterId }) =>

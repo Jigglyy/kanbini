@@ -9,6 +9,21 @@ Releases are cut by pushing a `v*` tag, which builds the Windows,
 macOS and Linux downloads and publishes a GitHub Release (see
 [`.github/workflows/release.yml`](.github/workflows/release.yml)).
 
+## [Unreleased]
+
+### Added
+
+- **Settings → About links to GitHub**: "Star on GitHub" and "Report a
+  problem" open the project page in your browser.
+
+### Fixed
+
+- **Cards an AI moves land where it asked.** When an AI moved a card
+  without saying exactly where, or named only the card it should go
+  under, the card could end up in the wrong spot in the list. Now a
+  card moved with no position goes to the end of the list, and one
+  moved "under card X" goes right under it.
+
 ## [0.13.0] - 2026-10-29
 
 ### Added
