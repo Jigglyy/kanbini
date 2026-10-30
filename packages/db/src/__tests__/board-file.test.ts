@@ -3,12 +3,25 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
-import { BOARD_FILE_JSON, BOARD_FILE_VERSION, type BoardFile } from '@kanbini/shared'
+import { getTableColumns } from 'drizzle-orm'
+import { BOARD_FILE_JSON, BOARD_FILE_VERSION, type BoardFile, zBoardFile } from '@kanbini/shared'
 import { addAttachmentFromBytes } from '../attachments'
 import { exportBoardFile, importBoardFile, readBoardFile } from '../board-file'
 import { applyMutation, ensureDefaultProjectId } from '../crud'
 import { getArchivedItems, getBoardView, getCardView, listBoards } from '../data'
-import { attachment, cardDependency } from '../schema'
+import {
+  activity,
+  attachment,
+  board,
+  card,
+  cardDependency,
+  cardLabel,
+  checklist,
+  checklistItem,
+  comment,
+  label,
+  list
+} from '../schema'
 import { createTestDb, type TestDb } from './_setup'
 
 // One board in one .kanbini file: 'lists' carries the board's set-up
@@ -402,3 +415,34 @@ describe('untrusted files', () => {
 })
 
 const readdirNames = (dir: string): string[] => (existsSync(dir) ? readdirSync(dir).sort() : [])
+
+// A column added to one of these tables has to be added to the file (and
+// to both directions in board-file.ts) or listed here as staying behind,
+// otherwise a board loses it on the way through a file without anyone
+// noticing.
+describe('the file covers every column', () => {
+  const shape = zBoardFile.shape
+  const keys = (o: { shape: object }): string[] => Object.keys(o.shape).sort()
+  const columns = (table: Parameters<typeof getTableColumns>[0], leftBehind: string[]): string[] =>
+    Object.keys(getTableColumns(table))
+      .filter((c) => !leftBehind.includes(c))
+      .sort()
+
+  it.each([
+    // The new board gets its own id, place on the home, dates, and
+    // starts unarchived and unpinned.
+    ['board', board, keys(shape.board), ['id', 'projectId', 'position', 'archived', 'pinned', 'createdAt', 'updatedAt']],
+    ['label', label, keys(shape.labels.element), ['boardId']],
+    ['list', list, keys(shape.lists.element), ['boardId']],
+    ['card', card, keys(shape.cards.element), []],
+    ['card_label', cardLabel, keys(shape.cardLabels.element), []],
+    ['card_dependency', cardDependency, keys(shape.cardDependencies.element), []],
+    ['checklist', checklist, keys(shape.checklists.element), []],
+    ['checklist_item', checklistItem, keys(shape.checklistItems.element), []],
+    ['comment', comment, keys(shape.comments.element), []],
+    ['attachment', attachment, keys(shape.attachments.element), []],
+    ['activity', activity, keys(shape.activities.element), ['boardId']]
+  ] as const)('%s', (_name, table, fileKeys, leftBehind) => {
+    expect(columns(table, [...leftBehind])).toEqual(fileKeys)
+  })
+})
