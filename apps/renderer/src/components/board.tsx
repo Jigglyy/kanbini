@@ -98,6 +98,12 @@ import { cn } from '../lib/utils'
 import { ContextMenu } from './ui/context-menu'
 import { CardLabels } from './labels'
 import { CardDetail } from './card-detail'
+import {
+  type CardActions,
+  CardActionsContext,
+  CardTransferDialog,
+  type TransferMode
+} from './card-transfer'
 import { CardChecklistPreview } from './checklists'
 import { BlockedBadge } from './dependencies'
 import { RepeatBadge } from './repeat'
@@ -1263,6 +1269,37 @@ export function Board({
       .flatMap((l) => l.cards)
       .filter((c) => selectedIdsRef.current.has(c.id))
 
+  // Card menu "Duplicate" / "Move..." / "Copy..." and the multi-select
+  // "Move...". Through context, with a value that never changes, so the
+  // memoised cards don't re-render for it. `transfer` holds the open
+  // dialog; `fromSelection` clears the selection once the move lands.
+  const [transfer, setTransfer] = useState<{
+    mode: TransferMode
+    cardIds: string[]
+    fromSelection: boolean
+  } | null>(null)
+  const cardActions = useMemo<CardActions>(
+    () => ({
+      duplicate: (cardId) => {
+        const listId = boardRef.current.lists.find((l) =>
+          l.cards.some((c) => c.id === cardId)
+        )?.id
+        if (!listId) return
+        // Right below the original: beforeId is the card that ends up above.
+        void ipc
+          .mutate({ type: 'card.copy', id: cardId, toListId: listId, beforeId: cardId })
+          .catch((e) => console.warn('duplicate failed:', e))
+      },
+      transfer: (mode, cardIds) => setTransfer({ mode, cardIds, fromSelection: false })
+    }),
+    []
+  )
+  const bulkMoveToBoard = useCallback((): void => {
+    const ids = currentSelectedCards().map((c) => c.id)
+    if (ids.length > 0) setTransfer({ mode: 'move', cardIds: ids, fromSelection: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   /** Apply the whole gesture as ONE batch: a single transaction
    *  server-side, recorded as one undo-log group - so a single Ctrl+Z
    *  unwinds the entire bulk action instead of one card at a time.
@@ -1382,6 +1419,7 @@ export function Board({
     onSetPriority: bulkSetPriority,
     onToggleLabel: bulkToggleLabel,
     onMoveTo: bulkMoveTo,
+    onMoveElsewhere: bulkMoveToBoard,
     onDelete: bulkDelete,
     onClear: clearSelection
   }
@@ -2115,8 +2153,12 @@ export function Board({
     ? (board.lists.find((l) => l.id === draggingListId) ?? null)
     : null
 
+  const transferList = transfer
+    ? board.lists.find((l) => l.cards.some((c) => c.id === transfer.cardIds[0]))
+    : undefined
+
   return (
-    <>
+    <CardActionsContext.Provider value={cardActions}>
     <DndContext
       sensors={sensors}
       collisionDetection={collisionDetection}
@@ -2402,7 +2444,21 @@ export function Board({
         }
       }}
     />
-    </>
+    {transfer && (
+      <CardTransferDialog
+        mode={transfer.mode}
+        cardIds={transfer.cardIds}
+        sourceBoardId={board.board.id}
+        sourceListId={transferList?.id ?? null}
+        sourceTitle={
+          transferList?.cards.find((c) => c.id === transfer.cardIds[0])?.title
+        }
+        onClose={() => setTransfer(null)}
+        onDone={transfer.fromSelection ? clearSelection : undefined}
+        onOpenCard={onOpenBoardCard}
+      />
+    )}
+    </CardActionsContext.Provider>
   )
 }
 

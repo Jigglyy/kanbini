@@ -193,6 +193,27 @@ describe('<Activity>', () => {
     expect(screen.getByText(/moved to/)).toBeInTheDocument()
   })
 
+  it("describes a 'moved' to another board with the board's name", () => {
+    renderActivities([
+      makeActivity({
+        type: 'moved',
+        data: { toListId: 'l-x', toListName: 'Inbox', toBoardName: 'Work' }
+      })
+    ])
+    expect(document.body).toHaveTextContent('moved to Inbox on Work')
+  })
+
+  it("describes 'copied' with the original's number and title", () => {
+    renderActivities([
+      makeActivity({
+        type: 'copied',
+        data: { fromCardId: 'c0', fromTitle: 'Pay rent', fromNumber: 12 }
+      })
+    ])
+    expect(screen.getByText(/copied from/)).toBeInTheDocument()
+    expect(screen.getByText('#12 Pay rent')).toBeInTheDocument()
+  })
+
   it("describes 'moved' with a generic fallback when toListName is missing", () => {
     renderActivities([
       makeActivity({

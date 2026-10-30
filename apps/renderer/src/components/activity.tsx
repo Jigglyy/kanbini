@@ -201,6 +201,23 @@ function describe(
           <strong className="text-foreground">
             {String(d.toListName ?? 'another list')}
           </strong>
+          {d.toBoardName != null && (
+            <>
+              {' '}on{' '}
+              <strong className="text-foreground">{String(d.toBoardName)}</strong>
+            </>
+          )}
+        </>
+      )
+    // A copy's first row. The original's title is captured at copy time.
+    case 'copied':
+      return (
+        <>
+          copied from{' '}
+          <strong className="text-foreground">
+            {d.fromNumber ? `#${String(d.fromNumber)} ` : ''}
+            {String(d.fromTitle ?? 'another card')}
+          </strong>
         </>
       )
     // ADR-0041 on-enter rule fires. The 'moved' row immediately

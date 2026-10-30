@@ -9,6 +9,7 @@ import {
   restoreDependencyEdges
 } from './dependencies'
 import { parseRepeat, repeatSpawnPlan } from './repeat'
+import { missingLabels } from './card-copy'
 import {
   activity,
   attachment,
@@ -124,6 +125,7 @@ function entityIdOf(m: Mutation): string | null {
     case 'card.update':
     case 'card.delete':
     case 'card.move':
+    case 'card.copy':
     case 'card.setLabels':
     case 'card.addBlocker':
     case 'card.removeBlocker':
@@ -935,6 +937,8 @@ function describeMutation(m: Mutation): string {
       return `Delete card`
     case 'card.move':
       return `Move card`
+    case 'card.copy':
+      return `Copy card`
     case 'card.setLabels':
       return `Change card labels`
     case 'card.addBlocker':
@@ -1138,7 +1142,19 @@ export function inverseBefore(db: Db, m: Mutation): Mutation | null {
         // Restore the prior list-entry time so an undone cross-list move
         // doesn't re-stamp "added to list" to the moment of the undo.
         listAddedAt: old.listAddedAt,
-        ...(crossesBoards && old.number !== null ? { number: old.number } : {})
+        ...(crossesBoards && old.number !== null ? { number: old.number } : {}),
+        // The move swaps the card's labels for the target board's (by
+        // name); the way back puts the original ones back.
+        ...(crossesBoards
+          ? {
+              labelIds: db
+                .select({ id: cardLabel.labelId })
+                .from(cardLabel)
+                .where(eq(cardLabel.cardId, m.id))
+                .all()
+                .map((r) => r.id)
+            }
+          : {})
       }
     }
     case 'board.move': {
@@ -1284,6 +1300,7 @@ export function inverseBefore(db: Db, m: Mutation): Mutation | null {
 
     // -- Creates: handled in inverseAfter (need the new id) --
     case 'card.create':
+    case 'card.copy':
     case 'list.create':
     case 'board.create':
     case 'board.duplicate':
@@ -1315,6 +1332,7 @@ export function inverseAfter(
 ): Mutation | null {
   switch (m.type) {
     case 'card.create':
+    case 'card.copy':
       return { type: 'card.delete', id: result.id }
     case 'list.create':
       return { type: 'list.delete', id: result.id }
@@ -1380,6 +1398,10 @@ function withCardNumber(db: Db, m: Mutation, inverse: Mutation | null): Mutation
     const n = numberOf(m.id)
     return n === undefined ? m : { ...m, number: n }
   }
+  if (m.type === 'card.copy' && m.newId && m.number === undefined) {
+    const n = numberOf(m.newId)
+    return n === undefined ? m : { ...m, number: n }
+  }
   if (m.type === 'card.spawnNext' && m.copyNumber === undefined) {
     const n = numberOf(m.copyId)
     return n === undefined ? m : { ...m, copyNumber: n }
@@ -1421,7 +1443,19 @@ export function applyMutationRecorded(
     // a second entry in the same undo group (repeat.ts explains why it's
     // not a side effect of applyMutation). Decided before applying.
     const spawn = repeatSpawnPlan(txDb, m)
-    const groupId = opts.groupId ?? (spawn ? newId() : null)
+    // A card moved or copied to another board brings its labels by name;
+    // the ones the target board lacks are created first, as their own
+    // entries in this undo group, so undo removes them again.
+    const transfer = cardTransferPlan(txDb, m)
+    const groupId =
+      opts.groupId ?? (spawn || transfer?.labels.length ? newId() : null)
+    for (const l of transfer?.labels ?? []) {
+      applyMutationRecorded(
+        txDb,
+        { type: 'label.create', id: newId(), boardId: transfer!.toBoardId, ...l },
+        { groupId: groupId ?? undefined }
+      )
+    }
     const inverseB = inverseBefore(txDb, m)
     const result = applyMutation(txDb, m)
     const inverse = inverseB ?? inverseAfter(m, result)
@@ -1434,11 +1468,11 @@ export function applyMutationRecorded(
         txDb,
         isCreateWithoutId(m)
           ? ({ ...m, id: result.id } as Mutation)
-          : // board.duplicate is create-like, but its `id` is the SOURCE
-            // board - the NEW board's id rides in `newId` so a redo
-            // recreates the same duplicate instead of minting a fresh one
+          : // board.duplicate and card.copy are create-like, but their
+            // `id` is the SOURCE - the copy's id rides in `newId` so a
+            // redo recreates the same copy instead of minting a fresh one
             // (which would orphan it and dangle the stored inverse).
-            m.type === 'board.duplicate' && !m.newId
+            (m.type === 'board.duplicate' || m.type === 'card.copy') && !m.newId
             ? ({ ...m, newId: result.id } as Mutation)
             : m,
         inverse
@@ -1448,7 +1482,9 @@ export function applyMutationRecorded(
       tx.insert(undoLog)
         .values({
           id: entryId,
-          boardId: result.boardId,
+          // A card moved or copied to another board is undone from the
+          // board it was on: that's where the user (or the AI) acted.
+          boardId: transfer?.fromBoardId ?? result.boardId,
           description: describeMutation(m),
           forward: storedForward as unknown,
           inverse: inverse as unknown,
@@ -1501,6 +1537,30 @@ export function applyMutationRecorded(
     }
     return result
   })
+}
+
+/** For a card move or copy onto another board: the boards involved and
+ *  the card's labels the target board lacks. Read BEFORE applying. A
+ *  move that names its labels (undo / redo) creates none. */
+function cardTransferPlan(
+  db: Db,
+  m: Mutation
+): {
+  fromBoardId: string
+  toBoardId: string
+  labels: { name: string; color: string }[]
+} | null {
+  if (m.type !== 'card.move' && m.type !== 'card.copy') return null
+  const fromBoardId = cardBoardId(db, m.id)
+  const toBoardId = listBoardId(db, m.toListId)
+  if (fromBoardId === null || toBoardId === null || fromBoardId === toBoardId) {
+    return null
+  }
+  const labels =
+    m.type === 'card.move' && m.labelIds !== undefined
+      ? []
+      : missingLabels(db, m.id, toBoardId)
+  return { fromBoardId, toBoardId, labels }
 }
 
 /** Apply a bulk gesture - several mutations in ONE transaction, each

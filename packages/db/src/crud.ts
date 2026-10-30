@@ -15,6 +15,7 @@ import type { Db } from './client'
 import { applyRestore, type RestorePayload } from './undo'
 import { addBlocker, cardTitle, removeBlocker } from './dependencies'
 import { spawnNextOccurrence, unspawnNextOccurrence } from './repeat'
+import { copyCard, labelsOnBoard } from './card-copy'
 import { cardOrdering, parseListSortMode } from './data'
 import {
   activity,
@@ -153,7 +154,7 @@ export function appendCardKey(db: Db, listId: string): string {
  *  right before it. Strict < / > also steps past items that already
  *  share a key, which containers moved into by the old code can hold.
  *  Shared by card / list / board / checklist-item moves. */
-function slotKey(
+export function slotKey(
   siblings: () => string[],
   above: string | null,
   below: string | null
@@ -165,6 +166,55 @@ function slotKey(
   if (above !== null) return orderKeyBetween(above, keys.find((k) => k > above) ?? null)
   if (below !== null) return orderKeyBetween(keys.filter((k) => k < below).at(-1) ?? null, below)
   return orderKeyBetween(keys.at(-1) ?? null, null)
+}
+
+/** Position key for a card arriving in `listId` (a move or a copy)
+ *  between `beforeId` (the card that ends up above) and `afterId`
+ *  (below). Neighbours that aren't in the list are ignored. A sorted
+ *  list (ADR-0032) ignores manual order - the read view re-sorts by
+ *  sort_mode, and its stored fractional keys are in a DIFFERENT order
+ *  than what's shown, so the dropped neighbours (taken from the visible
+ *  order) can be two keys in reverse order, which makes orderKeyBetween
+ *  throw (the old "drop into the middle of a sorted list does nothing"
+ *  bug). A sorted target gets an appended key instead and the ORDER BY
+ *  resolves the real slot on the next read. `movingId` is the card
+ *  being moved, left out of the siblings. */
+export function cardArrivalKey(
+  db: Db,
+  listId: string,
+  beforeId: string | null | undefined,
+  afterId: string | null | undefined,
+  movingId?: string
+): string {
+  const sorted = db
+    .select({ s: list.sortMode })
+    .from(list)
+    .where(eq(list.id, listId))
+    .get()?.s
+  if (sorted) return appendCardKey(db, listId)
+  const keyOf = (cardId: string | null | undefined): string | null =>
+    cardId
+      ? (db
+          .select({ p: card.position })
+          .from(card)
+          .where(and(eq(card.id, cardId), eq(card.listId, listId)))
+          .get()?.p ?? null)
+      : null
+  return slotKey(
+    () =>
+      db
+        .select({ p: card.position })
+        .from(card)
+        .where(
+          movingId
+            ? and(eq(card.listId, listId), ne(card.id, movingId))
+            : eq(card.listId, listId)
+        )
+        .all()
+        .map((r) => r.p),
+    keyOf(beforeId),
+    keyOf(afterId)
+  )
 }
 
 export function listBoardId(db: Db, listId: string): string | null {
@@ -180,7 +230,7 @@ export function listBoardId(db: Db, listId: string): string | null {
 /** Hand out `boardId`'s next card number, for a card arriving from
  *  another board. Inserts get theirs from the DB triggers instead
  *  (migration 0017). */
-function nextCardNumber(db: Db, boardId: string): number {
+export function nextCardNumber(db: Db, boardId: string): number {
   return db
     .update(board)
     .set({ cardNumberLast: sql`${board.cardNumberLast} + 1` })
@@ -196,6 +246,33 @@ export function cardBoardId(db: Db, cardId: string): string | null {
     .where(eq(card.id, cardId))
     .get()
   return c ? listBoardId(db, c.listId) : null
+}
+
+/** Throw unless every id in `labelIds` is a label of `boardId`. */
+function assertBoardLabels(
+  db: Db,
+  labelIds: string[],
+  boardId: string,
+  cardId: string
+): void {
+  if (labelIds.length === 0) return
+  const owned = db
+    .select({ id: label.id, boardId: label.boardId })
+    .from(label)
+    .where(inArray(label.id, labelIds))
+    .all()
+  const ownerById = new Map(owned.map((r) => [r.id, r.boardId]))
+  for (const id of labelIds) {
+    const owner = ownerById.get(id)
+    if (owner === undefined) throw new Error(`label ${id} not found`)
+    if (owner !== boardId) {
+      throw new Error(`label ${id} belongs to a different board than card ${cardId}`)
+    }
+  }
+}
+
+export function boardName(db: Db, boardId: string): string | null {
+  return db.select({ n: board.name }).from(board).where(eq(board.id, boardId)).get()?.n ?? null
 }
 
 /** Display-only fields: changing how a card or list is DRAWN isn't an
@@ -633,6 +710,8 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
       }
       return { id: m.id, boardId }
     }
+    case 'card.copy':
+      return db.transaction((tx) => copyCard(tx as unknown as Db, m))
     case 'card.spawnNext':
       return db.transaction((tx) =>
         spawnNextOccurrence(tx as unknown as Db, m.id, m.copyId, m.toListId, {
@@ -674,60 +753,31 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
         // the ADR-0041 on-enter rule below.
         const crossedList = sourceListId !== m.toListId
 
-        // Target-list metadata, read up front: a sorted list (ADR-0032)
-        // ignores manual order - the read view re-sorts by sort_mode, and
-        // its stored fractional keys are in a DIFFERENT order than what's
-        // shown. So the dropped before/after (taken from the visible
-        // order) can be two keys in reverse fractional order, which makes
-        // orderKeyBetween throw - exactly the "drop into the middle of a
-        // sorted list does nothing" bug (the renderer's card.move rejects
-        // and snaps the card back). For a sorted target we append a valid
-        // key and let the ORDER BY resolve the real slot on the next read;
-        // only a manual list honours the requested neighbours.
         const toListRow = tx
-          .select({
-            name: list.name,
-            onEnter: list.onEnter,
-            sortMode: list.sortMode
-          })
+          .select({ name: list.name, onEnter: list.onEnter })
           .from(list)
           .where(eq(list.id, m.toListId))
           .get()
-        const keyOf = (cardId: string | null | undefined): string | null =>
-          cardId
-            ? (tx
-                .select({ p: card.position })
-                .from(card)
-                .where(and(eq(card.id, cardId), eq(card.listId, m.toListId)))
-                .get()?.p ?? null)
-            : null
-        const position = toListRow?.sortMode
-          ? appendCardKey(tx as unknown as Db, m.toListId)
-          : slotKey(
-              () =>
-                tx
-                  .select({ p: card.position })
-                  .from(card)
-                  .where(and(eq(card.listId, m.toListId), ne(card.id, m.id)))
-                  .all()
-                  .map((r) => r.p),
-              keyOf(m.beforeId),
-              keyOf(m.afterId)
-            )
+        const position = cardArrivalKey(
+          tx as unknown as Db,
+          m.toListId,
+          m.beforeId,
+          m.afterId,
+          m.id
+        )
         // Card numbers are per board, so a card moving to another board
-        // (MCP / HTTP only - the UI never does) takes a number there: the
-        // next one, or the one undo / redo brings back (the
-        // card_number_track_update trigger then raises the counter to
-        // it). Set in the same UPDATE as listId: the per-board uniqueness
-        // trigger checks the pair, and the old number may be taken on the
-        // new board.
+        // takes a number there: the next one, or the one undo / redo
+        // brings back (the card_number_track_update trigger then raises
+        // the counter to it). Set in the same UPDATE as listId: the
+        // per-board uniqueness trigger checks the pair, and the old
+        // number may be taken on the new board.
         const boardId = listBoardId(tx as unknown as Db, m.toListId)
-        const number =
-          crossedList &&
-          boardId !== null &&
-          boardId !== listBoardId(tx as unknown as Db, sourceListId)
-            ? (m.number ?? nextCardNumber(tx as unknown as Db, boardId))
-            : undefined
+        const fromBoardId = listBoardId(tx as unknown as Db, sourceListId)
+        const crossedBoard =
+          crossedList && boardId !== null && boardId !== fromBoardId
+        const number = crossedBoard
+          ? (m.number ?? nextCardNumber(tx as unknown as Db, boardId))
+          : undefined
         tx.update(card)
           .set({
             listId: m.toListId,
@@ -743,13 +793,37 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
           })
           .where(eq(card.id, m.id))
           .run()
+        if (crossedBoard) {
+          // Labels belong to one board: the card arrives with the target
+          // board's labels of the same names (missing ones created there,
+          // card-copy.ts), or with the ones an undo / redo names.
+          const labelIds =
+            m.labelIds ?? labelsOnBoard(tx as unknown as Db, m.id, boardId)
+          assertBoardLabels(tx as unknown as Db, labelIds, boardId, m.id)
+          tx.delete(cardLabel).where(eq(cardLabel.cardId, m.id)).run()
+          if (labelIds.length > 0) {
+            tx.insert(cardLabel)
+              .values(labelIds.map((labelId) => ({ cardId: m.id, labelId })))
+              .run()
+          }
+          // The card's feed travels with it: activity rows are scoped to
+          // a board, so the old board's delete would cascade them away
+          // (and its feed would keep listing a card it no longer has).
+          tx.update(activity)
+            .set({ boardId })
+            .where(eq(activity.cardId, m.id))
+            .run()
+        }
         logActivity(tx as unknown as Db, {
           boardId,
           cardId: m.id,
           type: 'moved',
           data: {
             toListId: m.toListId,
-            toListName: toListRow?.name ?? null
+            toListName: toListRow?.name ?? null,
+            ...(crossedBoard
+              ? { toBoardName: boardName(tx as unknown as Db, boardId) }
+              : {})
           }
         })
 
@@ -830,21 +904,7 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
         // foreign ids up front, before anything is written.
         if (m.labelIds.length > 0) {
           if (boardId === null) throw new Error(`card ${m.id} not found`)
-          const owned = tx
-            .select({ id: label.id, boardId: label.boardId })
-            .from(label)
-            .where(inArray(label.id, m.labelIds))
-            .all()
-          const ownerById = new Map(owned.map((r) => [r.id, r.boardId]))
-          for (const id of m.labelIds) {
-            const owner = ownerById.get(id)
-            if (owner === undefined) throw new Error(`label ${id} not found`)
-            if (owner !== boardId) {
-              throw new Error(
-                `label ${id} belongs to a different board than card ${m.id}`
-              )
-            }
-          }
+          assertBoardLabels(tx as unknown as Db, m.labelIds, boardId, m.id)
         }
         const oldIds = tx
           .select({ id: cardLabel.labelId })

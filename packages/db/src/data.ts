@@ -671,14 +671,23 @@ export function getArchivedItems(
   }
 }
 
-/** Every attachment id - the orphan GC sweep diffs the
- *  `userData/attachments/<id>/` directory names against this set. */
-export function listAttachmentIds(db: Db): string[] {
-  return db
-    .select({ id: attachment.id })
+/** Every `userData/attachments/<dir>/` folder an attachment row uses -
+ *  the orphan GC sweep diffs the directory names against this set. A
+ *  folder is named after the attachment that brought the file in, and a
+ *  copied card's attachment rows point at the same file
+ *  (`attachments/<original id>/<file>`), so both the row ids and the
+ *  folder in each relPath count. */
+export function listAttachmentDirs(db: Db): string[] {
+  const dirs = new Set<string>()
+  for (const r of db
+    .select({ id: attachment.id, relPath: attachment.relPath })
     .from(attachment)
-    .all()
-    .map((r) => r.id)
+    .all()) {
+    dirs.add(r.id)
+    const [root, dir] = r.relPath.split('/')
+    if (root === 'attachments' && dir) dirs.add(dir)
+  }
+  return [...dirs]
 }
 
 /** Every card id across every board (archived included). The Obsidian

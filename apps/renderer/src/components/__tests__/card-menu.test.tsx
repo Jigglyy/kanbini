@@ -8,6 +8,7 @@ import type {
   Mutation
 } from '@kanbini/shared'
 import { CardMenu } from '../card-menu'
+import { CardActionsContext, type CardActions } from '../card-transfer'
 import { ContextMenu } from '../ui/context-menu'
 import { kanbiniMock } from '../../__tests__/_kanbini-mock'
 
@@ -412,5 +413,39 @@ describe('<CardMenu>', () => {
       patch: { archived: true }
     })
     expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  describe('Duplicate / Move… / Copy…', () => {
+    const menu = (close = vi.fn()) => (
+      <CardMenu
+        card={makeCard()}
+        labels={NO_LABELS}
+        apply={vi.fn()}
+        close={close}
+        onRequestCoverFromUrl={vi.fn()}
+      />
+    )
+
+    it('are left out without a board to act on', () => {
+      renderMenu(menu())
+      expect(screen.queryByRole('button', { name: 'Duplicate' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Move…' })).toBeNull()
+    })
+
+    it.each([
+      ['Duplicate', (a: CardActions) => expect(a.duplicate).toHaveBeenCalledWith('c1')],
+      ['Move…', (a: CardActions) => expect(a.transfer).toHaveBeenCalledWith('move', ['c1'])],
+      ['Copy…', (a: CardActions) => expect(a.transfer).toHaveBeenCalledWith('copy', ['c1'])]
+    ])('"%s" asks the board to act on this card and closes the menu', async (name, check) => {
+      const user = userEvent.setup()
+      const actions: CardActions = { duplicate: vi.fn(), transfer: vi.fn() }
+      const close = vi.fn()
+      renderMenu(
+        <CardActionsContext.Provider value={actions}>{menu(close)}</CardActionsContext.Provider>
+      )
+      await user.click(screen.getByRole('button', { name }))
+      check(actions)
+      expect(close).toHaveBeenCalledTimes(1)
+    })
   })
 })

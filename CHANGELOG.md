@@ -9,6 +9,18 @@ Releases are cut by pushing a `v*` tag, which builds the Windows,
 macOS and Linux downloads and publishes a GitHub Release (see
 [`.github/workflows/release.yml`](.github/workflows/release.yml)).
 
+## [Unreleased]
+
+### Added
+
+- **Move or copy a card to another board.** Right-click a card for
+  "Duplicate" (a copy right below it), "Move..." and "Copy..." (pick any
+  board, any list, top or bottom). Selected cards can be moved to another
+  board too. The card keeps its labels: the other board's label with the
+  same name, or a new one there in the same colour. A copy brings the
+  description, due date, checklists and attachments along, but not the
+  comments. One Ctrl+Z on the board you moved it from puts it back.
+
 ## [0.13.1] - 2026-10-30
 
 ### Added

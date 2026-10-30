@@ -1,9 +1,12 @@
 import {
   Archive,
+  ArrowRightLeft,
   CalendarClock,
   CheckSquare,
   ChevronsDownUp,
   ChevronsUpDown,
+  Copy,
+  CopyPlus,
   FileImage,
   Flag,
   Globe,
@@ -23,6 +26,7 @@ import {
 import type { Optimistic } from '../hooks/useBoardMutation'
 import { dueLabel } from '../lib/due-presets'
 import { ipc } from '../lib/ipc'
+import { useCardActions } from './card-transfer'
 import { LabelToggleList } from './labels'
 import { DueEditor } from './due-date'
 import { PriorityPicker, priorityLabel } from './priority'
@@ -114,6 +118,8 @@ export function CardMenu({
     close()
   }
 
+  const actions = useCardActions()
+
   const labelNames = card.labelIds
     .map((id) => labels.find((l) => l.id === id)?.name)
     .filter((n): n is string => !!n)
@@ -181,6 +187,35 @@ export function CardMenu({
       </SubMenu>
 
       <MenuSep />
+      {actions && (
+        <>
+          <MenuItem
+            onClick={() => {
+              actions.duplicate(card.id)
+              close()
+            }}
+          >
+            <Row icon={<CopyPlus className="size-3.5" />}>Duplicate</Row>
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              actions.transfer('move', [card.id])
+              close()
+            }}
+          >
+            <Row icon={<ArrowRightLeft className="size-3.5" />}>Move…</Row>
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              actions.transfer('copy', [card.id])
+              close()
+            }}
+          >
+            <Row icon={<Copy className="size-3.5" />}>Copy…</Row>
+          </MenuItem>
+          <MenuSep />
+        </>
+      )}
       {onToggleCollapse && (
         <MenuItem
           onClick={() => {

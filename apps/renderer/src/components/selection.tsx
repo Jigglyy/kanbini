@@ -37,6 +37,8 @@ export interface BulkActions {
   onSetPriority: (p: CardPriority | null) => void
   onToggleLabel: (labelId: string) => void
   onMoveTo: (listId: string) => void
+  /** Opens the Move dialog (any list on any board). */
+  onMoveElsewhere: () => void
   onDelete: () => void
   onClear: () => void
 }
@@ -121,19 +123,30 @@ function SelectionBarInner({ actions }: { actions: BulkActions }): React.JSX.Ele
           <Popover
             width={208}
             trigger={({ toggle }) => (
-              <BarButton onClick={toggle} disabled={actions.lists.length === 0}>
+              <BarButton onClick={toggle}>
                 <ArrowRightLeft className="size-3.5" /> Move
               </BarButton>
             )}
           >
             {(close) => (
-              <ListRows
-                lists={actions.lists}
-                onPick={(id) => {
-                  actions.onMoveTo(id)
-                  close()
-                }}
-              />
+              <>
+                <ListRows
+                  lists={actions.lists}
+                  onPick={(id) => {
+                    actions.onMoveTo(id)
+                    close()
+                  }}
+                />
+                <div className="my-1 h-px bg-border" />
+                <RowButton
+                  onClick={() => {
+                    close()
+                    actions.onMoveElsewhere()
+                  }}
+                >
+                  Another board…
+                </RowButton>
+              </>
             )}
           </Popover>
 
@@ -380,6 +393,7 @@ export function BulkCardMenu({
           ))}
         </SubMenu>
       )}
+      <MenuItem onClick={act(actions.onMoveElsewhere)}>Move to another board…</MenuItem>
 
       <MenuSep />
       <MenuItem danger onClick={act(actions.onDelete)}>

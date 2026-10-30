@@ -245,9 +245,11 @@ export async function addAttachmentFromBytes(
 }
 
 /** Delete an attachment's row (undo-recorded, like every mutation) AND
- *  its file + directory. The relPath is read BEFORE the row goes, and
- *  the unlink is confined to `<userData>/attachments/` so a tampered
- *  relPath can never point the delete somewhere else. */
+ *  its file + directory, unless another row still uses the file (a
+ *  copied card's attachments share the original's files). The relPath
+ *  is read BEFORE the row goes, and the unlink is confined to
+ *  `<userData>/attachments/` so a tampered relPath can never point the
+ *  delete somewhere else. */
 export async function deleteAttachmentWithFile(
   db: Db,
   opts: { userDataDir: string; id: string }
@@ -263,7 +265,11 @@ export async function deleteAttachmentWithFile(
     type: 'attachment.delete',
     id: opts.id
   })
-  if (toUnlink) {
+  const shared =
+    rel !== null &&
+    db.select({ id: attachment.id }).from(attachment).where(eq(attachment.relPath, rel)).get() !==
+      undefined
+  if (toUnlink && !shared) {
     await fsp.unlink(toUnlink).catch(() => {
       /* already gone */
     })

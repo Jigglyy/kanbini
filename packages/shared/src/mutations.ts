@@ -310,6 +310,35 @@ export const zMutation = z.discriminatedUnion('type', [
     // another board omits it and takes that board's next number; the
     // undo recorder fills both directions in so undo / redo bring each
     // number back. The external entry points refuse it.
+    number: z.number().int().positive().optional(),
+    // Internal (undo only): the labels the card ends up with when the
+    // move changes its board. A normal move to another board omits it and
+    // the card's labels are matched by name on the target board (missing
+    // ones are created there); the undo of such a move passes the card's
+    // original label ids so they come back. The external entry points
+    // refuse it.
+    labelIds: z.array(z.string()).optional()
+  }),
+  // Copy a card ("Duplicate" in the card menu, or "Copy to..." onto
+  // any list of any board). The copy gets the card's title (or `title`),
+  // description, due date, priority, repeat rule, completion, labels
+  // (matched by name on another board, missing ones created there),
+  // checklists with their ticks, and attachments (the copy's rows share
+  // the original files). Comments, activity and "waiting on" links stay
+  // with the original. beforeId / afterId place it like card.move.
+  //
+  // `id` is the SOURCE card. `newId` is the id to give the copy - the
+  // undo recorder fills it in (like board.duplicate) so a redo recreates
+  // the same card.
+  z.object({
+    type: z.literal('card.copy'),
+    id: z.string(),
+    toListId: z.string(),
+    beforeId: z.string().nullable().optional(),
+    afterId: z.string().nullable().optional(),
+    title: z.string().min(1).optional(),
+    newId: z.string().optional(),
+    // Internal (undo only): the copy's card number, like card.create's.
     number: z.number().int().positive().optional()
   }),
 
@@ -375,18 +404,27 @@ export const INTERNAL_MUTATION_TYPES: ReadonlySet<Mutation['type']> = new Set([
 ])
 
 const namesCardNumber = (m: Mutation): boolean =>
-  (m.type === 'card.create' || m.type === 'card.move') && m.number !== undefined
+  (m.type === 'card.create' || m.type === 'card.move' || m.type === 'card.copy') &&
+  m.number !== undefined
+
+const namesMoveLabels = (m: Mutation): boolean =>
+  m.type === 'card.move' && m.labelIds !== undefined
 
 /** True for a mutation only the undo machinery may apply: an internal
- *  arm, or a card create / move that names its card number. Only undo /
- *  redo hand a number back; from anyone else it could take a number
- *  out of turn or push the board's counter far ahead. */
+ *  arm, a card create / move / copy that names its card number, or a
+ *  move that names the labels to arrive with. Only undo / redo hand a
+ *  number back; from anyone else it could take a number out of turn or
+ *  push the board's counter far ahead. */
 export const isInternalMutation = (m: Mutation): boolean =>
-  INTERNAL_MUTATION_TYPES.has(m.type) || namesCardNumber(m)
+  INTERNAL_MUTATION_TYPES.has(m.type) || namesCardNumber(m) || namesMoveLabels(m)
 
 /** How an entry point names a mutation it refuses. */
 export const mutationName = (m: Mutation): string =>
-  namesCardNumber(m) ? `${m.type} with a card number` : m.type
+  namesCardNumber(m)
+    ? `${m.type} with a card number`
+    : namesMoveLabels(m)
+      ? `${m.type} with label ids`
+      : m.type
 
 /** Every mutation returns the affected board (for scoped refetch). */
 export const zMutationResult = z.object({

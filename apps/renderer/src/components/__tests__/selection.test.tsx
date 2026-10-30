@@ -20,6 +20,7 @@ function makeActions(over: Partial<BulkActions> = {}): BulkActions {
     onSetPriority: vi.fn(),
     onToggleLabel: vi.fn(),
     onMoveTo: vi.fn(),
+    onMoveElsewhere: vi.fn(),
     onDelete: vi.fn(),
     onClear: vi.fn(),
     ...over
@@ -68,6 +69,16 @@ describe('<SelectionBar>', () => {
     expect(screen.getByText('Delete 3?')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /^delete$/i }))
     expect(actions.onDelete).toHaveBeenCalledTimes(1)
+  })
+
+  it('the Move popover also offers another board', async () => {
+    const user = userEvent.setup()
+    const actions = makeActions()
+    render(<SelectionBar actions={actions} />)
+    await user.click(screen.getByRole('button', { name: /^move$/i }))
+    await user.click(screen.getByRole('button', { name: 'Another board…' }))
+    expect(actions.onMoveElsewhere).toHaveBeenCalledTimes(1)
+    expect(actions.onMoveTo).not.toHaveBeenCalled()
   })
 
   it('Clear fires onClear', async () => {
@@ -133,6 +144,16 @@ describe('<BulkCardMenu>', () => {
     await user.click(screen.getByRole('button', { name: /^Move to list/ }))
     await user.click(screen.getByText('Doing'))
     expect(actions.onMoveTo).toHaveBeenCalledWith('list-2')
+  })
+
+  it('"Move to another board…" opens the move dialog and closes the menu', async () => {
+    const user = userEvent.setup()
+    const actions = makeActions()
+    const close = vi.fn()
+    renderMenu(<BulkCardMenu actions={actions} close={close} />)
+    await user.click(screen.getByRole('button', { name: 'Move to another board…' }))
+    expect(actions.onMoveElsewhere).toHaveBeenCalledTimes(1)
+    expect(close).toHaveBeenCalledTimes(1)
   })
 
   it('toggling a label keeps the menu open (no close)', async () => {

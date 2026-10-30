@@ -1,6 +1,6 @@
 import { promises as fsp } from 'node:fs'
 import { join } from 'node:path'
-import { type Db, listAttachmentIds, listBoards } from '@kanbini/db'
+import { type Db, listAttachmentDirs, listBoards } from '@kanbini/db'
 
 // Orphaned-file GC (the "M5 GC sweep" the backlog kept pointing at).
 // Files accumulate without a reaper from three sources:
@@ -45,8 +45,9 @@ export async function sweepOrphanedFiles(opts: {
     removedBackgroundEntries: 0
   }
 
-  // attachments/<id>/ dirs with no matching row.
-  const liveAttachmentIds = new Set(listAttachmentIds(db))
+  // attachments/<id>/ dirs no attachment row uses (a copied card's rows
+  // share the original's folder).
+  const liveAttachmentIds = new Set(listAttachmentDirs(db))
   let attachmentEntries: string[] = []
   try {
     attachmentEntries = await fsp.readdir(attachmentsRoot)
