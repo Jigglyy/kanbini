@@ -8,6 +8,9 @@ import type {
   AppInfo,
   AttachmentView,
   BoardBackground,
+  BoardExportRequest,
+  BoardExportResult,
+  BoardImportSummary,
   BoardSetBackgroundImageRequest,
   BoardsListView,
   BoardView,
@@ -25,6 +28,7 @@ import type {
   ObsidianPushResult,
   SearchCardsRequest,
   SearchHits,
+  ShowInFolderRequest,
   TemplateDeleteRequest,
   TemplateInstantiateRequest,
   TemplateInstantiateResult,
@@ -90,6 +94,12 @@ const api = {
    *  TrelloImportSummary. Additive - never wipes existing data. */
   importTrello: (): Promise<TrelloImportSummary | null> =>
     ipcRenderer.invoke(IPC.importTrello),
+  boardExport: (req: BoardExportRequest): Promise<BoardExportResult | null> =>
+    ipcRenderer.invoke(IPC.boardExport, req),
+  boardImport: (): Promise<BoardImportSummary | null> =>
+    ipcRenderer.invoke(IPC.boardImport),
+  showInFolder: (req: ShowInFolderRequest): Promise<void> =>
+    ipcRenderer.invoke(IPC.showInFolder, req),
   /** ADR-0034: pick an image file, copy it into userData/board-
    *  backgrounds/<boardId>/, set the board's `background` to the new
    *  path. Null on picker cancel; otherwise the new BoardBackground. */

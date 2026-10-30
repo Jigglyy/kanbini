@@ -210,4 +210,16 @@ describe('<BoardSettings>', () => {
     ).toBeInTheDocument()
     expect(screen.queryByDisplayValue('Welcome')).toBeNull()
   })
+
+  it('Export board… opens the export dialog (and closes the popover)', async () => {
+    const user = userEvent.setup()
+    renderBoardSettings(makeBoard())
+    await user.click(screen.getByRole('button', { name: 'Rename board' }))
+    await user.click(screen.getByRole('button', { name: /export board/i }))
+    expect(
+      await screen.findByRole('dialog', { name: 'Export board' })
+    ).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Export “Welcome”' })).toBeInTheDocument()
+    expect(screen.queryByDisplayValue('Welcome')).toBeNull()
+  })
 })

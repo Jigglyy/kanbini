@@ -9,6 +9,20 @@ Releases are cut by pushing a `v*` tag, which builds the Windows,
 macOS and Linux downloads and publishes a GitHub Release (see
 [`.github/workflows/release.yml`](.github/workflows/release.yml)).
 
+## [Unreleased]
+
+### Added
+
+- **Export a board to a file, and import it again.** "Export board..." in
+  the board's pencil menu (or "Export..." when you right-click a board on
+  the boards home) saves one board as a `.kanbini` file. Pick "Just the
+  lists" for the board's set-up (lists and their settings, labels, colours
+  and background, no cards) or "Lists and all cards" for everything on it,
+  attachments and history included. "Import board" on the boards home
+  brings a file back as a new board, on this computer or another one; it
+  never changes the boards you already have. The Trello import moved into
+  the same "Import board" menu.
+
 ## [0.14.0] - 2026-10-30
 
 ### Added

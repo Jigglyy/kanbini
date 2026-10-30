@@ -48,7 +48,7 @@ const ACTIVITY_FEED_LIMIT = 30
  *  JSON-mode column). Returns null both when the column is null AND
  *  when the stored shape no longer parses - better to drop a broken
  *  background than to throw out the whole board view. ADR-0034. */
-function parseBackground(value: unknown): BoardBackground | null {
+export function parseBackground(value: unknown): BoardBackground | null {
   if (value == null) return null
   const parsed = zBoardBackground.safeParse(value)
   return parsed.success ? parsed.data : null
@@ -67,7 +67,7 @@ export function parsePriority(value: string | null): CardPriority | null {
 /** Soft-narrow the stored swimlane mode (ADR-0037 slice 2). Unknown
  *  values (older DB, future modes not yet in this build) parse to
  *  null - the renderer renders the flat layout, the safer fallback. */
-function parseSwimlaneMode(value: string | null): SwimlaneMode | null {
+export function parseSwimlaneMode(value: string | null): SwimlaneMode | null {
   if (value == null) return null
   const parsed = zSwimlaneMode.safeParse(value)
   return parsed.success ? parsed.data : null
@@ -77,7 +77,7 @@ function parseSwimlaneMode(value: string | null): SwimlaneMode | null {
  *  (future kinds, hand-edited DB) parse to null - the renderer
  *  shows "None" in the editor, the db skips the rule on card.move.
  *  Storage is JSON-mode so drizzle has already parsed the column. */
-function parseOnEnter(value: unknown): ListOnEnterRule | null {
+export function parseOnEnter(value: unknown): ListOnEnterRule | null {
   if (value == null) return null
   const parsed = zListOnEnterRule.safeParse(value)
   return parsed.success ? parsed.data : null

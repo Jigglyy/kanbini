@@ -18,6 +18,9 @@ import type {
   AppInfo,
   AttachmentView,
   BoardBackground,
+  BoardExportRequest,
+  BoardExportResult,
+  BoardImportSummary,
   BoardSetBackgroundImageRequest,
   BoardsListView,
   BoardView,
@@ -35,6 +38,7 @@ import type {
   ObsidianPushResult,
   SearchCardsRequest,
   SearchHits,
+  ShowInFolderRequest,
   TemplateDeleteRequest,
   TemplateInstantiateRequest,
   TemplateInstantiateResult,
@@ -133,6 +137,11 @@ function makeBridge() {
     importTrello: vi.fn(
       async (): Promise<TrelloImportSummary | null> => null
     ),
+    boardExport: vi.fn(
+      async (_req: BoardExportRequest): Promise<BoardExportResult | null> => null
+    ),
+    boardImport: vi.fn(async (): Promise<BoardImportSummary | null> => null),
+    showInFolder: vi.fn(async (_req: ShowInFolderRequest): Promise<void> => {}),
     boardSetBackgroundImage: vi.fn(
       async (
         _req: BoardSetBackgroundImageRequest

@@ -18,6 +18,7 @@ import {
 import {
   type ChangeEvent,
   APP_CODENAME,
+  BOARD_FILE_EXTENSION,
   buildMcpClientSnippet,
   isInternalMutation,
   mutationName,
@@ -32,6 +33,9 @@ import {
   zAttachmentPasteRequest,
   zAttachmentView,
   zBoardBackground,
+  zBoardExportRequest,
+  zBoardExportResult,
+  zBoardImportSummary,
   zBoardSetBackgroundImageRequest,
   zBoardsListView,
   zAgendaRequest,
@@ -55,6 +59,7 @@ import {
   zObsidianPushResult,
   zSearchCardsRequest,
   zSearchHits,
+  zShowInFolderRequest,
   zTemplateDeleteRequest,
   zTemplateInstantiateRequest,
   zTemplateInstantiateResult,
@@ -78,12 +83,14 @@ import {
   dbInfo,
   deleteAttachmentWithFile,
   deleteTemplate,
+  exportBoardFile,
   exportToFolder,
   getAgenda,
   getArchivedItems,
   backupPath,
   getBoardView,
   hasDailyBackup,
+  importBoardFile,
   importFromFolder,
   importFromTrello,
   instantiateBoardTemplate,
@@ -96,6 +103,7 @@ import {
   redoOne,
   renameTemplate,
   saveBoardTemplate,
+  sanitizeAttachmentFilename,
   saveListTemplate,
   searchCards,
   seedSampleData,
@@ -175,6 +183,17 @@ async function showOpenDialogE2E(
   return win
     ? dialog.showOpenDialog(win, opts)
     : dialog.showOpenDialog(opts)
+}
+
+/** The save-dialog twin of showOpenDialogE2E: KANBINI_E2E_SAVE_FILE
+ *  stands in for the path the user would pick. */
+async function showSaveDialogE2E(
+  win: BrowserWindow | null,
+  opts: Electron.SaveDialogOptions
+): Promise<Electron.SaveDialogReturnValue> {
+  const override = process.env['KANBINI_E2E_SAVE_FILE']
+  if (override) return { canceled: false, filePath: override }
+  return win ? dialog.showSaveDialog(win, opts) : dialog.showSaveDialog(opts)
 }
 
 const isDev = !app.isPackaged
@@ -740,6 +759,50 @@ function registerIpc(
     const summary = importFromTrello(db, trello)
     broadcastChange(summary.boardId)
     return zTrelloImportSummary.parse(summary)
+  })
+
+  // One board to / from a `.kanbini` file (@kanbini/db board-file.ts).
+  // Export asks where to save (Documents, named after the board); import
+  // makes a NEW board, like the Trello import. "Show in folder" only
+  // reveals files this session exported, so the renderer can't use it to
+  // poke at arbitrary paths.
+  const exportedBoardFiles = new Set<string>()
+  ipcMain.handle(IPC.boardExport, async (event, raw: unknown) => {
+    const { boardId, content } = zBoardExportRequest.parse(raw)
+    const name = listBoards(db).find((b) => b.id === boardId)?.name
+    if (name === undefined) throw new Error(`board ${boardId} not found`)
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const res = await showSaveDialogE2E(win, {
+      title: content === 'lists' ? 'Export the board’s lists' : 'Export the board',
+      defaultPath: join(
+        app.getPath('documents'),
+        `${sanitizeAttachmentFilename(name)}.${BOARD_FILE_EXTENSION}`
+      ),
+      filters: [{ name: 'Kanbini board', extensions: [BOARD_FILE_EXTENSION] }]
+    })
+    if (res.canceled || !res.filePath) return null
+    const destPath = nodePath.extname(res.filePath)
+      ? res.filePath
+      : `${res.filePath}.${BOARD_FILE_EXTENSION}`
+    const result = await exportBoardFile(db, { userDataDir, boardId, content, destPath })
+    exportedBoardFiles.add(result.path)
+    return zBoardExportResult.parse(result)
+  })
+  ipcMain.handle(IPC.boardImport, async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const res = await showOpenDialogE2E(win, {
+      properties: ['openFile'],
+      title: 'Pick a Kanbini board file to import',
+      filters: [{ name: 'Kanbini board', extensions: [BOARD_FILE_EXTENSION] }]
+    })
+    if (res.canceled || res.filePaths.length === 0) return null
+    const summary = await importBoardFile(db, { userDataDir, path: res.filePaths[0]! })
+    broadcastChange(summary.boardId)
+    return zBoardImportSummary.parse(summary)
+  })
+  ipcMain.handle(IPC.showInFolder, (_event, raw: unknown) => {
+    const { path } = zShowInFolderRequest.parse(raw)
+    if (exportedBoardFiles.has(path)) shell.showItemInFolder(path)
   })
 
   // ADR-0042 Obsidian one-way push. Two channels: pickVault opens

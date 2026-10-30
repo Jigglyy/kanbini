@@ -73,7 +73,7 @@ describe('<BoardsHome> header buttons', () => {
   it('renders the three primary header buttons', () => {
     renderBoardsHome([makeBoard()])
     expect(
-      screen.getByRole('button', { name: /import from trello/i })
+      screen.getByRole('button', { name: /^import board$/i })
     ).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: /from template/i })
@@ -92,7 +92,7 @@ describe('<BoardsHome> header buttons', () => {
     ).toBeInTheDocument()
   })
 
-  it('Import from Trello surfaces a returned summary via onOpen', async () => {
+  it('Import board > Trello surfaces a returned summary via onOpen', async () => {
     const user = userEvent.setup()
     const onOpen = vi.fn()
     const mock = kanbiniMock()
@@ -110,44 +110,82 @@ describe('<BoardsHome> header buttons', () => {
       skipped: { attachments: 0, cards: 0, checklists: 0 }
     })
     renderBoardsHome([makeBoard()], onOpen)
-    await user.click(
-      screen.getByRole('button', { name: /import from trello/i })
-    )
+    await user.click(screen.getByRole('button', { name: /^import board$/i }))
+    await user.click(screen.getByRole('button', { name: /trello board/i }))
     await waitFor(() => {
       expect(onOpen).toHaveBeenCalledWith('imported-board')
     })
   })
 
-  it('Import from Trello surfaces an error message inline', async () => {
+  it('Import board > Trello surfaces an error message inline', async () => {
     const user = userEvent.setup()
     const mock = kanbiniMock()
     mock.importTrello.mockRejectedValueOnce(
       new Error('That file isn\'t valid JSON.')
     )
     renderBoardsHome([makeBoard()])
-    await user.click(
-      screen.getByRole('button', { name: /import from trello/i })
-    )
+    await user.click(screen.getByRole('button', { name: /^import board$/i }))
+    await user.click(screen.getByRole('button', { name: /trello board/i }))
     expect(
       await screen.findByText(/isn't valid JSON/i)
     ).toBeInTheDocument()
   })
 
-  it('Import from Trello stays quiet when the user cancels (null result)', async () => {
+  it('Import board > Trello stays quiet when the user cancels (null result)', async () => {
     const user = userEvent.setup()
     const onOpen = vi.fn()
     const mock = kanbiniMock()
     mock.importTrello.mockResolvedValueOnce(null)
     renderBoardsHome([makeBoard()], onOpen)
-    await user.click(
-      screen.getByRole('button', { name: /import from trello/i })
-    )
+    await user.click(screen.getByRole('button', { name: /^import board$/i }))
+    await user.click(screen.getByRole('button', { name: /trello board/i }))
     await waitFor(() => {
       expect(mock.importTrello).toHaveBeenCalled()
     })
     expect(onOpen).not.toHaveBeenCalled()
     // No error banner either.
     expect(screen.queryByText(/import/i)).not.toHaveClass('bg-red-500/10')
+  })
+})
+
+describe('<BoardsHome> board files', () => {
+  it('Import board > Kanbini board file opens the new board', async () => {
+    const user = userEvent.setup()
+    const onOpen = vi.fn()
+    const mock = kanbiniMock()
+    mock.boardImport.mockResolvedValueOnce({
+      boardId: 'from-file',
+      boardName: 'Garden',
+      content: 'cards',
+      counts: { lists: 3, labels: 2, cards: 9, attachments: 1 },
+      skippedAttachments: 0
+    })
+    renderBoardsHome([makeBoard()], onOpen)
+    await user.click(screen.getByRole('button', { name: /^import board$/i }))
+    await user.click(screen.getByRole('button', { name: /kanbini board file/i }))
+    await waitFor(() => expect(onOpen).toHaveBeenCalledWith('from-file'))
+    expect(mock.importTrello).not.toHaveBeenCalled()
+  })
+
+  it('shows why a board file could not be imported', async () => {
+    const user = userEvent.setup()
+    const mock = kanbiniMock()
+    mock.boardImport.mockRejectedValueOnce(new Error("That isn't a Kanbini board file."))
+    renderBoardsHome([makeBoard()])
+    await user.click(screen.getByRole('button', { name: /^import board$/i }))
+    await user.click(screen.getByRole('button', { name: /kanbini board file/i }))
+    expect(await screen.findByText(/isn't a Kanbini board file/)).toBeInTheDocument()
+  })
+
+  it('the board card right-click menu opens the export dialog for that board', async () => {
+    const user = userEvent.setup()
+    renderBoardsHome([makeBoard({ name: 'Garden' })])
+    fireEvent.contextMenu(screen.getByRole('heading', { name: 'Garden' }))
+    const menu = within(
+      document.querySelector('[data-overlay="context-menu"]') as HTMLElement
+    )
+    await user.click(menu.getByRole('button', { name: /^export…$/i }))
+    expect(screen.getByRole('heading', { name: 'Export “Garden”' })).toBeInTheDocument()
   })
 })
 

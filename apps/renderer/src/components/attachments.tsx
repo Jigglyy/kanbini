@@ -61,7 +61,7 @@ const isImage = (a: AttachmentView): boolean => {
 const srcFor = (a: AttachmentView): string =>
   `kanbini-file://${a.relPath.split(/[\\/]/).map(encodeURIComponent).join('/')}`
 
-function humanSize(bytes: number | null): string {
+export function humanSize(bytes: number | null): string {
   if (bytes == null) return ''
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`

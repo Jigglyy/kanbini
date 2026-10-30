@@ -26,6 +26,8 @@ import {
   Archive,
   BookmarkPlus,
   Copy,
+  Download,
+  FileUp,
   Image as ImageIcon,
   PencilLine,
   Plus,
@@ -49,6 +51,7 @@ import { backgroundCss, swatchOptions } from '../lib/palette'
 import { cn } from '../lib/utils'
 import { AgendaPanel } from './agenda'
 import { BackgroundPicker } from './background-picker'
+import { BoardExportDialog } from './board-export'
 import { TemplatePickerDialog } from './templates'
 import { Button } from './ui/button'
 import {
@@ -58,6 +61,7 @@ import {
   revealOnMount
 } from './ui/context-menu'
 import { Modal } from './ui/modal'
+import { Popover } from './ui/popover'
 
 // Home picker (M4-G / ADR-0021). Single-user offline: flat grid of
 // every non-archived board across the whole DB. Projects are hidden
@@ -140,6 +144,7 @@ export function BoardsHome({ boards, onOpen }: Props) {
   const [tplPickerOpen, setTplPickerOpen] = useState(false)
   const [renaming, setRenaming] = useState<BoardSummary | null>(null)
   const [bgPicker, setBgPicker] = useState<BoardSummary | null>(null)
+  const [exporting, setExporting] = useState<BoardSummary | null>(null)
   const [query, setQuery] = useState('')
   const [sortMode, setSortMode] = useState<SortMode>(loadSortMode)
   useEffect(() => {
@@ -158,15 +163,16 @@ export function BoardsHome({ boards, onOpen }: Props) {
   // sufficient - no subscribe pattern needed.
   const [openedMap] = useState(() => loadOpenedMap())
 
-  // Trello import (ADR-0028). Additive - creates one new board and
-  // drops the user straight into it; existing boards are untouched.
-  // The picker doubles as the trigger; null summary = picker cancelled.
-  async function runTrelloImport(): Promise<void> {
+  // Import a board as a NEW board, from a Kanbini board file
+  // (board-file.ts) or a Trello export (ADR-0028), and drop the user
+  // straight into it; existing boards are untouched. The file picker
+  // doubles as the trigger; a null summary = picker cancelled.
+  async function runImport(from: 'kanbini' | 'trello'): Promise<void> {
     if (importing) return
     setImporting(true)
     setImportError(null)
     try {
-      const summary = await ipc.importTrello()
+      const summary = from === 'kanbini' ? await ipc.boardImport() : await ipc.importTrello()
       if (!summary) return
       await Promise.all([
         qc.invalidateQueries({ queryKey: boardsListKey }),
@@ -175,7 +181,11 @@ export function BoardsHome({ boards, onOpen }: Props) {
       onOpen(summary.boardId)
     } catch (e) {
       setImportError(
-        e instanceof Error ? e.message : 'Could not import that Trello board.'
+        e instanceof Error
+          ? e.message
+          : from === 'kanbini'
+            ? 'Could not import that board.'
+            : 'Could not import that Trello board.'
       )
     } finally {
       setImporting(false)
@@ -304,6 +314,7 @@ export function BoardsHome({ boards, onOpen }: Props) {
             onOpen={onOpen}
             onRequestRename={() => setRenaming(b)}
             onRequestBackground={() => setBgPicker(b)}
+            onRequestExport={() => setExporting(b)}
             canMoveUp={dndEnabled && idx > 0}
             canMoveDown={dndEnabled && idx < total - 1}
             onMoveUp={() => moveBoard(b.id, 'up')}
@@ -327,16 +338,45 @@ export function BoardsHome({ boards, onOpen }: Props) {
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-xl font-semibold tracking-tight">Your boards</h2>
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="default"
-            onClick={() => void runTrelloImport()}
-            disabled={importing}
-            title="Import a Trello board export (.json) as a new board"
+          <Popover
+            width={248}
+            align="right"
+            trigger={({ toggle }) => (
+              <Button
+                variant="outline"
+                size="default"
+                onClick={toggle}
+                disabled={importing}
+                title="Bring in a board as a new board"
+              >
+                <Upload className="size-4" />
+                {importing ? 'Importing…' : 'Import board'}
+              </Button>
+            )}
           >
-            <Upload className="size-4" />
-            {importing ? 'Importing…' : 'Import from Trello'}
-          </Button>
+            {(close) => (
+              <div className="flex flex-col">
+                <MenuRow
+                  icon={<FileUp className="size-3.5" />}
+                  onClick={() => {
+                    close()
+                    void runImport('kanbini')
+                  }}
+                >
+                  Kanbini board file…
+                </MenuRow>
+                <MenuRow
+                  icon={<Upload className="size-3.5" />}
+                  onClick={() => {
+                    close()
+                    void runImport('trello')
+                  }}
+                >
+                  Trello board…
+                </MenuRow>
+              </div>
+            )}
+          </Popover>
           <Button
             variant="outline"
             size="default"
@@ -494,6 +534,13 @@ export function BoardsHome({ boards, onOpen }: Props) {
           onClose={() => setBgPicker(null)}
         />
       )}
+      {exporting && (
+        <BoardExportDialog
+          boardId={exporting.id}
+          boardName={exporting.name}
+          onClose={() => setExporting(null)}
+        />
+      )}
     </div>
   )
 }
@@ -541,6 +588,7 @@ function BoardCard({
   onOpen,
   onRequestRename,
   onRequestBackground,
+  onRequestExport,
   canMoveUp,
   canMoveDown,
   onMoveUp,
@@ -550,6 +598,7 @@ function BoardCard({
   onOpen: (id: string) => void
   onRequestRename: () => void
   onRequestBackground: () => void
+  onRequestExport: () => void
   canMoveUp: boolean
   canMoveDown: boolean
   onMoveUp: () => void
@@ -582,6 +631,10 @@ function BoardCard({
           }}
           onRequestBackground={() => {
             onRequestBackground()
+            close()
+          }}
+          onRequestExport={() => {
+            onRequestExport()
             close()
           }}
           onMoveUp={() => {
@@ -762,6 +815,7 @@ function BoardCardMenu({
   canMoveDown,
   onRequestRename,
   onRequestBackground,
+  onRequestExport,
   onMoveUp,
   onMoveDown,
   close
@@ -771,6 +825,7 @@ function BoardCardMenu({
   canMoveDown: boolean
   onRequestRename: () => void
   onRequestBackground: () => void
+  onRequestExport: () => void
   onMoveUp: () => void
   onMoveDown: () => void
   close: () => void
@@ -879,6 +934,9 @@ function BoardCardMenu({
       <MenuSep />
       <MenuRow icon={<Copy className="size-3.5" />} onClick={duplicate}>
         Duplicate
+      </MenuRow>
+      <MenuRow icon={<Download className="size-3.5" />} onClick={onRequestExport}>
+        Export…
       </MenuRow>
       <MenuRow
         icon={

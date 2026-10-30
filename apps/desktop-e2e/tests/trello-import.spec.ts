@@ -84,16 +84,15 @@ test('Trello JSON import creates a new board + jumps into it', async () => {
   })
   const { page } = handle
 
-  // Boards-home shows the seeded Welcome Board. Click Import from
-  // Trello → the dialog (overridden to return fixturePath) → main
+  // Boards-home shows the seeded Welcome Board. Import board > Trello
+  // board → the dialog (overridden to return fixturePath) → main
   // parses + creates the new board + broadcasts → boards-home's
-  // runTrelloImport navigates to it via onOpen(summary.boardId).
+  // runImport navigates to it via onOpen(summary.boardId).
   await expect(
     page.getByRole('heading', { name: 'Welcome Board', exact: true })
   ).toBeVisible()
-  await page
-    .getByRole('button', { name: /import from trello/i })
-    .click()
+  await page.getByRole('button', { name: 'Import board', exact: true }).click()
+  await page.getByRole('button', { name: /trello board/i }).click()
 
   // We've navigated into the new "Imported from Trello" board view.
   // Header crumb shows the board name; the three lists from the

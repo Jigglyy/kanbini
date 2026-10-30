@@ -9,6 +9,9 @@ import type {
   AppInfo,
   AttachmentView,
   BoardBackground,
+  BoardExportRequest,
+  BoardExportResult,
+  BoardImportSummary,
   BoardSetBackgroundImageRequest,
   BoardsListView,
   BoardView,
@@ -26,6 +29,7 @@ import type {
   ObsidianPushResult,
   SearchCardsRequest,
   SearchHits,
+  ShowInFolderRequest,
   TemplateDeleteRequest,
   TemplateInstantiateRequest,
   TemplateInstantiateResult,
@@ -58,6 +62,9 @@ declare global {
       backupsList: () => Promise<BackupList>
       backupsRestore: (req: BackupRestoreRequest) => Promise<ImportSummary>
       importTrello: () => Promise<TrelloImportSummary | null>
+      boardExport: (req: BoardExportRequest) => Promise<BoardExportResult | null>
+      boardImport: () => Promise<BoardImportSummary | null>
+      showInFolder: (req: ShowInFolderRequest) => Promise<void>
       boardSetBackgroundImage: (
         req: BoardSetBackgroundImageRequest
       ) => Promise<BoardBackground | null>

@@ -47,6 +47,18 @@ export const IPC = {
    *  wipe existing data, unlike importFolder). Returns
    *  TrelloImportSummary, or null if the user cancelled the picker. */
   importTrello: 'import:trello',
+  /** renderer -> main: open a save dialog, then write one board to a
+   *  `.kanbini` file (BoardExportRequest). Returns BoardExportResult, or
+   *  null if the user cancelled the dialog. */
+  boardExport: 'board:export',
+  /** renderer -> main: open a `.kanbini` file picker, then import the
+   *  board in it as a NEW board (additive). Returns BoardImportSummary,
+   *  or null if the user cancelled the picker. */
+  boardImport: 'board:import',
+  /** renderer -> main: show a file this app just exported in the OS
+   *  file manager (ShowInFolderRequest). Paths main didn't write are
+   *  ignored. */
+  showInFolder: 'shell:showInFolder',
   /** renderer → main: open an image file picker, copy the chosen file
    *  into `userData/board-backgrounds/<boardId>/`, then apply a
    *  `board.update` setting the board's `background` to point at the

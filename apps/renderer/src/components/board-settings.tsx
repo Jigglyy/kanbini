@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Archive, BookmarkPlus, Image as ImageIcon, Pencil, Rows3 } from 'lucide-react'
+import { Archive, BookmarkPlus, Download, Image as ImageIcon, Pencil, Rows3 } from 'lucide-react'
 import type {
   BoardView,
   Mutation,
@@ -8,6 +8,7 @@ import type {
 import type { Optimistic } from '../hooks/useBoardMutation'
 import { ArchivedItemsDialog } from './archived-items'
 import { BackgroundPicker } from './background-picker'
+import { BoardExportDialog } from './board-export'
 import { SaveTemplateDialog } from './templates'
 import { Popover } from './ui/popover'
 import { Tooltip } from './ui/tooltip'
@@ -32,6 +33,7 @@ export function BoardSettings({
   const [bgOpen, setBgOpen] = useState(false)
   const [saveTplOpen, setSaveTplOpen] = useState(false)
   const [archivedOpen, setArchivedOpen] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
   return (
     <>
       <Popover
@@ -66,6 +68,10 @@ export function BoardSettings({
               close()
               setArchivedOpen(true)
             }}
+            onExport={() => {
+              close()
+              setExportOpen(true)
+            }}
           />
         )}
       </Popover>
@@ -93,6 +99,13 @@ export function BoardSettings({
           onClose={() => setArchivedOpen(false)}
         />
       )}
+      {exportOpen && (
+        <BoardExportDialog
+          boardId={board.board.id}
+          boardName={board.board.name}
+          onClose={() => setExportOpen(false)}
+        />
+      )}
       <SaveTemplateDialog
         open={saveTplOpen}
         kind="board"
@@ -110,7 +123,8 @@ function RenameBody({
   close,
   onOpenBackground,
   onSaveAsTemplate,
-  onOpenArchived
+  onOpenArchived,
+  onExport
 }: {
   board: BoardView
   apply: Apply
@@ -118,6 +132,7 @@ function RenameBody({
   onOpenBackground: () => void
   onSaveAsTemplate: () => void
   onOpenArchived: () => void
+  onExport: () => void
 }) {
   const [name, setName] = useState(board.board.name)
   // Re-sync if the board is renamed elsewhere while this popover is
@@ -174,6 +189,14 @@ function RenameBody({
       >
         <Archive className="size-3.5 text-muted-foreground" />
         Archived…
+      </button>
+      <button
+        type="button"
+        onClick={onExport}
+        className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-foreground hover:bg-muted"
+      >
+        <Download className="size-3.5 text-muted-foreground" />
+        Export board…
       </button>
       <SwimlaneRow board={board} apply={apply} />
     </div>

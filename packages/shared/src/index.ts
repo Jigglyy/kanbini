@@ -11,6 +11,7 @@ export const APP_CODENAME = "Kanbini";
 export const SCHEMA_VERSION = 1 as const;
 
 export * from "./agenda";
+export * from "./board-file";
 export * from "./card-number";
 export * from "./channels";
 export * from "./html";

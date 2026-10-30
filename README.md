@@ -88,6 +88,8 @@ that never closes: a board that's yours, local, and always on.
   kept, restorable in one click from Settings (and a copy of the current
   state is kept before any restore).
 - **Move or copy cards between boards** - labels follow by name.
+- **Export a board to a file** (`.kanbini`), with or without its cards, and
+  import it as a new board on any Kanbini.
 - **Cross-board search** via a Ctrl/Cmd+F command palette.
 - **Repeating cards** - make a card repeat daily, weekly, monthly, yearly,
   or every N of those. Completing it adds the next one with its due date
@@ -102,7 +104,8 @@ that never closes: a board that's yours, local, and always on.
   back everything an AI just changed on a board.
 - **Customizable keyboard shortcuts.**
 - **Board backgrounds** (colour / gradient / image) and continuous zoom.
-- **Trello import** - bring an exported Trello board JSON in as a new board.
+- **Trello import** - bring an exported Trello board JSON in as a new board
+  (boards home > Import board).
 - **Opt-in integrations** (off by default): link previews and one-way
   push to an Obsidian vault.
 

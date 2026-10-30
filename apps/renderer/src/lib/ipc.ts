@@ -6,6 +6,9 @@ import type {
   AppInfo,
   AttachmentView,
   BoardBackground,
+  BoardExportRequest,
+  BoardExportResult,
+  BoardImportSummary,
   BoardSetBackgroundImageRequest,
   BoardsListView,
   BoardView,
@@ -23,6 +26,7 @@ import type {
   ObsidianPushResult,
   SearchCardsRequest,
   SearchHits,
+  ShowInFolderRequest,
   TemplateDeleteRequest,
   TemplateInstantiateRequest,
   TemplateInstantiateResult,
@@ -66,6 +70,10 @@ export const ipc = {
     bridge().backupsRestore(req),
   importTrello: (): Promise<TrelloImportSummary | null> =>
     bridge().importTrello(),
+  boardExport: (req: BoardExportRequest): Promise<BoardExportResult | null> =>
+    bridge().boardExport(req),
+  boardImport: (): Promise<BoardImportSummary | null> => bridge().boardImport(),
+  showInFolder: (req: ShowInFolderRequest): Promise<void> => bridge().showInFolder(req),
   boardSetBackgroundImage: (
     req: BoardSetBackgroundImageRequest
   ): Promise<BoardBackground | null> => bridge().boardSetBackgroundImage(req),
