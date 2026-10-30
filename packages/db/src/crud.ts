@@ -836,6 +836,7 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
         // is JSON-mode (drizzle already parsed) - soft-narrow the
         // shape here so unknown kinds (older builds, future shapes)
         // silently skip the rule rather than throw.
+        let completedNow = wasCompleted
         if (crossedList && toListRow?.onEnter) {
           const raw = toListRow.onEnter as { kind?: unknown }
           const kind =
@@ -845,6 +846,7 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
           if (kind) {
             const shouldComplete = kind === 'complete'
             if (wasCompleted !== shouldComplete) {
+              completedNow = shouldComplete
               tx.update(card)
                 .set({ completed: shouldComplete, updatedAt: now() })
                 .where(eq(card.id, m.id))
@@ -862,6 +864,19 @@ export function applyMutation(db: Db, m: Mutation): MutationResult {
               })
             }
           }
+        }
+        // Undo of a move that a rule completed (or reopened) puts the
+        // card's earlier state back, whatever the list it returns to does.
+        if (m.completed !== undefined && m.completed !== completedNow) {
+          tx.update(card)
+            .set({ completed: m.completed, updatedAt: now() })
+            .where(eq(card.id, m.id))
+            .run()
+          logActivity(tx as unknown as Db, {
+            boardId,
+            cardId: m.id,
+            type: m.completed ? 'completed' : 'reopened'
+          })
         }
         return { id: m.id, boardId }
       })

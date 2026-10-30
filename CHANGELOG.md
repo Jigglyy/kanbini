@@ -46,6 +46,10 @@ macOS and Linux downloads and publishes a GitHub Release (see
 - **Escape leaves Settings again after you click a toggle.** With a
   checkbox, option or dropdown focused, Escape used to do nothing; now
   only a text field you're typing in keeps it.
+- **Undoing a move into a "complete on entry" list reopens the card.**
+  One Ctrl+Z used to put the card back but leave it ticked off.
+- **A drag into another swimlane is one Ctrl+Z.** It moved the card and
+  changed its priority as two separate steps.
 
 ## [0.13.1] - 2026-10-30
 

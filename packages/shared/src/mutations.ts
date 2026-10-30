@@ -317,7 +317,13 @@ export const zMutation = z.discriminatedUnion('type', [
     // ones are created there); the undo of such a move passes the card's
     // original label ids so they come back. The external entry points
     // refuse it.
-    labelIds: z.array(z.string()).optional()
+    labelIds: z.array(z.string()).optional(),
+    // Internal (undo only): the completion the card ends with, set AFTER
+    // any on-enter rule of the target list. The undo of a move into a
+    // "complete on entry" list passes the card's earlier state, so one
+    // Ctrl+Z also reopens it (the way back can fire the source list's own
+    // rule too, which this then overrides). External entry points refuse it.
+    completed: z.boolean().optional()
   }),
   // Copy a card ("Duplicate" in the card menu, or "Copy to..." onto
   // any list of any board). The copy gets the card's title (or `title`),
@@ -408,11 +414,12 @@ const namesCardNumber = (m: Mutation): boolean =>
   m.number !== undefined
 
 const namesMoveLabels = (m: Mutation): boolean =>
-  m.type === 'card.move' && m.labelIds !== undefined
+  m.type === 'card.move' && (m.labelIds !== undefined || m.completed !== undefined)
 
 /** True for a mutation only the undo machinery may apply: an internal
  *  arm, a card create / move / copy that names its card number, or a
- *  move that names the labels to arrive with. Only undo / redo hand a
+ *  move that names the labels or completion to arrive with. Only undo /
+ *  redo hand a
  *  number back; from anyone else it could take a number out of turn or
  *  push the board's counter far ahead. */
 export const isInternalMutation = (m: Mutation): boolean =>
@@ -423,7 +430,7 @@ export const mutationName = (m: Mutation): string =>
   namesCardNumber(m)
     ? `${m.type} with a card number`
     : namesMoveLabels(m)
-      ? `${m.type} with label ids`
+      ? `${m.type} with undo-only fields`
       : m.type
 
 /** Every mutation returns the affected board (for scoped refetch). */

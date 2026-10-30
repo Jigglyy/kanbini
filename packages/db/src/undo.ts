@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull } from 'drizzle-orm'
 import { type Mutation, type MutationResult, newId } from '@kanbini/shared'
 import type { Db } from './client'
 import { applyMutation, listBoardId } from './crud'
@@ -1113,11 +1113,25 @@ export function inverseBefore(db: Db, m: Mutation): Mutation | null {
     // -- Moves: capture old position --
     case 'card.move': {
       const old = db
-        .select({ listId: card.listId, listAddedAt: card.listAddedAt, number: card.number })
+        .select({
+          listId: card.listId,
+          listAddedAt: card.listAddedAt,
+          number: card.number,
+          completed: card.completed
+        })
         .from(card)
         .where(eq(card.id, m.id))
         .get()
       if (!old) return null
+      // A list with an on-enter rule (either end of a cross-list move) can
+      // change the card's completion; the way back restores it.
+      const ruled =
+        old.listId !== m.toListId &&
+        db
+          .select({ id: list.id })
+          .from(list)
+          .where(and(inArray(list.id, [old.listId, m.toListId]), isNotNull(list.onEnter)))
+          .get() !== undefined
       // A move to another board renumbers the card there (card numbers
       // are per board); the way back takes its old number again.
       const crossesBoards =
@@ -1144,6 +1158,7 @@ export function inverseBefore(db: Db, m: Mutation): Mutation | null {
         // doesn't re-stamp "added to list" to the moment of the undo.
         listAddedAt: old.listAddedAt,
         ...(crossesBoards && old.number !== null ? { number: old.number } : {}),
+        ...(ruled ? { completed: old.completed } : {}),
         // The move swaps the card's labels for the target board's (by
         // name); the way back puts the original ones back.
         ...(crossesBoards
