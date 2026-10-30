@@ -2336,6 +2336,9 @@ export function Board({
         // `rounded-md` border-radius matches CardFace so the
         // shadow follows the card's rounded corners cleanly.
         style={{ boxShadow: LIFT_SHADOW, borderRadius: '0.375rem' }}
+        // A stable hook for e2e: present from pickup until the drop
+        // animation has finished.
+        className="drag-overlay"
       >
         {dragging && (
           // No explicit width: dnd-kit sets the overlay container to

@@ -97,6 +97,12 @@ test('the reorder survives a board reload (it persisted, not just optimistic)', 
 
   await dragBetween(page, done, todo)
   await expect.poll(async () => (await headerX(done)) < (await headerX(todo))).toBe(true)
+  // Let the drop finish before clicking on. dnd-kit swallows every click
+  // for 50 ms after a drop; this test used to reach the boards home and
+  // click "Welcome Board" ~51 ms after letting go, so about one run in
+  // three the click was eaten and the board never opened. A person can't
+  // be that fast; the drop animation (~200 ms) always outlasts it.
+  await expect(page.locator('.drag-overlay')).toHaveCount(0)
 
   // Leave the board and come back - the order comes from the DB now, not
   // the in-memory optimistic cache. If list.move didn't persist, Done
