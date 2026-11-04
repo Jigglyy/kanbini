@@ -3154,6 +3154,7 @@ const SortableCard = memo(function SortableCard({
   // modal needs to live above it (a sibling of <ContextMenu>) to
   // survive the menu closing as it opens.
   const [urlCoverOpen, setUrlCoverOpen] = useState(false)
+  const closeUrlCover = useCallback(() => setUrlCoverOpen(false), [])
 
   // Layout-hold across the drop animation. dnd-kit clears `isDragging`
   // the instant `onDragEnd` fires - BEFORE the 200 ms drop animation
@@ -3179,22 +3180,6 @@ const SortableCard = memo(function SortableCard({
     }
     wasDraggingRef.current = isDragging
   }, [isDragging])
-
-  const toggleComplete = (): void =>
-    apply(
-      {
-        type: 'card.update',
-        id: card.id,
-        patch: { completed: !card.completed }
-      },
-      (b) =>
-        mapLists(b, (l) => ({
-          ...l,
-          cards: l.cards.map((c) =>
-            c.id === card.id ? { ...c, completed: !c.completed } : c
-          )
-        }))
-    )
 
   // Fire the card-completed celebration on every incomplete→complete
   // edge, including flips driven from the card-detail modal or from
@@ -3226,82 +3211,119 @@ const SortableCard = memo(function SortableCard({
   // while dnd-kit is measuring rects.
   useSmoothHeight(cardElRef, !anyDragging && !postDropHold)
 
-  // Memoize the heavy, drag-invariant subtrees. A live-reorder drag
-  // re-renders EVERY card in the SortableContext on every onDragOver
-  // frame (they subscribe to the context to pick up their new
-  // transform) - measured at ~1900 SortableCard renders for a 7-card
-  // list over a few sweeps. The card's VISUAL content (cover image,
-  // label chips, checklist preview) doesn't change during a drag - only
-  // the `<li>`'s transform does - so memoizing these elements lets
-  // React skip reconciling their subtrees entirely when the deps are
-  // unchanged (same element reference => reconciler bails). The wrapper
-  // still re-renders to apply the transform; the expensive children
-  // don't. Cuts the per-frame work that makes dev-mode drags janky.
-  // All deps are stable during a drag: `card` only changes identity on
-  // a real data edit, `labels`/`apply`/`onToggleLabelsExpanded` are
-  // referentially stable (board.labels, useBoardMutation, App
-  // useCallback).
-  // Compact: no cover, URL chip, or checklist items; label BARS only
-  // (non-interactive - a bar click can't reveal names on a compact
-  // card, so it just opens the card like the rest of the surface); a
-  // 2-line title; count badges in the meta row for what's hidden.
+  // Why this component is split in two: dnd-kit's internal context
+  // changes every time the card under the pointer changes, and every
+  // mounted draggable reads it, so EVERY card on the board re-renders
+  // that often during a drag - memo can't stop a context update, and
+  // the cost grew with the board (5,300 card renders for one short drag
+  // on a 350-card board). This outer part keeps only what moves: the
+  // sortable hooks, the <li>'s transform / classes / handlers, and the
+  // menu. Everything inside the card is `CardBody`, memoized on props
+  // that never change mid-drag, so those re-renders stop at the <li>.
   const compact = isCardCompact(card.collapsed, listDensity)
   const toggleCollapse = useCallback((): void => {
     const t = collapseToggle(card, listDensity)
     apply(t.mutation, t.optimistic)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apply, card.id, card.collapsed, listDensity])
-  const coverEl = useMemo(
-    () => (compact ? null : <CardCoverThumb card={card} />),
-    [card, compact]
+  // ContextMenu hands out a new `open` on every render; the body's
+  // pencil reaches it through this ref so CardBody's props stay stable.
+  const openMenuRef = useRef<(e: React.MouseEvent) => void>(() => {})
+  const openMenu = useCallback((e: React.MouseEvent) => openMenuRef.current(e), [])
+  // Whole-card click: open (plain), toggle-select (Ctrl/Cmd), or
+  // range-select (Shift). `onClick` only fires when pointer down+up land
+  // without enough motion to trip dnd-kit's 6 px activation, so a real
+  // drag never triggers this. The click bubbles up from every
+  // non-interactive child (title, cover, body); we bail when it
+  // originated on an interactive control (the checkbox, pencil,
+  // checklist toggles, label chips, links) so those keep their own
+  // behaviour and never open/select.
+  const onClick = useCallback(
+    (e: React.MouseEvent<HTMLLIElement>) => {
+      if ((e.target as HTMLElement).closest('button, a, input')) return
+      onCardClick(card.id, e)
+    },
+    [onCardClick, card.id]
   )
-  const labelsEl = useMemo(
-    () => (
-      <CardLabels
-        labelIds={card.labelIds}
-        labels={labels}
-        expanded={compact ? false : labelsExpanded}
-        onToggleExpand={compact ? undefined : onToggleLabelsExpanded}
-      />
-    ),
-    [card.labelIds, labels, labelsExpanded, onToggleLabelsExpanded, compact]
-  )
-  const checklistEl = useMemo(
+  const liClass = useMemo(
     () =>
-      showChecklist && !compact ? (
-        <div
-          className={cn(
-            'transition-[margin-left] duration-200 ease-out',
-            card.completed
-              ? 'ml-1'
-              : 'ml-0 group-hover/card:ml-4 group-has-[:focus-visible]/card:ml-4'
-          )}
-        >
-          <CardChecklistPreview card={card} apply={apply} />
-        </div>
-      ) : null,
-    [showChecklist, card, apply, compact]
+      cn(
+        // `focus:outline-none` only - we deliberately DO NOT add
+        // `focus-visible:ring-*` here. dnd-kit's a11y layer calls
+        // `.focus()` on the source element after a drop, which
+        // would paint a focus-visible ring competing with the
+        // `focused` state ring (double-highlight bug seen when
+        // arrow-keying after a drag). The `focused` state IS the
+        // single source of truth for the keyboard-nav indicator.
+        // `shrink-0`: the card is a flex item of the list body, and its
+        // `overflow-hidden` drops its automatic min-height to 0 - so in a
+        // height-capped body (lists that scroll on their own) cards would
+        // squash to fit instead of the body scrolling.
+        'group/card relative flex shrink-0 flex-col gap-1 overflow-hidden rounded-md border bg-card px-3 py-2 text-sm transition-[border-color,box-shadow] cursor-grab active:cursor-grabbing focus:outline-none',
+        // Default vs `cursor-was-on-overlay-at-drop-end` styling.
+        // The post-drop force matches what the DragOverlay's last
+        // frame is painting (border-ring/60 + shadow-md), so when
+        // the overlay unmounts the source is ALREADY at those
+        // values and no transition fires. When postDropHold
+        // expires (220 ms after drop), the class flips to defaults
+        // - if the cursor IS still on the card, :hover-prefixed
+        // utilities keep the same values (no transition); if it
+        // isn't, the existing `transition-[border-color,box-shadow]`
+        // 150 ms ease softens the settle.
+        postDropHold && postDropHoverMatch
+          ? 'border-ring/60 shadow-md'
+          : 'border-border shadow-sm hover:border-ring/60 hover:shadow-md',
+        // Multi-select ring (primary, slightly wider offset) takes
+        // precedence over the ADR-0035 keyboard focus ring (a card can
+        // be both focused and selected; the selection wins visually +
+        // the corner badge below removes any ambiguity).
+        selected
+          ? 'ring-2 ring-primary ring-offset-2 ring-offset-background'
+          : focused
+            ? 'ring-2 ring-ring ring-offset-1 ring-offset-background'
+            : '',
+        isDragging
+          ? 'opacity-0'
+          : multiDragActive && selected
+            ? // ghost the other selected cards - they're "coming along"
+              // and re-cluster at the drop spot
+              'opacity-40'
+            : card.completed
+              ? 'opacity-70 hover:opacity-100'
+              : '',
+        completePhase && `complete-celebrate-${completePhase}`
+      ),
+    [
+      postDropHold,
+      postDropHoverMatch,
+      selected,
+      focused,
+      isDragging,
+      multiDragActive,
+      card.completed,
+      completePhase
+    ]
   )
-  const metaEl = useMemo(
-    () => (
-      <div className="flex flex-wrap items-center gap-1.5">
-        <DescriptionBadge card={card} />
-        <BlockedBadge card={card} />
-        <PriorityBadge card={card} />
-        <DueBadge card={card} />
-        <RepeatBadge card={card} />
-        {compact && <CompactBadges card={card} />}
-        {showNumber && <CardNumberBadge number={card.number} />}
-      </div>
-    ),
-    [card, compact, showNumber]
+  const body = (
+    <CardBody
+      card={card}
+      compact={compact}
+      labels={labels}
+      apply={apply}
+      showChecklist={showChecklist}
+      showNumber={showNumber}
+      labelsExpanded={labelsExpanded}
+      onToggleLabelsExpanded={onToggleLabelsExpanded}
+      selected={selected}
+      revealCheckbox={isDragging || postDropHold}
+      completePhase={completePhase}
+      onToggleCollapse={toggleCollapse}
+      onOpenMenu={openMenu}
+    />
   )
-  // TitleUrlChip runs a URL regex over the title on every render -
-  // memoize on the title so a drag's per-frame wrapper renders don't
-  // re-scan it.
-  const titleChipEl = useMemo(
-    () => (compact ? null : <TitleUrlChip title={card.title} />),
-    [card.title, compact]
+  const urlCover = useMemo(
+    () => <UrlCoverModal card={card} open={urlCoverOpen} onClose={closeUrlCover} />,
+    [card, urlCoverOpen, closeUrlCover]
   )
 
   return (
@@ -3326,206 +3348,230 @@ const SortableCard = memo(function SortableCard({
         )
       }
     >
-      {(open) => (
-        // Drag listeners on the whole <li> so the entire card surface
-        // is a drag handle. The PointerSensor's 6 px activation
-        // constraint keeps clicks from starting drags. Interactive
-        // children (checkbox, pencil, title-click) stop pointerdown
-        // propagation so dnd-kit never starts tracking from them -
-        // belt-and-braces against any future sensor tweaks.
-        <li
-          ref={setCardRef}
-          {...attributes}
-          {...listeners}
-          data-card-id={card.id}
-          style={{ transform: CSS.Transform.toString(transform), transition }}
-          onContextMenu={open}
-          // Whole-card click: open (plain), toggle-select (Ctrl/Cmd), or
-          // range-select (Shift). `onClick` only fires when pointer
-          // down+up land without enough motion to trip dnd-kit's 6 px
-          // activation, so a real drag never triggers this. The click
-          // bubbles up from every non-interactive child (title, cover,
-          // body); we bail when it originated on an interactive control
-          // (the checkbox, pencil, checklist toggles, label chips, links)
-          // so those keep their own behaviour and never open/select.
-          onClick={(e) => {
-            if ((e.target as HTMLElement).closest('button, a, input')) return
-            onCardClick(card.id, e)
-          }}
+      {(open) => {
+        openMenuRef.current = open
+        return (
+          // Drag listeners on the whole <li> so the entire card surface
+          // is a drag handle. The PointerSensor's 6 px activation
+          // constraint keeps clicks from starting drags. Interactive
+          // children (checkbox, pencil, title-click) stop pointerdown
+          // propagation so dnd-kit never starts tracking from them -
+          // belt-and-braces against any future sensor tweaks.
+          <li
+            ref={setCardRef}
+            {...attributes}
+            {...listeners}
+            data-card-id={card.id}
+            style={{ transform: CSS.Transform.toString(transform), transition }}
+            onContextMenu={open}
+            onClick={onClick}
+            className={liClass}
+          >
+            {body}
+          </li>
+        )
+      }}
+    </ContextMenu>
+    {urlCover}
+    </>
+  )
+})
+
+/** Everything inside a card's <li> (see SortableCard for why it's split
+ *  out). Memoized: every prop is stable while a drag is in flight, so the
+ *  context-driven re-renders of the <li> never reach this subtree. */
+const CardBody = memo(function CardBody({
+  card,
+  compact,
+  labels,
+  apply,
+  showChecklist,
+  showNumber,
+  labelsExpanded,
+  onToggleLabelsExpanded,
+  selected,
+  revealCheckbox,
+  completePhase,
+  onToggleCollapse,
+  onOpenMenu
+}: {
+  card: CardView
+  /** Compact: no cover, URL chip, or checklist items; label BARS only
+   *  (non-interactive - a bar click can't reveal names on a compact
+   *  card, so it just opens the card like the rest of the surface); a
+   *  2-line title; count badges in the meta row for what's hidden. */
+  compact: boolean
+  labels: LabelView[]
+  apply: (m: Mutation, o: Optimistic) => void
+  showChecklist: boolean
+  showNumber: boolean
+  labelsExpanded?: boolean
+  onToggleLabelsExpanded?: () => void
+  selected: boolean
+  /** Keep the complete-checkbox column open: the card is being dragged,
+   *  or its post-drop hold is running (see SortableCard). */
+  revealCheckbox: boolean
+  completePhase: ReturnType<typeof useJustCompleted>
+  onToggleCollapse: () => void
+  onOpenMenu: (e: React.MouseEvent) => void
+}) {
+  const toggleComplete = (): void =>
+    apply(
+      {
+        type: 'card.update',
+        id: card.id,
+        patch: { completed: !card.completed }
+      },
+      (b) =>
+        mapLists(b, (l) => ({
+          ...l,
+          cards: l.cards.map((c) =>
+            c.id === card.id ? { ...c, completed: !c.completed } : c
+          )
+        }))
+    )
+
+  return (
+    <>
+      {/* No onClick: the cover is part of the card surface, so a
+          click bubbles to the <li> handler (open / select). */}
+      {!compact && <CardCoverThumb card={card} />}
+      <CardLabels
+        labelIds={card.labelIds}
+        labels={labels}
+        expanded={compact ? false : labelsExpanded}
+        onToggleExpand={compact ? undefined : onToggleLabelsExpanded}
+      />
+      {/* Complete-checkbox hidden until card hover (or focus, or
+          already-completed). The wrapper transitions width 0→6 so
+          the checkbox is revealed by clipping and the title slides
+          right with the flex layout - Trello-style. A completed
+          card keeps the box visible so its state is obvious without
+          a hover. */}
+      <div className="flex items-start">
+        <div
           className={cn(
-            // `focus:outline-none` only - we deliberately DO NOT add
-            // `focus-visible:ring-*` here. dnd-kit's a11y layer calls
-            // `.focus()` on the source element after a drop, which
-            // would paint a focus-visible ring competing with the
-            // `focused` state ring (double-highlight bug seen when
-            // arrow-keying after a drag). The `focused` state IS the
-            // single source of truth for the keyboard-nav indicator.
-            // `shrink-0`: the card is a flex item of the list body, and its
-            // `overflow-hidden` drops its automatic min-height to 0 - so in a
-            // height-capped body (lists that scroll on their own) cards would
-            // squash to fit instead of the body scrolling.
-            'group/card relative flex shrink-0 flex-col gap-1 overflow-hidden rounded-md border bg-card px-3 py-2 text-sm transition-[border-color,box-shadow] cursor-grab active:cursor-grabbing focus:outline-none',
-            // Default vs `cursor-was-on-overlay-at-drop-end` styling.
-            // The post-drop force matches what the DragOverlay's last
-            // frame is painting (border-ring/60 + shadow-md), so when
-            // the overlay unmounts the source is ALREADY at those
-            // values and no transition fires. When postDropHold
-            // expires (220 ms after drop), the class flips to defaults
-            // - if the cursor IS still on the card, :hover-prefixed
-            // utilities keep the same values (no transition); if it
-            // isn't, the existing `transition-[border-color,box-shadow]`
-            // 150 ms ease softens the settle.
-            postDropHold && postDropHoverMatch
-              ? 'border-ring/60 shadow-md'
-              : 'border-border shadow-sm hover:border-ring/60 hover:shadow-md',
-            // Multi-select ring (primary, slightly wider offset) takes
-            // precedence over the ADR-0035 keyboard focus ring (a card can
-            // be both focused and selected; the selection wins visually +
-            // the corner badge below removes any ambiguity).
-            selected
-              ? 'ring-2 ring-primary ring-offset-2 ring-offset-background'
-              : focused
-                ? 'ring-2 ring-ring ring-offset-1 ring-offset-background'
-                : '',
-            isDragging
-              ? 'opacity-0'
-              : multiDragActive && selected
-                ? // ghost the other selected cards - they're "coming along"
-                  // and re-cluster at the drop spot
-                  'opacity-40'
-                : card.completed
-                  ? 'opacity-70 hover:opacity-100'
-                  : '',
-            completePhase && `complete-celebrate-${completePhase}`
+            'shrink-0 overflow-hidden transition-[width] duration-200 ease-out',
+            // `revealCheckbox` (the drag itself, then SortableCard's
+            // post-drop hold for the ~420 ms the drop animation needs
+            // to land) bridges the entire drag→drop window so
+            // the source layout matches the overlay's captured
+            // dimensions when it unmounts (no snap-shrink at
+            // handoff). After the hold releases, the existing
+            // 200 ms width transition reads as a graceful settle
+            // if the cursor isn't already over the dropped card.
+            card.completed || revealCheckbox
+              ? 'w-6'
+              : // Keyboard focus INSIDE the card (Tab to its checkbox)
+                // also opens it. Not focus-within: dnd-kit focuses the
+                // <li> itself after a drop, which kept the column open
+                // until something else took focus.
+                'w-0 group-hover/card:w-6 group-has-[:focus-visible]/card:w-6'
           )}
         >
-          {/* No onClick: the cover is part of the card surface, so a
-              click bubbles to the <li> handler (open / select).
-              Memoized (coverEl / labelsEl) - see the useMemo block. */}
-          {coverEl}
-          {labelsEl}
-          {/* Complete-checkbox hidden until card hover (or focus, or
-              already-completed). The wrapper transitions width 0→6 so
-              the checkbox is revealed by clipping and the title slides
-              right with the flex layout - Trello-style. A completed
-              card keeps the box visible so its state is obvious without
-              a hover. */}
-          <div className="flex items-start">
-            <div
-              className={cn(
-                'shrink-0 overflow-hidden transition-[width] duration-200 ease-out',
-                // `isDragging` keeps the column open for the duration of
-                // the drag itself; `postDropHold` keeps it open for the
-                // additional ~420 ms the drop animation needs to land.
-                // Together they bridge the entire drag→drop window so
-                // the source layout matches the overlay's captured
-                // dimensions when it unmounts (no snap-shrink at
-                // handoff). After the hold releases, the existing
-                // 200 ms width transition reads as a graceful settle
-                // if the cursor isn't already over the dropped card.
-                card.completed || isDragging || postDropHold
-                  ? 'w-6'
-                  : // Keyboard focus INSIDE the card (Tab to its checkbox)
-                    // also opens it. Not focus-within: dnd-kit focuses the
-                    // <li> itself after a drop, which kept the column open
-                    // until something else took focus.
-                    'w-0 group-hover/card:w-6 group-has-[:focus-visible]/card:w-6'
-              )}
-            >
-              <button
-                aria-label={
-                  card.completed ? 'Mark incomplete' : 'Mark complete'
-                }
-                title={card.completed ? 'Mark incomplete' : 'Mark complete'}
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  toggleComplete()
-                  // Drop focus immediately - Chrome focuses buttons on
-                  // mouse click; the reveal only follows :focus-visible
-                  // (keyboard focus), but blurring keeps a later key
-                  // press from turning this click focus visible. Keyboard
-                  // Tab navigation still reveals the column.
-                  ;(e.currentTarget as HTMLButtonElement).blur()
-                }}
+          <button
+            aria-label={
+              card.completed ? 'Mark incomplete' : 'Mark complete'
+            }
+            title={card.completed ? 'Mark incomplete' : 'Mark complete'}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              toggleComplete()
+              // Drop focus immediately - Chrome focuses buttons on
+              // mouse click; the reveal only follows :focus-visible
+              // (keyboard focus), but blurring keeps a later key
+              // press from turning this click focus visible. Keyboard
+              // Tab navigation still reveals the column.
+              ;(e.currentTarget as HTMLButtonElement).blur()
+            }}
+            className={cn(
+              'mt-0.5 mr-2 flex size-4 shrink-0 cursor-pointer items-center justify-center rounded border',
+              card.completed
+                ? 'border-primary bg-primary text-primary-foreground'
+                : 'border-border',
+              completePhase && `complete-pop-${completePhase}`
+            )}
+          >
+            {card.completed && (
+              <Check
                 className={cn(
-                  'mt-0.5 mr-2 flex size-4 shrink-0 cursor-pointer items-center justify-center rounded border',
-                  card.completed
-                    ? 'border-primary bg-primary text-primary-foreground'
-                    : 'border-border',
-                  completePhase && `complete-pop-${completePhase}`
+                  'size-3',
+                  completePhase && `complete-check-pop-in-${completePhase}`
                 )}
-              >
-                {card.completed && (
-                  <Check
-                    className={cn(
-                      'size-3',
-                      completePhase && `complete-check-pop-in-${completePhase}`
-                    )}
-                  />
-                )}
-              </button>
-            </div>
-            {/* Title is part of the drag surface and carries no onClick:
-                a click bubbles to the <li> handler (open / select), and
-                the 6 px activation distance lets a drag-move start the
-                drag. The span isn't a button, so the <li>'s interactive-
-                child bail doesn't skip it. */}
-            <span
-              className={cn(
-                'min-w-0 flex-1 wrap-anywhere pr-5',
-                compact && 'line-clamp-2',
-                card.completed && 'text-muted-foreground line-through'
-              )}
-            >
-              {card.title}
-            </span>
-          </div>
-          {titleChipEl}
-          {/* Memoized meta (priority + due) + checklist preview - the
-              hover-reveal slide is pure CSS (group-hover), so memoizing
-              the element doesn't affect it. See the useMemo block. */}
-          {metaEl}
-          {checklistEl}
-
-          {/* Multi-select badge - a filled check in the top-right corner
-              (where the pencil sits), so the selection reads at a glance
-              even on a card with a cover. */}
-          {selected && (
-            <span
-              aria-hidden
-              className="absolute right-1.5 top-1.5 z-10 flex size-4 items-center justify-center rounded-full bg-primary text-primary-foreground shadow"
-            >
-              <Check className="size-3" />
-            </span>
+              />
+            )}
+          </button>
+        </div>
+        {/* Title is part of the drag surface and carries no onClick:
+            a click bubbles to the <li> handler (open / select), and
+            the 6 px activation distance lets a drag-move start the
+            drag. The span isn't a button, so the <li>'s interactive-
+            child bail doesn't skip it. */}
+        <span
+          className={cn(
+            'min-w-0 flex-1 wrap-anywhere pr-5',
+            compact && 'line-clamp-2',
+            card.completed && 'text-muted-foreground line-through'
           )}
-
-          {/* Hover affordances - collapse/expand, then edit (same menu
-              as right-click). Hidden while selected so they don't
-              collide with the badge. `bg-card` so, on hover, the pair
-              cleanly covers the end of a long title instead of sitting
-              on top of its letters (the title only reserves room for
-              one button). */}
-          {!selected && (
-            <div className="absolute right-1.5 top-1.5 flex items-center gap-0.5 rounded bg-card opacity-0 transition-opacity group-hover/card:opacity-100">
-              <CollapseToggle compact={compact} onToggle={toggleCollapse} />
-              <button
-                aria-label="Edit card"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={open}
-                className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                <Pencil className="size-3.5" />
-              </button>
-            </div>
+        >
+          {card.title}
+        </span>
+      </div>
+      {!compact && <TitleUrlChip title={card.title} />}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <DescriptionBadge card={card} />
+        <BlockedBadge card={card} />
+        <PriorityBadge card={card} />
+        <DueBadge card={card} />
+        <RepeatBadge card={card} />
+        {compact && <CompactBadges card={card} />}
+        {showNumber && <CardNumberBadge number={card.number} />}
+      </div>
+      {/* The hover-reveal slide is pure CSS (group-hover). */}
+      {showChecklist && !compact && (
+        <div
+          className={cn(
+            'transition-[margin-left] duration-200 ease-out',
+            card.completed
+              ? 'ml-1'
+              : 'ml-0 group-hover/card:ml-4 group-has-[:focus-visible]/card:ml-4'
           )}
-        </li>
+        >
+          <CardChecklistPreview card={card} apply={apply} />
+        </div>
       )}
-    </ContextMenu>
-    <UrlCoverModal
-      card={card}
-      open={urlCoverOpen}
-      onClose={() => setUrlCoverOpen(false)}
-    />
+
+      {/* Multi-select badge - a filled check in the top-right corner
+          (where the pencil sits), so the selection reads at a glance
+          even on a card with a cover. */}
+      {selected && (
+        <span
+          aria-hidden
+          className="absolute right-1.5 top-1.5 z-10 flex size-4 items-center justify-center rounded-full bg-primary text-primary-foreground shadow"
+        >
+          <Check className="size-3" />
+        </span>
+      )}
+
+      {/* Hover affordances - collapse/expand, then edit (same menu
+          as right-click). Hidden while selected so they don't
+          collide with the badge. `bg-card` so, on hover, the pair
+          cleanly covers the end of a long title instead of sitting
+          on top of its letters (the title only reserves room for
+          one button). */}
+      {!selected && (
+        <div className="absolute right-1.5 top-1.5 flex items-center gap-0.5 rounded bg-card opacity-0 transition-opacity group-hover/card:opacity-100">
+          <CollapseToggle compact={compact} onToggle={onToggleCollapse} />
+          <button
+            aria-label="Edit card"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={onOpenMenu}
+            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <Pencil className="size-3.5" />
+          </button>
+        </div>
+      )}
     </>
   )
 })
