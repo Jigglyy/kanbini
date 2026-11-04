@@ -9,6 +9,18 @@ Releases are cut by pushing a `v*` tag, which builds the Windows,
 macOS and Linux downloads and publishes a GitHub Release (see
 [`.github/workflows/release.yml`](.github/workflows/release.yml)).
 
+## [Unreleased]
+
+### Fixed
+
+- **Dragging cards on a big board is smoother.** On a board with a few
+  hundred cards, every card on the board used to redraw several times
+  while you dragged one, so drags got laggier the more cards a board had,
+  even between two short lists. Now only the card's outline redraws, and
+  finding the drop spot only looks at the cards near the one you're
+  dragging. A drag on a 350-card board does about half the work it did
+  and no longer drops frames.
+
 ## [0.15.0] - 2026-10-30
 
 ### Added

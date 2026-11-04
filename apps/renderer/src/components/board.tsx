@@ -19,7 +19,6 @@ import {
   DndContext,
   DragOverlay,
   PointerSensor,
-  closestCorners,
   defaultDropAnimationSideEffects,
   useDroppable,
   useSensor,
@@ -70,6 +69,7 @@ import { boardKey } from '../hooks/useBoard'
 import { useSmoothHeight } from '../hooks/useSmoothHeight'
 import { useJustCompleted } from '../lib/animations'
 import { glowCard } from '../lib/card-glow'
+import { closestCornersNearby } from '../lib/collision'
 import { ipc } from '../lib/ipc'
 import { tint } from '../lib/palette'
 import { useSettings } from '../lib/settings'
@@ -1175,7 +1175,9 @@ export function Board({
   // the candidate set keeps the card path byte-identical to before (those
   // `listcol:` droppables simply didn't exist).
   //
-  // Cards keep closestCorners. Lists use an X-only resolver instead: the
+  // Cards keep closestCorners' result, scored only over the cards near
+  // the dragged one (closestCornersNearby, lib/collision.ts: a full pass
+  // read every card's rect on every move). Lists use an X-only resolver: the
   // columns vary wildly in height (a list with cards vs an empty one), and
   // closestCorners/closestCenter both fold the Y axis in, so a tall
   // neighbour's corner could read as "closer" than the column the cursor
@@ -1190,7 +1192,7 @@ export function Board({
         : !isListSortableId(String(c.id))
     )
     const scoped = { ...args, droppableContainers }
-    return activeIsList ? closestColumnByX(scoped) : closestCorners(scoped)
+    return activeIsList ? closestColumnByX(scoped) : closestCornersNearby(scoped)
   }, [])
 
   // --- Multi-select click + bulk actions ---------------------------------
