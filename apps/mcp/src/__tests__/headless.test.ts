@@ -235,7 +235,8 @@ describe('headless readers vs live @kanbini/db', () => {
       applyMutation(db2, {
         type: 'list.update',
         id: second!.id,
-        patch: { visibleCardLimit: 10 }
+        // 0 = always show every card: must survive the export too.
+        patch: { visibleCardLimit: 0 }
       })
       applyMutation(db2, {
         type: 'card.update',

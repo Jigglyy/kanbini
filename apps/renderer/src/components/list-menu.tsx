@@ -16,6 +16,7 @@ import type {
   ListView,
   Mutation
 } from '@kanbini/shared'
+import { AUTO_CARD_LIMIT, AUTO_CARD_LIMIT_ABOVE, SHOW_ALL_CARDS } from '@kanbini/shared'
 import type { Optimistic } from '../hooks/useBoardMutation'
 import { VISIBLE_LIMIT_OPTIONS } from '../lib/list-visibility'
 import { swatchOptions } from '../lib/palette'
@@ -156,7 +157,11 @@ export function ListEditor({
   const sortLabel =
     SORT_OPTIONS.find((o) => o.mode === (list.sortMode ?? null))?.label ?? 'Manual'
   const cardsValue = `${list.cardDensity === 'compact' ? 'Compact' : 'Full'}${
-    list.visibleCardLimit != null ? ` · first ${list.visibleCardLimit}` : ''
+    list.visibleCardLimit === SHOW_ALL_CARDS
+      ? ' · all'
+      : list.visibleCardLimit != null
+        ? ` · first ${list.visibleCardLimit}`
+        : ''
   }`
   const onEnterValue =
     list.onEnter?.kind === 'complete'
@@ -335,15 +340,27 @@ export function ListEditor({
           })}
         </div>
         <MenuLabel>Show at most</MenuLabel>
-        <div className="grid grid-cols-4 gap-1 px-2 py-1">
+        <div className="grid grid-cols-5 gap-1 px-2 py-1">
           {VISIBLE_LIMIT_OPTIONS.map((limit) => {
-            const label = limit == null ? 'All' : String(limit)
+            const label =
+              limit == null ? 'Auto' : limit === SHOW_ALL_CARDS ? 'All' : String(limit)
             const active = list.visibleCardLimit === limit
             return (
               <button
                 key={label}
                 aria-pressed={active}
-                aria-label={limit == null ? 'Show all cards' : `Show at most ${limit} cards`}
+                aria-label={
+                  limit == null
+                    ? 'Shorten automatically when the list is long'
+                    : limit === SHOW_ALL_CARDS
+                      ? 'Always show all cards'
+                      : `Show at most ${limit} cards`
+                }
+                title={
+                  limit == null
+                    ? `Over ${AUTO_CARD_LIMIT_ABOVE} cards, show the first ${AUTO_CARD_LIMIT} (Settings > Cards)`
+                    : undefined
+                }
                 onClick={() => {
                   if (active) {
                     close()

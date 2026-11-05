@@ -305,11 +305,19 @@ export type CardDensity = z.infer<typeof zCardDensity>
 /** Upper bound for a list's visible-card limit. Far above anything the
  *  UI offers (10 / 20 / 50) - it only stops a nonsense value. */
 export const MAX_VISIBLE_CARD_LIMIT = 1000
+/** A list's visible-card limit. null = automatic: the app shortens a
+ *  list with more than AUTO_CARD_LIMIT_ABOVE cards to its first
+ *  AUTO_CARD_LIMIT (Settings > Cards can turn that off). 1-1000 = show
+ *  at most that many. SHOW_ALL_CARDS (0) = always show every card, even
+ *  in a long list. */
 export const zVisibleCardLimit = z
   .number()
   .int()
-  .positive()
+  .min(0)
   .max(MAX_VISIBLE_CARD_LIMIT)
+export const SHOW_ALL_CARDS = 0
+export const AUTO_CARD_LIMIT_ABOVE = 30
+export const AUTO_CARD_LIMIT = 20
 
 /** ADR-0041 · per-list automation that fires when a card enters the
  *  list. v1 ships two kinds - flip completed on/off - both stateless

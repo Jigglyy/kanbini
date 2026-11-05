@@ -89,11 +89,14 @@ import {
 } from '../lib/card-selection'
 import { collapseToggle, isCardCompact } from '../lib/card-density'
 import {
+  effectiveCardLimit,
   isCardHidden,
+  limitCardCount,
   listFooterState,
   resolveTruncatedDrop,
   visibleCards
 } from '../lib/list-visibility'
+import { whenCardMounted } from '../lib/when-card-mounted'
 import { cn } from '../lib/utils'
 import { ContextMenu } from './ui/context-menu'
 import { CardLabels } from './labels'
@@ -554,7 +557,8 @@ export function Board({
   onConsumedShowCard,
   onShowCardHidden,
   onOpenBoardCard,
-  listsScrollSeparately = false
+  listsScrollSeparately = false,
+  shortenLongLists = false
 }: {
   board: BoardView
   blockCreate: boolean
@@ -610,6 +614,9 @@ export function Board({
   /** settings.listsScrollSeparately: cap each list to the board height
    *  and scroll its body. Flat layout only - see `capLists`. */
   listsScrollSeparately?: boolean
+  /** settings.shortenLongLists: a long list with no limit of its own
+   *  shows its first few cards (effectiveCardLimit). */
+  shortenLongLists?: boolean
 }) {
   useAutoCoverFromUrl({
     boardId: board.board.id,
@@ -724,11 +731,39 @@ export function Board({
   revealedRef.current = revealedLists
   const pinnedRef = useRef(pinnedCards)
   pinnedRef.current = pinnedCards
+  const shortenRef = useRef(shortenLongLists)
+  shortenRef.current = shortenLongLists
   const revealList = useCallback((listId: string): void => {
     setRevealedLists((prev) =>
       prev.has(listId) ? prev : new Set(prev).add(listId)
     )
   }, [])
+  /** The limit a list is drawn with right now (its own, or the automatic
+   *  one for a long list). `activeId` / `sourceListId`: a card drag in
+   *  flight, so each list is judged by its card count at pickup. */
+  const limitOf = useCallback(
+    (
+      list: BoardView['lists'][number],
+      activeId: string | null = null,
+      sourceListId: string | null = null
+    ): number | null =>
+      effectiveCardLimit(
+        list.visibleCardLimit,
+        limitCardCount(list.cards, list.id, activeId, sourceListId),
+        shortenRef.current
+      ),
+    []
+  )
+  /** A card moved INTO a list that isn't shortened right now must not
+   *  make it fold: a list growing past the automatic threshold because of
+   *  your own move would otherwise hide cards around the one you just
+   *  placed. Reveal it for the session instead ("Show fewer" folds it). */
+  const keepOpenOnArrival = useCallback(
+    (list: BoardView['lists'][number] | undefined): void => {
+      if (list && limitOf(list) == null) revealList(list.id)
+    },
+    [limitOf, revealList]
+  )
   /** Pin cards moved into a list (idempotent; keeps the Set identity
    *  when nothing new is added, so memoised columns don't re-render). */
   const pinCards = useCallback((ids: readonly string[]): void => {
@@ -773,7 +808,7 @@ export function Board({
         isCardHidden(
           cards,
           cardId,
-          list.visibleCardLimit,
+          effectiveCardLimit(list.visibleCardLimit, cards.length, shortenRef.current),
           revealedRef.current.has(list.id),
           pinnedRef.current
         )
@@ -797,14 +832,14 @@ export function Board({
       // card - so the drop is aimed against the cards actually on screen.
       const v = visibleCards(
         list.cards,
-        list.visibleCardLimit,
+        limitOf(list, activeId, dragSourceListRef.current),
         revealedRef.current.has(list.id),
         pinnedRef.current,
         listId !== dragSourceListRef.current ? activeId : null
       )
       return v.hiddenCount > 0 ? v.shown.map((c) => c.id) : null
     },
-    []
+    [limitOf]
   )
   const selectedIdsRef = useRef(selectedIds)
   selectedIdsRef.current = selectedIds
@@ -1012,27 +1047,14 @@ export function Board({
       setFocusedCardId(id)
       setFocusRingVisible(showRing)
       if (!id) return
-      const scroll = (): void => {
-        // Use the browser's CSS.escape via `window` - the imported `CSS`
-        // from @dnd-kit/utilities is a different namespace (transform
-        // helpers only).
-        const node = document.querySelector(
-          `[data-card-id="${window.CSS.escape(id)}"]`
-        )
-        if (node instanceof HTMLElement) {
-          node.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-        }
-      }
       // Keyboard nav / move can land on a card past its list's limit;
-      // reveal the list first. When it does, wait one more frame so the
-      // newly mounted card exists before scrolling to it.
-      if (ensureCardVisible(id, without)) {
-        requestAnimationFrame(() => requestAnimationFrame(scroll))
-      } else {
-        // requestAnimationFrame lets React commit the focused style + any
-        // sibling reorder first, so scrollIntoView lands on the final box.
-        requestAnimationFrame(scroll)
-      }
+      // reveal the list first, then scroll once the card is mounted (from
+      // the next frame on, so React has committed the focused style + any
+      // sibling reorder and scrollIntoView lands on the final box).
+      ensureCardVisible(id, without)
+      whenCardMounted(id, (node) => {
+        node.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+      })
     },
     [ensureCardVisible]
   )
@@ -1053,11 +1075,10 @@ export function Board({
       setOpenCardId(null)
       setFocusedCardId(id)
       setFocusRingVisible(false)
-      const go = (): void => {
-        const node = document.querySelector(
-          `[data-card-id="${window.CSS.escape(id)}"]`
-        )
-        if (!(node instanceof HTMLElement)) return
+      // A list folded behind "Show N more" is revealed first; the card is
+      // scrolled to as soon as it's mounted (lib/when-card-mounted.ts).
+      ensureCardVisible(id)
+      whenCardMounted(id, (node) => {
         const reduceMotion = window.matchMedia?.(
           '(prefers-reduced-motion: reduce)'
         ).matches
@@ -1067,14 +1088,7 @@ export function Board({
           behavior: reduceMotion ? 'auto' : 'smooth'
         })
         glowCard(node)
-      }
-      // Same frame dance as focusCard: a list revealed past its "show
-      // first N" cut needs one more frame to mount the card.
-      if (ensureCardVisible(id)) {
-        requestAnimationFrame(() => requestAnimationFrame(go))
-      } else {
-        requestAnimationFrame(go)
-      }
+      })
       return true
     },
     [ensureCardVisible]
@@ -1100,7 +1114,10 @@ export function Board({
       // card so the one you just moved - and are still focused on - stays
       // on screen, the same as a drag.
       const dest = boardRef.current.lists.find((l) => l.id === toListId)
-      if (dest?.visibleCardLimit != null) pinCards([cardId])
+      if (dest && !dest.cards.some((c) => c.id === cardId)) {
+        keepOpenOnArrival(dest)
+        pinCards([cardId])
+      }
       void ipc
         .mutate({
           type: 'card.move',
@@ -1240,7 +1257,7 @@ export function Board({
             ? list.cards
             : visibleCards(
                 list.cards,
-                list.visibleCardLimit,
+                limitOf(list),
                 revealedRef.current.has(list.id),
                 pinnedRef.current
               ).shown
@@ -1369,7 +1386,8 @@ export function Board({
       const cards = currentSelectedCards()
       const target = boardRef.current.lists.find((l) => l.id === toListId)
       // Appended at the end - behind "Show N more" on a limited list.
-      if (target?.visibleCardLimit != null) pinCards(cards.map((c) => c.id))
+      keepOpenOnArrival(target)
+      pinCards(cards.map((c) => c.id))
       let lastId = target?.cards[target.cards.length - 1]?.id ?? null
       const moves: Mutation[] = []
       for (const c of cards) {
@@ -1915,6 +1933,7 @@ export function Board({
         // limit exactly when dnd-kit measures it for the drop animation.
         const destListId = listOf(reordered, activeId)
         if (destListId && destListId !== dragSourceListRef.current) {
+          keepOpenOnArrival(snap?.lists.find((l) => l.id === destListId))
           pinCards(isMulti ? [activeId, ...block] : [activeId])
         }
         if (reordered !== b) {
@@ -1952,6 +1971,7 @@ export function Board({
     // dwell already committed into a SORTED list, where the at-drop
     // reorder above is skipped entirely. pinCards is idempotent.
     if (toId !== dragSourceListRef.current) {
+      keepOpenOnArrival(snap?.lists.find((l) => l.id === toId))
       pinCards(isMulti ? [activeId, ...block] : [activeId])
     }
 
@@ -2275,19 +2295,24 @@ export function Board({
               items={listColItemIds}
               strategy={horizontalListSortingStrategy}
             >
-              {visibleLists.map((list, i) => (
+              {visibleLists.map((list, i) => {
+                const cardLimit = effectiveCardLimit(
+                  list.visibleCardLimit,
+                  limitCardCount(list.cards, list.id, dragging?.id ?? null, dragSourceListId),
+                  shortenLongLists
+                )
+                return (
                 <ListColumn
                   key={list.id}
                   list={list}
+                  cardLimit={cardLimit}
                   capped={capLists}
                   revealed={revealedLists.has(list.id)}
                   // Limit-gated so lists WITHOUT a limit get constant props
                   // and their memo holds across drag start / end / drops.
-                  pinnedIds={
-                    list.visibleCardLimit != null ? pinnedCards : EMPTY_SELECTION
-                  }
+                  pinnedIds={cardLimit != null ? pinnedCards : EMPTY_SELECTION}
                   activeCardId={
-                    list.visibleCardLimit != null &&
+                    cardLimit != null &&
                     dragging != null &&
                     list.id !== dragSourceListId
                       ? dragging.id
@@ -2315,7 +2340,8 @@ export function Board({
                   canMoveLeft={i > 0}
                   canMoveRight={i < visibleLists.length - 1}
                 />
-              ))}
+                )
+              })}
             </SortableContext>
             <AddList onAdd={addList} boardId={board.board.id} />
           </div>
@@ -2417,6 +2443,11 @@ export function Board({
           >
             <ListColumnPreview
               list={draggingList}
+              cardLimit={effectiveCardLimit(
+                draggingList.visibleCardLimit,
+                draggingList.cards.length,
+                shortenLongLists
+              )}
               labels={board.labels}
               showChecklist={showChecklist}
               showNumber={showNumber}
@@ -2607,6 +2638,7 @@ export function ListHeader({
 
 const ListColumn = memo(function ListColumn({
   list,
+  cardLimit = null,
   capped = false,
   revealed = false,
   pinnedIds = EMPTY_SELECTION,
@@ -2634,6 +2666,9 @@ const ListColumn = memo(function ListColumn({
   canMoveRight
 }: {
   list: BoardView['lists'][number]
+  /** The limit this list is drawn with (Board's effectiveCardLimit: the
+   *  list's own "Show at most", or the automatic one for a long list). */
+  cardLimit?: number | null
   /** Lists scroll on their own: the column caps to the board's height,
    *  and only the card body scrolls - the header and "Add a card" stay
    *  put. The body is the nearest scroll parent for the cards inside, so
@@ -2765,25 +2800,12 @@ const ListColumn = memo(function ListColumn({
   // math (computeMoveTarget) all use every card.
   const { shown, hiddenCount } = useMemo(
     () =>
-      visibleCards(
-        list.cards,
-        list.visibleCardLimit,
-        revealed,
-        pinnedIds,
-        activeCardId
-      ),
-    [list.cards, list.visibleCardLimit, revealed, pinnedIds, activeCardId]
+      visibleCards(list.cards, cardLimit, revealed, pinnedIds, activeCardId),
+    [list.cards, cardLimit, revealed, pinnedIds, activeCardId]
   )
   const footer = useMemo(
-    () =>
-      listFooterState(
-        list.cards,
-        list.visibleCardLimit,
-        revealed,
-        pinnedIds,
-        activeCardId
-      ),
-    [list.cards, list.visibleCardLimit, revealed, pinnedIds, activeCardId]
+    () => listFooterState(list.cards, cardLimit, revealed, pinnedIds, activeCardId),
+    [list.cards, cardLimit, revealed, pinnedIds, activeCardId]
   )
   const itemIds = useMemo(() => shown.map((c) => c.id), [shown])
   return (
@@ -2954,6 +2976,7 @@ function ListFooter({
  *  header. */
 function ListColumnPreview({
   list,
+  cardLimit = null,
   labels,
   showChecklist,
   showNumber,
@@ -2963,6 +2986,8 @@ function ListColumnPreview({
   pinnedIds = EMPTY_SELECTION
 }: {
   list: BoardView['lists'][number]
+  /** The source column's limit (see ListColumn's `cardLimit`). */
+  cardLimit?: number | null
   labels: LabelView[]
   showChecklist: boolean
   /** Mirror of settings.showCardNumbers: the #N badge on cards. */
@@ -2979,18 +3004,8 @@ function ListColumnPreview({
    *  the user grabbed, not the top of the list. */
   capped?: boolean
 }) {
-  const { shown } = visibleCards(
-    list.cards,
-    list.visibleCardLimit,
-    revealed,
-    pinnedIds
-  )
-  const footer = listFooterState(
-    list.cards,
-    list.visibleCardLimit,
-    revealed,
-    pinnedIds
-  )
+  const { shown } = visibleCards(list.cards, cardLimit, revealed, pinnedIds)
+  const footer = listFooterState(list.cards, cardLimit, revealed, pinnedIds)
   const bodyRef = useRef<HTMLUListElement | null>(null)
   useLayoutEffect(() => {
     if (!capped || !bodyRef.current) return

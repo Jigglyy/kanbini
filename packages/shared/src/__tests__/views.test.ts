@@ -166,7 +166,9 @@ describe('zCardView / zListView / zBoardView', () => {
       cards: []
     }
     expect(() => zListView.parse({ ...base, cardDensity: 'tiny' })).toThrow()
-    expect(() => zListView.parse({ ...base, visibleCardLimit: 0 })).toThrow()
+    // 0 = "always show all cards" (opts a list out of the automatic limit).
+    expect(zListView.parse({ ...base, visibleCardLimit: 0 }).visibleCardLimit).toBe(0)
+    expect(() => zListView.parse({ ...base, visibleCardLimit: -1 })).toThrow()
     expect(() => zListView.parse({ ...base, visibleCardLimit: 2.5 })).toThrow()
     expect(() => zListView.parse({ ...base, visibleCardLimit: 1001 })).toThrow()
   })

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  effectiveCardLimit,
   isCardHidden,
+  limitCardCount,
   listFooterState,
   resolveTruncatedDrop,
   visibleCards,
@@ -97,8 +99,55 @@ describe('resolveTruncatedDrop', () => {
 })
 
 describe('VISIBLE_LIMIT_OPTIONS', () => {
-  it('offers 10, 20, 50, and all - the plan defaults', () => {
-    expect(VISIBLE_LIMIT_OPTIONS).toEqual([10, 20, 50, null])
+  it('offers automatic, 10, 20, 50, and always-all', () => {
+    expect(VISIBLE_LIMIT_OPTIONS).toEqual([null, 10, 20, 50, 0])
+  })
+})
+
+describe('effectiveCardLimit', () => {
+  it('shortens a list of more than 30 cards to 20 when it has no limit of its own', () => {
+    expect(effectiveCardLimit(null, 30, true)).toBeNull()
+    expect(effectiveCardLimit(null, 31, true)).toBe(20)
+    expect(effectiveCardLimit(null, 252, true)).toBe(20)
+  })
+
+  it("leaves long lists alone when the setting is off", () => {
+    expect(effectiveCardLimit(null, 252, false)).toBeNull()
+  })
+
+  it("a list's own choice always wins", () => {
+    expect(effectiveCardLimit(10, 5, true)).toBe(10)
+    expect(effectiveCardLimit(50, 252, true)).toBe(50)
+    expect(effectiveCardLimit(10, 252, false)).toBe(10)
+    // "All" (0) keeps even a long list fully open.
+    expect(effectiveCardLimit(0, 252, true)).toBeNull()
+  })
+})
+
+describe('limitCardCount', () => {
+  const list = cards(5)
+  it('is the plain count with no drag in flight', () => {
+    expect(limitCardCount(list, 'L', null, null)).toBe(5)
+  })
+
+  it('counts each list as it was at pickup while a card crosses lists', () => {
+    // The card has left the source (live reorder) - still counted there.
+    expect(limitCardCount(list, 'src', 'gone', 'src')).toBe(6)
+    // It sits in the destination already - not counted there yet.
+    expect(limitCardCount(list, 'dest', 'c3', 'src')).toBe(4)
+    // A drag within one list changes nothing.
+    expect(limitCardCount(list, 'src', 'c3', 'src')).toBe(5)
+    // Lists the drag never touched.
+    expect(limitCardCount(list, 'other', 'x', 'src')).toBe(5)
+  })
+
+  it('so a list on the threshold neither folds nor unfolds mid-drag', () => {
+    const thirty = cards(30)
+    const thirtyOne = [...thirty, { id: 'dragged' }]
+    // Destination at 30 receiving the dragged card stays unshortened...
+    expect(effectiveCardLimit(null, limitCardCount(thirtyOne, 'dest', 'dragged', 'src'), true)).toBeNull()
+    // ...and a source at 31 losing it stays shortened.
+    expect(effectiveCardLimit(null, limitCardCount(thirty, 'src', 'dragged', 'src'), true)).toBe(20)
   })
 })
 

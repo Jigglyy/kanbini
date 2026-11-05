@@ -20,9 +20,21 @@ macOS and Linux downloads and publishes a GitHub Release (see
   changes the answer later and can make the minimize button hide
   Kanbini in the tray too (off unless you turn it on). On a Mac nothing
   changes: closing the window already keeps Kanbini in the Dock.
+- **Long lists shorten themselves.** A list with more than 30 cards now
+  shows its first 20, with "Show N more" for the rest, unless you've
+  picked how many it shows. The list menu's Cards > Show at most has
+  **Auto** (the default) and **All** (always show every card); Settings >
+  Cards > "Shorten long lists" turns it off everywhere. Dropping a card
+  into a list never folds it under you.
 - **Copy button on code blocks.** Hover a code block in a card
   description or a comment (or while editing one) and click the small
   button in its corner to copy the code.
+
+### Fixed
+
+- Showing a card from Ctrl+F (or moving to one with the keyboard) in a
+  list folded behind "Show N more" sometimes revealed the list without
+  scrolling to the card.
 
 ## [0.15.1] - 2026-11-04
 

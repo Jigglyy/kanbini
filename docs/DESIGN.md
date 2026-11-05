@@ -216,8 +216,10 @@ sample board. See [`PACKAGING.md`](PACKAGING.md).
 ## 10. Known limitations
 
 - Large-list virtualization is deferred. Long lists are handled by each
-  list scrolling on its own plus the per-list "show first N" limit; every
-  card that IS on screen is still mounted.
+  list scrolling on its own plus the "show first N" limit (per list, or
+  automatic: a list of more than 30 cards shows its first 20 unless it
+  says otherwise or Settings > Cards turns that off); every card that IS
+  on screen is still mounted.
 - Archived cards and lists have no screen in the app yet. The AI can list
   and restore them (`kanbini_list_archived`), and Ctrl+Z undoes an
   archive.

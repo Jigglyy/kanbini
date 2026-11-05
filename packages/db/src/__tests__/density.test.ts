@@ -145,10 +145,10 @@ describe('soft-narrowing on read', () => {
     expect(() => saveBoardTemplate(db, s.boardId, 'BT')).not.toThrow()
   })
 
-  it('a non-positive stored limit reads as show-all', () => {
+  it('0 reads back as "always show all"; a negative stored limit as automatic', () => {
     const s = seed()
-    sqlite.prepare('UPDATE list SET visible_card_limit = ? WHERE id = ?').run(0, s.listId)
-    expect(viewList(s.boardId).visibleCardLimit).toBeNull()
+    applyMutation(db, { type: 'list.update', id: s.listId, patch: { visibleCardLimit: 0 } })
+    expect(viewList(s.boardId).visibleCardLimit).toBe(0)
     sqlite.prepare('UPDATE list SET visible_card_limit = ? WHERE id = ?').run(-5, s.listId)
     expect(viewList(s.boardId).visibleCardLimit).toBeNull()
   })

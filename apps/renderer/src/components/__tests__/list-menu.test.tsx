@@ -435,11 +435,13 @@ describe('<ListEditor>', () => {
     )
   })
 
-  it('Show at most: All is active by default, and 20 sets the limit', async () => {
+  it('Show at most: Auto is active by default, and 20 sets the limit', async () => {
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
     renderMenu(<ListEditor list={makeList()} apply={apply} close={vi.fn()} />)
     openFlyout('Cards')
-    expect(screen.getByRole('button', { name: 'Show all cards' })).toHaveAttribute(
+    expect(
+      screen.getByRole('button', { name: 'Shorten automatically when the list is long' })
+    ).toHaveAttribute(
       'aria-pressed',
       'true'
     )
@@ -450,7 +452,7 @@ describe('<ListEditor>', () => {
     )
   })
 
-  it('Show at most: All clears a limit back to null', async () => {
+  it('Show at most: Auto clears a limit back to null, All stores 0', async () => {
     const apply = vi.fn<(m: Mutation, o: unknown) => void>()
     renderMenu(
       <ListEditor list={makeList({ visibleCardLimit: 10 })} apply={apply} close={vi.fn()} />
@@ -460,11 +462,27 @@ describe('<ListEditor>', () => {
       'aria-pressed',
       'true'
     )
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Show all cards' }))
+    const user = userEvent.setup()
+    await user.click(
+      screen.getByRole('button', { name: 'Shorten automatically when the list is long' })
+    )
     expect(apply).toHaveBeenCalledWith(
       { type: 'list.update', id: 'list-1', patch: { visibleCardLimit: null } },
       expect.any(Function)
     )
+    openFlyout('Cards')
+    await user.click(screen.getByRole('button', { name: 'Always show all cards' }))
+    expect(apply).toHaveBeenLastCalledWith(
+      { type: 'list.update', id: 'list-1', patch: { visibleCardLimit: 0 } },
+      expect.any(Function)
+    )
+  })
+
+  it('the Cards row says "all" for a list that always shows every card', () => {
+    renderMenu(
+      <ListEditor list={makeList({ visibleCardLimit: 0 })} apply={vi.fn()} close={vi.fn()} />
+    )
+    expect(screen.getByRole('button', { name: /^Cards/ })).toHaveTextContent('Full · all')
   })
 
   it('the rows read the list: sort, cards, on card enter and card limit', () => {

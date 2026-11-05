@@ -277,7 +277,7 @@ export function parseCardDensity(s: string | null): CardDensity | null {
 export function parseVisibleCardLimit(n: number | null): number | null {
   return typeof n === 'number' &&
     Number.isInteger(n) &&
-    n > 0 &&
+    n >= 0 &&
     n <= MAX_VISIBLE_CARD_LIMIT
     ? n
     : null

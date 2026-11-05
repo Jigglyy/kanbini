@@ -23,6 +23,7 @@ const BASE_SETTINGS: Settings = {
   cardLimitBlocksDrag: false,
   showChecklistOnCard: false,
   listsScrollSeparately: true,
+  shortenLongLists: true,
   labelsExpanded: false,
   showCardNumbers: true,
   linkPreviews: false,
@@ -463,6 +464,25 @@ describe('<AppSettings> Cards section', () => {
     expect(toggle).toBeChecked()
     await user.click(toggle)
     expect(update).toHaveBeenCalledWith({ listsScrollSeparately: false })
+  })
+
+  it('offers "Shorten long lists" (on by default), reflecting and updating it', async () => {
+    const user = userEvent.setup()
+    const update = vi.fn()
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: Infinity } }
+    })
+    render(
+      <QueryClientProvider client={qc}>
+        <AppSettings onClose={vi.fn()} settings={BASE_SETTINGS} update={update} />
+      </QueryClientProvider>
+    )
+    await user.click(screen.getByRole('button', { name: 'Cards' }))
+    const toggle = screen.getByRole('checkbox', { name: /Shorten long lists/ })
+    expect(toggle).toBeChecked()
+    expect(screen.getByText(/more than 30 cards show the first 20/)).toBeInTheDocument()
+    await user.click(toggle)
+    expect(update).toHaveBeenCalledWith({ shortenLongLists: false })
   })
 })
 

@@ -690,6 +690,7 @@ export function App() {
                 <Board
                   board={view}
                   listsScrollSeparately={settings.listsScrollSeparately}
+                  shortenLongLists={settings.shortenLongLists}
                   blockCreate={settings.cardLimitBlocksCreate}
                   blockDrag={settings.cardLimitBlocksDrag}
                   showChecklist={settings.showChecklistOnCard}

@@ -35,7 +35,10 @@ async function seedBigBoard(page: Page): Promise<Ids> {
     await k.mutateBatch([
       ...cards(5, lists[0].id, 'Short'),
       ...cards(200, lists[1].id, 'Long'),
-      ...cards(3, lists[2].id, 'Other')
+      ...cards(3, lists[2].id, 'Other'),
+      // Every card mounted: this is about drags among 200 real cards, not
+      // the automatic "first 20" of a long list.
+      { type: 'list.update', id: lists[1].id, patch: { visibleCardLimit: 0 } }
     ])
     return { boardId: board.id }
   })

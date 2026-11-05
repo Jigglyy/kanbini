@@ -17,6 +17,46 @@
 //     counts as pinned for the same reason while it's in the air. A card
 //     dragged within its own list is NOT passed here - it keeps its
 //     normal slot, so picking it up doesn't pull a hidden card into view.
+//
+// The limit itself comes from `effectiveCardLimit`: the list's own choice
+// (list.visibleCardLimit), or, when it has none, the automatic one
+// (settings.shortenLongLists): a list of more than AUTO_CARD_LIMIT_ABOVE
+// cards shows its first AUTO_CARD_LIMIT. SHOW_ALL_CARDS (0) opts a list
+// out of that.
+
+import {
+  AUTO_CARD_LIMIT,
+  AUTO_CARD_LIMIT_ABOVE,
+  SHOW_ALL_CARDS
+} from '@kanbini/shared'
+
+/** The limit a list is drawn with: its own choice, else the automatic
+ *  one for a long list (when that setting is on), else none. */
+export function effectiveCardLimit(
+  stored: number | null,
+  cardCount: number,
+  auto: boolean
+): number | null {
+  if (stored === SHOW_ALL_CARDS) return null
+  if (stored != null) return stored
+  return auto && cardCount > AUTO_CARD_LIMIT_ABOVE ? AUTO_CARD_LIMIT : null
+}
+
+/** How many cards the automatic limit judges a list by. While a card is
+ *  dragged to another list it already sits in the destination's cards
+ *  (the live reorder) and no longer in the source's, so count every list
+ *  as it was at pickup: a list mustn't fold or unfold under the pointer
+ *  because a card crossed the threshold mid-drag. */
+export function limitCardCount(
+  cards: readonly { id: string }[],
+  listId: string,
+  activeId: string | null,
+  sourceListId: string | null
+): number {
+  if (activeId == null) return cards.length
+  const holdsActive = cards.some((c) => c.id === activeId)
+  return cards.length - (holdsActive ? 1 : 0) + (listId === sourceListId ? 1 : 0)
+}
 
 export interface ListVisibility<T> {
   shown: T[]
@@ -103,5 +143,11 @@ export function listFooterState<T extends { id: string }>(
   return null
 }
 
-/** The limits the list menu offers; null = show all. */
-export const VISIBLE_LIMIT_OPTIONS: ReadonlyArray<number | null> = [10, 20, 50, null]
+/** The limits the list menu offers: null = automatic, 0 = every card. */
+export const VISIBLE_LIMIT_OPTIONS: ReadonlyArray<number | null> = [
+  null,
+  10,
+  20,
+  50,
+  SHOW_ALL_CARDS
+]

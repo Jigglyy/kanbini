@@ -7,6 +7,8 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
   ACCENT_NAMES,
   APP_CODENAME,
+  AUTO_CARD_LIMIT,
+  AUTO_CARD_LIMIT_ABOVE,
   MAX_VISIBLE_CARD_LIMIT,
   decodeEscapedWhitespace,
   parseCardNumberRef,
@@ -1107,7 +1109,9 @@ server.registerTool(
       '"compact" draws every card in the list compact (a card can opt out ' +
       'with kanbini_update_card collapsed: false); "full" is the default. ' +
       '`visibleCardLimit` shows at most that many cards on screen, then a ' +
-      '"Show N more" button (1-1000, or null for all). Both are display ' +
+      '"Show N more" button (1-1000); 0 always shows every card; null ' +
+      `(the default) lets the app shorten a list of more than ${AUTO_CARD_LIMIT_ABOVE} cards ` +
+      `to its first ${AUTO_CARD_LIMIT} (the user can turn that off). Both are display ` +
       'only: kanbini_get_board always returns EVERY card with its full ' +
       'content, so never read a limit as the list being shorter. Change ' +
       'them only when the user asks. To reorder lists use ' +
@@ -1125,7 +1129,7 @@ server.registerTool(
         visibleCardLimit: z
           .number()
           .int()
-          .positive()
+          .min(0)
           .max(MAX_VISIBLE_CARD_LIMIT)
           .nullable()
           .optional()

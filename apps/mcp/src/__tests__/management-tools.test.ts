@@ -333,6 +333,8 @@ describe('card density', () => {
     const list = (await getBoard(boardId)).lists[0] as unknown as DensityList
     expect(list.visibleCardLimit).toBe(2)
     expect(list.cards).toHaveLength(4)
+    await call('kanbini_update_list', { id: listIds[0], patch: { visibleCardLimit: 0 } })
+    expect(((await getBoard(boardId)).lists[0] as unknown as DensityList).visibleCardLimit).toBe(0)
     await call('kanbini_update_list', { id: listIds[0], patch: { visibleCardLimit: null } })
     expect(
       ((await getBoard(boardId)).lists[0] as unknown as DensityList).visibleCardLimit
@@ -341,7 +343,7 @@ describe('card density', () => {
 
   it('rejects an out-of-range limit and an unknown density at the tool boundary', async () => {
     const { listIds } = await makeBoard()
-    await callError('kanbini_update_list', { id: listIds[0], patch: { visibleCardLimit: 0 } })
+    await callError('kanbini_update_list', { id: listIds[0], patch: { visibleCardLimit: -1 } })
     await callError('kanbini_update_list', { id: listIds[0], patch: { visibleCardLimit: 5000 } })
     await callError('kanbini_update_list', { id: listIds[0], patch: { cardDensity: 'tiny' } })
   })

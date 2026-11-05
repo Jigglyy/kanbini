@@ -263,3 +263,80 @@ test('a bulk move into a limited list keeps the moved cards on screen', async ()
     page.locator(`[data-list-body="${ids.longId}"] [data-card-id="${ids.onlyId}"]`)
   ).toBeVisible()
 })
+
+// ─── Automatic limit for long lists (settings.shortenLongLists) ────
+
+/** Drop Long's own limit (back to automatic) and grow it to `n` cards. */
+async function automaticLong(n: number): Promise<void> {
+  await mutate(d, { type: 'list.update', id: ids.longId, patch: { visibleCardLimit: null } })
+  for (let i = TOTAL; i < n; i++) {
+    await mutate(d, { type: 'card.create', listId: ids.longId, title: `Card ${i + 1}` })
+  }
+}
+
+test('a list of more than 30 cards with no limit of its own shows its first 20', async () => {
+  const { page } = handle
+  await automaticLong(TOTAL) // 30: not long enough yet
+  await expect(longCards(page)).toHaveCount(TOTAL)
+  await expect(footer(page)).toHaveCount(0)
+  await automaticLong(35)
+  await expect(longCards(page)).toHaveCount(20)
+  await expect(page.getByRole('button', { name: 'Show 15 more' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /^Long\b/ })).toContainText('35')
+})
+
+test('"All" in the list menu keeps a long list fully open', async () => {
+  const { page } = handle
+  await automaticLong(35)
+  await expect(longCards(page)).toHaveCount(20)
+  await page.getByRole('button', { name: 'Edit list' }).first().click()
+  await page.getByRole('button', { name: /^Cards/ }).click()
+  await page.getByRole('button', { name: 'Always show all cards' }).click()
+  await expect(longCards(page)).toHaveCount(35)
+  await expect(footer(page)).toHaveCount(0)
+  await expect
+    .poll(async () => {
+      const view = await rpc<{ lists: Array<{ id: string; visibleCardLimit: number | null }> }>(
+        d,
+        'board.getView',
+        { boardId: ids.boardId }
+      )
+      return view.lists.find((l) => l.id === ids.longId)!.visibleCardLimit
+    })
+    .toBe(0)
+})
+
+test('Settings > Cards can turn the automatic limit off', async () => {
+  const { page } = handle
+  await automaticLong(35)
+  await expect(longCards(page)).toHaveCount(20)
+  await page.getByRole('button', { name: /settings/i }).click()
+  await page.getByRole('button', { name: 'Cards', exact: true }).click()
+  await page.getByRole('checkbox', { name: /Shorten long lists/ }).uncheck()
+  await page.getByRole('button', { name: 'Back', exact: true }).click()
+  await expect(longCards(page)).toHaveCount(35)
+  await expect(footer(page)).toHaveCount(0)
+})
+
+test('dragging a card into a 30-card list neither folds it mid-drag nor after the drop', async () => {
+  const { page } = handle
+  await automaticLong(TOTAL)
+  await expect(longCards(page)).toHaveCount(TOTAL)
+  const from = (await page.getByText('Only card', { exact: true }).boundingBox())!
+  const to = (await page.getByText('Card 5', { exact: true }).boundingBox())!
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(from.x + from.width / 2 + 12, from.y + 12, { steps: 5 })
+  await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 25 })
+  await page.waitForTimeout(300)
+  // In the air over Long (31 with the dragged card): still every card.
+  await expect(longCards(page)).toHaveCount(TOTAL + 1)
+  await page.mouse.up()
+  await expect.poll(async () => (await savedOrder()).includes('Only card')).toBe(true)
+  await expect(page.locator('.drag-overlay')).toHaveCount(0)
+  // Past the threshold now, but your own drop doesn't fold it: it stays
+  // open, with "Show fewer" to fold it by hand.
+  await expect(longCards(page)).toHaveCount(TOTAL + 1)
+  await page.getByRole('button', { name: 'Show fewer' }).click()
+  await expect(longCards(page)).toHaveCount(21) // the first 20 + the dropped card
+})

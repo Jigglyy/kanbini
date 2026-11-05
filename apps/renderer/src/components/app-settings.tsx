@@ -15,6 +15,8 @@ import {
 } from 'lucide-react'
 import {
   APP_CODENAME,
+  AUTO_CARD_LIMIT,
+  AUTO_CARD_LIMIT_ABOVE,
   type CloseAction,
   type ExportSummary,
   type ImportSummary,
@@ -507,6 +509,12 @@ function CardsSection({
           hint="Long lists get their own scroll bar, so the rest of the board stays in view."
           checked={settings.listsScrollSeparately}
           onChange={(v) => update({ listsScrollSeparately: v })}
+        />
+        <ToggleRow
+          label="Shorten long lists"
+          hint={`Lists with more than ${AUTO_CARD_LIMIT_ABOVE} cards show the first ${AUTO_CARD_LIMIT}, with a button for the rest. A list's own "Show at most" choice comes first.`}
+          checked={settings.shortenLongLists}
+          onChange={(v) => update({ shortenLongLists: v })}
         />
         <ToggleRow
           label="Show checklists on cards"

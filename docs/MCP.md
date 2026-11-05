@@ -629,7 +629,7 @@ Patch a list. Omit fields you don't want to change.
 | `patch.sortMode` | see below             | How the list orders its cards. |
 | `patch.onEnter`  | `"complete" \| "uncomplete" \| null` | Runs when a card is moved in from another list. `null` removes the rule. |
 | `patch.cardDensity` | `"full" \| "compact"` | `compact` draws every card in the list compact; a card opts out with `collapsed: false`. |
-| `patch.visibleCardLimit` | 1-1000 `\| null` | Show at most this many cards, then "Show N more". `null` shows all. |
+| `patch.visibleCardLimit` | 0-1000 `\| null` | Show at most this many cards, then "Show N more". `0` always shows every card. `null` (the default) is automatic: the app shows the first 20 cards of a list with more than 30 (Settings > Cards can turn that off). |
 
 `cardDensity`, `visibleCardLimit`, and a card's `collapsed` are **display
 settings**. The board view always returns every card with its full

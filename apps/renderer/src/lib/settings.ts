@@ -67,6 +67,11 @@ export interface Settings {
    *  the old layout: lists grow to full length and the whole board
    *  scrolls. Flat layout only; swimlanes always scroll as one board. */
   listsScrollSeparately: boolean
+  /** When true (default), a list with more than 30 cards (and no "Show
+   *  at most" choice of its own) shows its first 20, with "Show N more"
+   *  for the rest (effectiveCardLimit in lib/list-visibility.ts). Flat
+   *  layout only, like every list limit. */
+  shortenLongLists: boolean
   /** Trello-style label display. When false (default) the in-list card
    *  collapses its label chips to compact colour bars (no text) so a
    *  card carrying both labels and a priority doesn't read as two
@@ -125,6 +130,7 @@ const DEFAULTS: Settings = {
   cardLimitBlocksDrag: true,
   showChecklistOnCard: true,
   listsScrollSeparately: true,
+  shortenLongLists: true,
   labelsExpanded: false,
   showCardNumbers: true,
   theme: 'system',

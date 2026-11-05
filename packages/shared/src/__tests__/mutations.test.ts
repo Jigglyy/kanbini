@@ -226,8 +226,12 @@ describe('zMutation - every arm', () => {
       zMutation.parse({ type: 'list.update', id: 'l1', patch: { cardDensity: 'full' } })
     ).toThrow()
     expect(() =>
-      zMutation.parse({ type: 'list.update', id: 'l1', patch: { visibleCardLimit: 0 } })
+      zMutation.parse({ type: 'list.update', id: 'l1', patch: { visibleCardLimit: -1 } })
     ).toThrow()
+    // 0 = always show every card.
+    expect(
+      zMutation.parse({ type: 'list.update', id: 'l1', patch: { visibleCardLimit: 0 } })
+    ).toMatchObject({ patch: { visibleCardLimit: 0 } })
   })
 
   it('rejects a non-boolean archived', () => {
