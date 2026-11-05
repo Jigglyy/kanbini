@@ -179,6 +179,57 @@ body {
   padding: 0;
   font-size: 0.85rem;
 }
+/* Code block + its copy button (components/ui/code-block-copy.ts). The
+   wrapper carries the block's margin so the button can sit in its corner
+   without scrolling sideways with the code. */
+.tiptap .code-block {
+  position: relative;
+  margin: 0.5rem 0;
+}
+.tiptap .code-block pre {
+  margin: 0;
+  padding-right: 2.5rem;
+}
+.tiptap .code-copy {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  background: var(--color-background);
+  color: var(--color-muted-foreground);
+  opacity: 0;
+  transition:
+    opacity 150ms ease-out,
+    color 150ms ease-out;
+}
+.tiptap .code-block:hover .code-copy,
+.tiptap .code-copy:focus-visible,
+.tiptap .code-copy[data-copied] {
+  opacity: 1;
+}
+.tiptap .code-copy:hover {
+  color: var(--color-foreground);
+}
+.tiptap .code-copy:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 1px;
+}
+.tiptap .code-copy[data-copied] {
+  /* Same mid green as the card-number copy check (emerald-500): reads on
+     both themes' muted surface. */
+  color: oklch(0.696 0.17 162.48);
+}
+@media (prefers-reduced-motion: reduce) {
+  .tiptap .code-copy {
+    transition: none;
+  }
+}
 .tiptap hr {
   border: 0;
   border-top: 1px solid var(--color-border);

@@ -20,6 +20,9 @@ macOS and Linux downloads and publishes a GitHub Release (see
   changes the answer later and can make the minimize button hide
   Kanbini in the tray too (off unless you turn it on). On a Mac nothing
   changes: closing the window already keeps Kanbini in the Dock.
+- **Copy button on code blocks.** Hover a code block in a card
+  description or a comment (or while editing one) and click the small
+  button in its corner to copy the code.
 
 ## [0.15.1] - 2026-11-04
 

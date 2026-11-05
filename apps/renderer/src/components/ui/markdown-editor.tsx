@@ -11,9 +11,9 @@ import Placeholder from '@tiptap/extension-placeholder'
 import TaskItem from '@tiptap/extension-task-item'
 import TaskList from '@tiptap/extension-task-list'
 import Typography from '@tiptap/extension-typography'
-import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 import { common, createLowlight } from 'lowlight'
 import { Markdown } from 'tiptap-markdown'
+import { CodeBlockWithCopy } from './code-block-copy'
 import { Popover } from './popover'
 import {
   Bold,
@@ -46,7 +46,7 @@ const lowlight = createLowlight(common)
 export function buildExtensions(placeholder?: string) {
   return [
     StarterKit.configure({ codeBlock: false, link: false }),
-    CodeBlockLowlight.configure({ lowlight }),
+    CodeBlockWithCopy.configure({ lowlight }),
     Link.configure({
       openOnClick: false,
       autolink: true,

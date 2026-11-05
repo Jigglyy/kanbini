@@ -78,6 +78,50 @@ test('Escape on the Link popover closes only the popover, not the card detail', 
   await expect(section.getByRole('button', { name: /Bold/ })).toBeVisible()
 })
 
+test('a code block has a copy button, in the description and while editing', async () => {
+  const { page } = handle
+  const { modal, section } = await openDescriptionEditor(page)
+  const editor = section.locator('.tiptap[contenteditable="true"]')
+  // Record copies instead of touching the real system clipboard.
+  await page.evaluate(() => {
+    const w = window as unknown as { __copied: string[] }
+    w.__copied = []
+    Object.defineProperty(navigator.clipboard, 'writeText', {
+      configurable: true,
+      value: async (text: string) => {
+        w.__copied.push(text)
+      }
+    })
+  })
+  const copied = () => page.evaluate(() => (window as unknown as { __copied: string[] }).__copied)
+
+  await section.getByRole('button', { name: 'Code block', exact: true }).click()
+  await page.keyboard.type('const a = 1', { delay: 15 })
+  await page.keyboard.press('Enter')
+  await page.keyboard.type('run(a)', { delay: 15 })
+
+  // While editing: the button copies and the editor stays open.
+  const block = section.locator('.code-block')
+  const button = block.getByRole('button', { name: 'Copy code' })
+  await block.hover()
+  await expect(button).toHaveCSS('opacity', '1')
+  await button.click()
+  await expect.poll(copied).toEqual(['const a = 1\nrun(a)'])
+  await expect(editor).toBeVisible()
+
+  // Read-only description: copying doesn't open the editor.
+  await modal.locator('input[value="Drag a card to another list"]').click()
+  await expect(editor).toHaveCount(0)
+  await section.locator('.code-block').hover()
+  const viewButton = section.locator('.code-block').getByRole('button', { name: 'Copy code' })
+  await viewButton.click()
+  await expect.poll(copied).toEqual(['const a = 1\nrun(a)', 'const a = 1\nrun(a)'])
+  await expect(
+    section.locator('.code-block').getByRole('button', { name: 'Copied', exact: true })
+  ).toBeVisible()
+  await expect(editor).toHaveCount(0)
+})
+
 test('repeatedly opening/closing the description does not drift the modal scroll', async () => {
   const { page } = handle
   const { modal, section } = await openDescriptionEditor(page)
