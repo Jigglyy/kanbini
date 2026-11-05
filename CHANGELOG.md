@@ -9,7 +9,7 @@ Releases are cut by pushing a `v*` tag, which builds the Windows,
 macOS and Linux downloads and publishes a GitHub Release (see
 [`.github/workflows/release.yml`](.github/workflows/release.yml)).
 
-## [Unreleased]
+## [0.16.0] - 2026-11-05
 
 ### Added
 
