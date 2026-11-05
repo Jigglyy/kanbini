@@ -21,9 +21,19 @@ test.beforeEach(async () => {
   const userDataDir = await mkdtemp(join(tmpdir(), 'kanbini-e2e-ai-'))
   handle = await launchKanbini({ userDataDir })
   d = await waitForDiscovery(userDataDir)
-  const board = await mutate(d, { type: 'board.create', name: BOARD })
-  todo = await mutate(d, { type: 'list.create', boardId: board, name: 'To Do' })
-  done = await mutate(d, { type: 'list.create', boardId: board, name: 'Done' })
+  // The board and lists are the USER's (made through the app), so the
+  // AI's run below starts its own undo group. Made over the channel they
+  // joined that group, one Ctrl+Z deleted the whole board, and whether
+  // the app was still on it when Ctrl+Y came was a race (the flake).
+  ;({ todo, done } = await handle.page.evaluate(async (name) => {
+    const k = (window as any).kanbini
+    const board = await k.mutate({ type: 'board.create', name })
+    const [todo, done] = await k.mutateBatch([
+      { type: 'list.create', boardId: board.id, name: 'To Do' },
+      { type: 'list.create', boardId: board.id, name: 'Done' }
+    ])
+    return { todo: todo.id as string, done: done.id as string }
+  }, BOARD))
   await handle.page.getByText(BOARD, { exact: true }).click()
   await expect(handle.page.getByRole('heading', { name: /^To Do\b/ })).toBeVisible()
 })
