@@ -60,6 +60,9 @@ import {
   zSearchCardsRequest,
   zSearchHits,
   zShowInFolderRequest,
+  zTrayRecentBoardsRequest,
+  zWindowPrefs,
+  zWindowPrefsPatch,
   zTemplateDeleteRequest,
   zTemplateInstantiateRequest,
   zTemplateInstantiateResult,
@@ -119,6 +122,7 @@ import {
 import { sweepOrphanedFiles } from './gc'
 import { createLinkPreviewAttachment } from './link-preview'
 import { pushToObsidianVault } from './obsidian-push'
+import { createTrayController, type TrayController } from './tray'
 import { runRoundTripTest } from './round-trip'
 import { attachWindowState, loadWindowState } from './window-state'
 
@@ -293,6 +297,9 @@ function broadcastChange(boardId: string | null, ai?: { cardIds: string[] }): vo
   for (const w of BrowserWindow.getAllWindows()) {
     w.webContents.send(IPC.changed, event)
   }
+  // The tray menu lists boards by name; a rename / archive / delete
+  // shows up there too.
+  trayController?.refresh()
 }
 
 /** Map a kanbini-file:// URL to a path inside one of the explicit
@@ -805,6 +812,21 @@ function registerIpc(
     if (exportedBoardFiles.has(path)) shell.showItemInFolder(path)
   })
 
+  // Close / minimize to the tray (ADR-0084). Settings > Window reads and
+  // writes the preferences; the renderer reports its recent boards for
+  // the tray menu.
+  ipcMain.handle(IPC.windowPrefs, () => {
+    if (!trayController) throw new Error('window preferences are not ready yet')
+    return zWindowPrefs.parse(trayController.prefs())
+  })
+  ipcMain.handle(IPC.windowPrefsSet, (_event, raw: unknown) => {
+    if (!trayController) throw new Error('window preferences are not ready yet')
+    return zWindowPrefs.parse(trayController.setPrefs(zWindowPrefsPatch.parse(raw)))
+  })
+  ipcMain.handle(IPC.trayRecentBoards, (_event, raw: unknown) => {
+    trayController?.setRecentBoards(zTrayRecentBoardsRequest.parse(raw).ids)
+  })
+
   // ADR-0042 Obsidian one-way push. Two channels: pickVault opens
   // a folder picker (returns the absolute path, null on cancel);
   // push writes the current board state as Markdown notes under
@@ -1017,6 +1039,9 @@ function attachDevTools(wc: WebContents): void {
 // The primary window, for the second-instance focus handler. Cleared
 // on close so a stale reference never gets focus() called on it.
 let mainWindow: BrowserWindow | null = null
+// Close / minimize to the tray (ADR-0084), created at startup before the
+// window so createWindow can attach it.
+let trayController: TrayController | null = null
 
 function createWindow(): void {
   // Dev-only window icon (ADR-0051). In a packaged build the .exe
@@ -1080,6 +1105,7 @@ function createWindow(): void {
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null
   })
+  trayController?.attach(win)
 
   win.once('ready-to-show', () => {
     if (headlessE2E) win.showInactive()
@@ -1303,6 +1329,14 @@ void app.whenReady().then(async () => {
     console.error('[main] failed to start MCP control channel:', err)
   }
   void writeMcpServerPointer(userDataDir)
+
+  trayController = createTrayController({
+    userDataDir,
+    boards: () => listBoards(db),
+    window: () => mainWindow,
+    isQuitting: () => quitting,
+    onOpenBoard: (boardId) => mainWindow?.webContents.send(IPC.trayOpenBoard, boardId)
+  })
 
   applyCsp()
   createWindow()

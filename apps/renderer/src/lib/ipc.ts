@@ -27,6 +27,9 @@ import type {
   SearchCardsRequest,
   SearchHits,
   ShowInFolderRequest,
+  TrayRecentBoardsRequest,
+  WindowPrefs,
+  WindowPrefsPatch,
   TemplateDeleteRequest,
   TemplateInstantiateRequest,
   TemplateInstantiateResult,
@@ -74,6 +77,11 @@ export const ipc = {
     bridge().boardExport(req),
   boardImport: (): Promise<BoardImportSummary | null> => bridge().boardImport(),
   showInFolder: (req: ShowInFolderRequest): Promise<void> => bridge().showInFolder(req),
+  windowPrefs: (): Promise<WindowPrefs> => bridge().windowPrefs(),
+  setWindowPrefs: (patch: WindowPrefsPatch): Promise<WindowPrefs> =>
+    bridge().setWindowPrefs(patch),
+  setRecentBoards: (req: TrayRecentBoardsRequest): Promise<void> =>
+    bridge().setRecentBoards(req),
   boardSetBackgroundImage: (
     req: BoardSetBackgroundImageRequest
   ): Promise<BoardBackground | null> => bridge().boardSetBackgroundImage(req),
@@ -107,5 +115,7 @@ export const ipc = {
     req: TemplateInstantiateRequest
   ): Promise<TemplateInstantiateResult> => bridge().templateInstantiate(req),
   onChange: (cb: (e: ChangeEvent) => void): (() => void) =>
-    bridge().onChange(cb)
+    bridge().onChange(cb),
+  onTrayOpenBoard: (cb: (boardId: string) => void): (() => void) =>
+    bridge().onTrayOpenBoard(cb)
 }

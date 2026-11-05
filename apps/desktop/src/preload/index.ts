@@ -29,6 +29,9 @@ import type {
   SearchCardsRequest,
   SearchHits,
   ShowInFolderRequest,
+  TrayRecentBoardsRequest,
+  WindowPrefs,
+  WindowPrefsPatch,
   TemplateDeleteRequest,
   TemplateInstantiateRequest,
   TemplateInstantiateResult,
@@ -100,6 +103,11 @@ const api = {
     ipcRenderer.invoke(IPC.boardImport),
   showInFolder: (req: ShowInFolderRequest): Promise<void> =>
     ipcRenderer.invoke(IPC.showInFolder, req),
+  windowPrefs: (): Promise<WindowPrefs> => ipcRenderer.invoke(IPC.windowPrefs),
+  setWindowPrefs: (patch: WindowPrefsPatch): Promise<WindowPrefs> =>
+    ipcRenderer.invoke(IPC.windowPrefsSet, patch),
+  setRecentBoards: (req: TrayRecentBoardsRequest): Promise<void> =>
+    ipcRenderer.invoke(IPC.trayRecentBoards, req),
   /** ADR-0034: pick an image file, copy it into userData/board-
    *  backgrounds/<boardId>/, set the board's `background` to the new
    *  path. Null on picker cancel; otherwise the new BoardBackground. */
@@ -163,6 +171,12 @@ const api = {
     const handler = (_e: unknown, payload: ChangeEvent): void => cb(payload)
     ipcRenderer.on(IPC.changed, handler)
     return () => ipcRenderer.removeListener(IPC.changed, handler)
+  },
+  /** The tray menu asked to open a board; returns an unsubscribe fn. */
+  onTrayOpenBoard: (cb: (boardId: string) => void): (() => void) => {
+    const handler = (_e: unknown, boardId: string): void => cb(boardId)
+    ipcRenderer.on(IPC.trayOpenBoard, handler)
+    return () => ipcRenderer.removeListener(IPC.trayOpenBoard, handler)
   }
 } as const
 

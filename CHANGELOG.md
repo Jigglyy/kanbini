@@ -9,6 +9,18 @@ Releases are cut by pushing a `v*` tag, which builds the Windows,
 macOS and Linux downloads and publishes a GitHub Release (see
 [`.github/workflows/release.yml`](.github/workflows/release.yml)).
 
+## [Unreleased]
+
+### Added
+
+- **Keep Kanbini running in the tray.** The first time you close the
+  window, Kanbini asks whether to keep running in the system tray or
+  quit, and remembers your answer. Click the tray icon to open it again;
+  its menu has your recently opened boards and Quit. Settings > Window
+  changes the answer later and can make the minimize button hide
+  Kanbini in the tray too (off unless you turn it on). On a Mac nothing
+  changes: closing the window already keeps Kanbini in the Dock.
+
 ## [0.15.1] - 2026-11-04
 
 ### Fixed

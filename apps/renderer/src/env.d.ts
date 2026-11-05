@@ -30,6 +30,9 @@ import type {
   SearchCardsRequest,
   SearchHits,
   ShowInFolderRequest,
+  TrayRecentBoardsRequest,
+  WindowPrefs,
+  WindowPrefsPatch,
   TemplateDeleteRequest,
   TemplateInstantiateRequest,
   TemplateInstantiateResult,
@@ -65,6 +68,9 @@ declare global {
       boardExport: (req: BoardExportRequest) => Promise<BoardExportResult | null>
       boardImport: () => Promise<BoardImportSummary | null>
       showInFolder: (req: ShowInFolderRequest) => Promise<void>
+      windowPrefs: () => Promise<WindowPrefs>
+      setWindowPrefs: (patch: WindowPrefsPatch) => Promise<WindowPrefs>
+      setRecentBoards: (req: TrayRecentBoardsRequest) => Promise<void>
       boardSetBackgroundImage: (
         req: BoardSetBackgroundImageRequest
       ) => Promise<BoardBackground | null>
@@ -89,6 +95,7 @@ declare global {
         req: TemplateInstantiateRequest
       ) => Promise<TemplateInstantiateResult>
       onChange: (cb: (e: ChangeEvent) => void) => () => void
+      onTrayOpenBoard: (cb: (boardId: string) => void) => () => void
     }
   }
 }

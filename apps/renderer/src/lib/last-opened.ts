@@ -34,3 +34,13 @@ export function recordOpened(boardId: string): void {
     /* full disk / private mode - sort just stays where it was */
   }
 }
+
+/** Board ids, most recently opened first (at most `limit`). Main lists
+ *  the first few in the tray menu (ADR-0084). */
+export function recentBoardIds(limit = 10): string[] {
+  return Object.entries(loadOpenedMap())
+    .filter(([, at]) => typeof at === 'number')
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([id]) => id)
+}

@@ -15,8 +15,11 @@ import {
 } from 'lucide-react'
 import {
   APP_CODENAME,
+  type CloseAction,
   type ExportSummary,
-  type ImportSummary
+  type ImportSummary,
+  type WindowPrefs,
+  type WindowPrefsPatch
 } from '@kanbini/shared'
 // Brand mark - see App.tsx import. Same source asset.
 import brandLogo from '../assets/logo.png'
@@ -54,6 +57,7 @@ const IS_MAC =
 
 type SettingsSection =
   | 'appearance'
+  | 'window'
   | 'startup'
   | 'cards'
   | 'shortcuts'
@@ -109,7 +113,8 @@ const SECTION_GROUPS: SectionGroup[] = [
     header: 'Personalize',
     sections: [
       { id: 'appearance', label: 'Appearance' },
-      { id: 'shortcuts', label: 'Shortcuts' }
+      { id: 'shortcuts', label: 'Shortcuts' },
+      { id: 'window', label: 'Window' }
     ]
   },
   {
@@ -262,6 +267,7 @@ export function AppSettings({ onClose, settings, update }: Props) {
           {section === 'cards' && (
             <CardsSection settings={settings} update={update} />
           )}
+          {section === 'window' && <WindowSection />}
           {section === 'shortcuts' && (
             <ShortcutsSection settings={settings} update={update} />
           )}
@@ -378,6 +384,75 @@ function StartupSection({
         </label>
       )}
     </Section>
+  )
+}
+
+export const windowPrefsKey = ['windowPrefs'] as const
+
+/** Close / minimize to the tray (ADR-0084). Main keeps these (it handles
+ *  the window's buttons itself), so they're read and written over IPC
+ *  rather than living in the localStorage settings. */
+function WindowSection() {
+  const qc = useQueryClient()
+  const { data: info } = useQuery({ queryKey: ['appInfo'], queryFn: () => ipc.appInfo() })
+  const { data: prefs } = useQuery({ queryKey: windowPrefsKey, queryFn: () => ipc.windowPrefs() })
+  // Shown at once, then replaced by what main saved (or put back if the
+  // save failed).
+  const set = (patch: WindowPrefsPatch): void => {
+    const before = qc.getQueryData<WindowPrefs>(windowPrefsKey)
+    if (before) qc.setQueryData(windowPrefsKey, { ...before, ...patch })
+    void ipc
+      .setWindowPrefs(patch)
+      .then((next) => qc.setQueryData(windowPrefsKey, next))
+      .catch(() => {
+        if (before) qc.setQueryData(windowPrefsKey, before)
+      })
+  }
+  if (info?.platform === 'darwin') {
+    return (
+      <Section title="Closing the window">
+        <p className="px-1 text-sm text-muted-foreground">
+          On a Mac, closing the window keeps Kanbini running in the Dock. Quit it with Cmd+Q.
+        </p>
+      </Section>
+    )
+  }
+  if (!prefs) return null
+  return (
+    <>
+      <Section title="When you close the window">
+        <RadioRow<CloseAction>
+          name="closeAction"
+          value={prefs.closeAction}
+          options={[
+            {
+              value: 'ask',
+              label: 'Ask me',
+              hint: 'Kanbini asks the next time you close it and remembers your answer.'
+            },
+            {
+              value: 'tray',
+              label: 'Keep running in the tray',
+              hint: "Click the tray icon to open it again. Quit from the tray icon's menu."
+            },
+            {
+              value: 'quit',
+              label: 'Quit Kanbini',
+              hint: 'Closing the window closes Kanbini.'
+            }
+          ]}
+          onChange={(v) => set({ closeAction: v })}
+        />
+      </Section>
+      <Section title="Minimizing">
+        <ToggleRow
+          label="Minimize to the tray"
+          hint="The minimize button hides Kanbini in the tray instead of the taskbar."
+          checked={prefs.minimizeToTray}
+          onChange={(v) => set({ minimizeToTray: v })}
+        />
+      </Section>
+    </>
   )
 }
 

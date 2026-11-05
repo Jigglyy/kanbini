@@ -39,6 +39,9 @@ import type {
   SearchCardsRequest,
   SearchHits,
   ShowInFolderRequest,
+  TrayRecentBoardsRequest,
+  WindowPrefs,
+  WindowPrefsPatch,
   TemplateDeleteRequest,
   TemplateInstantiateRequest,
   TemplateInstantiateResult,
@@ -142,6 +145,17 @@ function makeBridge() {
     ),
     boardImport: vi.fn(async (): Promise<BoardImportSummary | null> => null),
     showInFolder: vi.fn(async (_req: ShowInFolderRequest): Promise<void> => {}),
+    windowPrefs: vi.fn(
+      async (): Promise<WindowPrefs> => ({ closeAction: 'ask', minimizeToTray: false })
+    ),
+    setWindowPrefs: vi.fn(
+      async (patch: WindowPrefsPatch): Promise<WindowPrefs> => ({
+        closeAction: 'ask',
+        minimizeToTray: false,
+        ...patch
+      })
+    ),
+    setRecentBoards: vi.fn(async (_req: TrayRecentBoardsRequest): Promise<void> => {}),
     boardSetBackgroundImage: vi.fn(
       async (
         _req: BoardSetBackgroundImageRequest
@@ -234,7 +248,8 @@ function makeBridge() {
         listId: null
       })
     ),
-    onChange: vi.fn((_cb: (e: ChangeEvent) => void) => () => {})
+    onChange: vi.fn((_cb: (e: ChangeEvent) => void) => () => {}),
+    onTrayOpenBoard: vi.fn((_cb: (boardId: string) => void) => () => {})
   }
 }
 

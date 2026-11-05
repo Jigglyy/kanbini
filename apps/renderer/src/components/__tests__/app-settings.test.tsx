@@ -70,7 +70,7 @@ describe('<AppSettings> sidebar nav', () => {
     expect(screen.getByRole('button', { name: 'About' })).toBeInTheDocument()
   })
 
-  it('Personalize group lists Appearance + Shortcuts', () => {
+  it('Personalize group lists Appearance + Shortcuts + Window', () => {
     renderAppSettings()
     expect(
       screen.getByRole('button', { name: 'Appearance' })
@@ -78,6 +78,7 @@ describe('<AppSettings> sidebar nav', () => {
     expect(
       screen.getByRole('button', { name: 'Shortcuts' })
     ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Window' })).toBeInTheDocument()
   })
 
   it('Boards & cards group lists Startup + Cards + Templates', () => {
@@ -591,5 +592,55 @@ describe('<AppSettings> Startup - a specific board', () => {
     )
     await user.selectOptions(select, 'b2')
     expect(update).toHaveBeenCalledWith({ startBoardId: 'b2' })
+  })
+})
+
+describe('<AppSettings> Window section', () => {
+  // Close / minimize to the tray (ADR-0084): main keeps the preferences,
+  // the section reads and writes them over IPC.
+  it('shows the stored choices and saves a new one', async () => {
+    const user = userEvent.setup()
+    const mock = kanbiniMock()
+    mock.windowPrefs.mockResolvedValue({ closeAction: 'ask', minimizeToTray: false })
+    renderAppSettings()
+    await user.click(screen.getByRole('button', { name: 'Window' }))
+    expect(await screen.findByRole('radio', { name: /Ask me/ })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /Minimize to the tray/ })).not.toBeChecked()
+
+    await user.click(screen.getByRole('radio', { name: /Keep running in the tray/ }))
+    expect(mock.setWindowPrefs).toHaveBeenCalledWith({ closeAction: 'tray' })
+    await waitFor(() =>
+      expect(screen.getByRole('radio', { name: /Keep running in the tray/ })).toBeChecked()
+    )
+
+    await user.click(screen.getByRole('checkbox', { name: /Minimize to the tray/ }))
+    expect(mock.setWindowPrefs).toHaveBeenLastCalledWith({ minimizeToTray: true })
+  })
+
+  it('shows a choice at once and puts it back if saving fails', async () => {
+    const user = userEvent.setup()
+    const mock = kanbiniMock()
+    mock.windowPrefs.mockResolvedValue({ closeAction: 'ask', minimizeToTray: false })
+    let fail: (e: Error) => void = () => {}
+    mock.setWindowPrefs.mockImplementationOnce(
+      () => new Promise((_resolve, reject) => (fail = reject))
+    )
+    renderAppSettings()
+    await user.click(screen.getByRole('button', { name: 'Window' }))
+    await user.click(await screen.findByRole('radio', { name: /Quit Kanbini/ }))
+    expect(screen.getByRole('radio', { name: /Quit Kanbini/ })).toBeChecked()
+    fail(new Error('disk full'))
+    await waitFor(() => expect(screen.getByRole('radio', { name: /Ask me/ })).toBeChecked())
+  })
+
+  it('explains the Dock instead on a Mac', async () => {
+    const user = userEvent.setup()
+    const mock = kanbiniMock()
+    const info = await mock.appInfo()
+    mock.appInfo.mockResolvedValue({ ...info, platform: 'darwin' })
+    renderAppSettings()
+    await user.click(screen.getByRole('button', { name: 'Window' }))
+    expect(await screen.findByText(/keeps Kanbini running in the Dock/)).toBeInTheDocument()
+    expect(screen.queryByRole('radio', { name: /Ask me/ })).toBeNull()
   })
 })

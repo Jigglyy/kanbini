@@ -59,6 +59,17 @@ export const IPC = {
    *  file manager (ShowInFolderRequest). Paths main didn't write are
    *  ignored. */
   showInFolder: 'shell:showInFolder',
+  /** renderer -> main: the close / minimize-to-tray preferences
+   *  (WindowPrefs, kept by main in <userData>/window-prefs.json). */
+  windowPrefs: 'window:prefs',
+  /** renderer -> main: change them (WindowPrefsPatch). Returns the new
+   *  WindowPrefs. */
+  windowPrefsSet: 'window:setPrefs',
+  /** renderer -> main: the most recently opened boards, newest first
+   *  (TrayRecentBoardsRequest), for the tray menu. */
+  trayRecentBoards: 'tray:recentBoards',
+  /** main -> renderer: the tray menu asked to open a board (its id). */
+  trayOpenBoard: 'tray:openBoard',
   /** renderer → main: open an image file picker, copy the chosen file
    *  into `userData/board-backgrounds/<boardId>/`, then apply a
    *  `board.update` setting the board's `background` to point at the

@@ -103,6 +103,9 @@ that never closes: a board that's yours, local, and always on.
 - **Undo / redo** with full snapshot restore on delete. One Ctrl+Z takes
   back everything an AI just changed on a board.
 - **Customizable keyboard shortcuts.**
+- **Runs in the tray** if you like - closing the window can keep Kanbini
+  (and your AI tools' connection to it) running, with your recent boards
+  one click away.
 - **Board backgrounds** (colour / gradient / image) and continuous zoom.
 - **Trello import** - bring an exported Trello board JSON in as a new board
   (boards home > Import board).

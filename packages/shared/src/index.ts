@@ -27,3 +27,4 @@ export * from "./templates";
 export * from "./text";
 export * from "./trello";
 export * from "./views";
+export * from "./window-prefs";

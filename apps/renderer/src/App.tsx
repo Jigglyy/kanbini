@@ -28,7 +28,7 @@ import { WelcomeModal } from './components/welcome-modal'
 import { ZoomControl } from './components/zoom-control'
 import { Tooltip } from './components/ui/tooltip'
 import { useSettings } from './lib/settings'
-import { recordOpened } from './lib/last-opened'
+import { recentBoardIds, recordOpened } from './lib/last-opened'
 import { filterByLabels, pruneLabelFilter } from './lib/label-filter'
 import { hiddenCardReason } from './lib/hidden-card'
 import { startupBoardId } from './lib/startup'
@@ -277,6 +277,14 @@ export function App() {
       )
     )
   }, [data])
+
+  // Tray menu (ADR-0084): tell main which boards were opened last, on
+  // launch and on every board open, and open the one it picks.
+  const routeBoardId = route.kind === 'board' ? route.id : null
+  useEffect(() => {
+    void ipc.setRecentBoards({ ids: recentBoardIds() }).catch(() => {})
+  }, [routeBoardId])
+  useEffect(() => ipc.onTrayOpenBoard((id) => openBoard(id)), [openBoard])
 
   useEffect(() => {
     return ipc.onChange((e) => {

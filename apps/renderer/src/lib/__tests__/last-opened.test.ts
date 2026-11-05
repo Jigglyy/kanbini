@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { loadOpenedMap, recordOpened } from '../last-opened'
+import { loadOpenedMap, recentBoardIds, recordOpened } from '../last-opened'
 
 // Renderer-only "last opened at" persistence for the boards-home
 // "Recently opened" sort. localStorage-only, single-window - the tests
@@ -73,5 +73,20 @@ describe('recordOpened', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('recentBoardIds', () => {
+  it('lists boards newest first, up to the limit', () => {
+    localStorage.setItem(
+      'kanbini.lastOpenedAt',
+      JSON.stringify({ old: 1000, newest: 3000, mid: 2000, junk: 'x' })
+    )
+    expect(recentBoardIds()).toEqual(['newest', 'mid', 'old'])
+    expect(recentBoardIds(2)).toEqual(['newest', 'mid'])
+  })
+
+  it('is empty when nothing was opened', () => {
+    expect(recentBoardIds()).toEqual([])
   })
 })
