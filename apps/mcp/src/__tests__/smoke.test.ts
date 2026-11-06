@@ -100,7 +100,7 @@ describe('MCP read tools', () => {
       board: { name: string }
       lists: Array<{ name: string; cards: Array<{ id: string; title: string }> }>
     }>(
-      await client.callTool({ name: 'kanbini_get_board', arguments: {} }),
+      await client.callTool({ name: 'kanbini_get_board', arguments: { detail: 'full' } }),
       'get_board'
     )
     expect(view).not.toBeNull()
@@ -114,7 +114,7 @@ describe('MCP read tools', () => {
     const board = unwrap<{
       lists: Array<{ cards: Array<{ id: string }> }>
     }>(
-      await client.callTool({ name: 'kanbini_get_board', arguments: {} }),
+      await client.callTool({ name: 'kanbini_get_board', arguments: { detail: 'full' } }),
       'get_board'
     )
     const firstCard = board.lists[0]?.cards[0]
@@ -156,7 +156,7 @@ describe('MCP read tools', () => {
       board: { id: string }
       lists: Array<{ cards: Array<{ id: string; number: number }> }>
     }>(
-      await client.callTool({ name: 'kanbini_get_board', arguments: {} }),
+      await client.callTool({ name: 'kanbini_get_board', arguments: { detail: 'full' } }),
       'get_board'
     )
     const card = board.lists[0]!.cards[0]!

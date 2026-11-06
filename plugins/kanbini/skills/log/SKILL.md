@@ -25,14 +25,15 @@ nothing was done in this session, say so and stop.
 (Done, Complete, Shipped, and so on). If there isn't one, ask which list
 to use.
 
-**Write the card:**
+**Write the card** with ONE `kanbini_create_card` call (board and list
+by name):
 
 - Title: what was achieved, in a few words ("Add agenda to home screen").
-- Description (set with `kanbini_update_card`), in Markdown:
+- Description, in Markdown:
   - **What changed**: a few bullets, naming files or features.
   - **Why**: one or two sentences.
   - **Follow-ups**: anything left to do, if there is any.
-- Mark it complete with `kanbini_update_card` (`completed: true`).
+- `completed: true`, in the same call.
 
 Then say which board and list you used. If there are follow-ups, offer to
 add each one as its own open card, and only add them if the user says

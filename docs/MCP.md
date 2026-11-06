@@ -279,17 +279,54 @@ Returns `[]` if no boards exist yet.
 
 #### `kanbini_get_board`
 
-Returns one board with all its lists, cards, labels, and each card's
-checklists / comments / attachments / activity feed (same shape the
-renderer consumes).
+Returns one board: its labels, and every list with its cards. By
+default each card is one short line, so even a board with hundreds of
+cards fits in one read (the full view of a 400-card board was about
+1.8 MB):
+
+```json
+{"board":{"id":"...","name":"Dice Inc"},"labels":[{"id":"...","name":"Bug","color":"..."}],
+ "lists":[{"id":"...","name":"To Do","cardCount":75,"wipLimit":10,"cards":[
+   {"number":142,"title":"Fix login","due":"2026-11-07","priority":"high","labels":["Bug"],
+    "checklist":"2/5","description":true,"comments":3,"blocked":true}]}]}
+```
+
+A card carries `number` and `title`, plus only what applies:
+`completed`, `due` (YYYY-MM-DD), `priority`, `labels` (names),
+`checklist` (ticked/total), `description: true`, `comments` /
+`attachments` counts, `blocked`, `repeat`. Cards are named by number
+(pass `#142` with the board to any tool); `kanbini_get_card` has the
+rest. List fields at their defaults are left out too.
 
 | Argument  | Type     | Required | Notes                                                      |
 |-----------|----------|----------|------------------------------------------------------------|
-| `boardId` | `string` | no       | Defaults to the first board. Use `kanbini_list_boards` for multi-board DBs. |
+| `boardId` | `string` | no       | Board id or exact name. Defaults to the first board.       |
+| `detail`  | `"summary" \| "full"` | no | `full` returns every card with all of its content (the renderer's shape). Large on a big board. |
 
 Archived cards are left out. Archived lists are included with
-`closed: true` (the app hides them). Returns `null` if the id doesn't
+`closed: true` and no cards. Returns `null` if the board doesn't
 match anything.
+
+#### `kanbini_get_list_cards`
+
+One list's cards, filtered and paged, as the same one-line summaries
+(or `detail: "full"`).
+
+| Argument  | Type     | Required | Notes |
+|-----------|----------|----------|-------|
+| `boardId` | `string` | yes | Board id or exact name. |
+| `listId`  | `string` | yes | List id or exact name. |
+| `status`  | `"open" \| "completed" \| "all"` | no | Default `all`. |
+| `label`   | `string` | no | Label name or id the card carries. |
+| `priority` | `string` | no | `low` / `medium` / `high` / `urgent`, or `none`. |
+| `dueFrom` / `dueTo` | `string` | no | YYYY-MM-DD, inclusive. A card with no due date never matches. |
+| `hasDue`  | `boolean` | no | |
+| `query`   | `string` | no | Text in the title or description, any case. |
+| `limit` / `offset` | `number` | no | Page size (default 50, max 200) and start. |
+| `detail`  | `"summary" \| "full"` | no | |
+
+Returns `{ boardId, list: { id, name, cardCount }, matched, offset,
+cards, more? }`; `more: true` means another page follows.
 
 #### `kanbini_get_card`
 
@@ -387,12 +424,44 @@ board, for scoped refetch). Every successful write fires
 `broadcastChange(boardId)` on the desktop side, so the open
 renderer reflects the edit live.
 
-**Cards by number.** Every tool that takes a card (`id`, `cardId`,
-`blockerId`, and `beforeId` / `afterId` in the card moves) also accepts
-the card's number, `#142` or `142`, together with an optional `boardId`
-argument naming the board it is on (numbers are counted per board). The
-MCP server turns it into the id through `card.get`. A number without
-`boardId` is an error that says so.
+**Names and numbers instead of ids.** Every tool that takes a card
+also accepts its number (`#142` or `142`), and every tool that takes a
+list or label accepts its exact name (any case), together with a
+`boardId` argument naming the board (its id or exact name; numbers are
+counted per board). Boards can be named by name wherever a board id
+goes. The MCP server looks them up (one board read per call) and turns
+them into ids; a number or name without a board, a name that matches
+nothing (the error lists what's there), or a name two open lists share
+is an error. A `due` argument (YYYY-MM-DD) can stand in for `dueAt`
+(epoch ms at local midnight).
+
+#### `kanbini_batch`
+Many changes in one call, applied as one: all of them or none, and one
+Ctrl+Z in the app takes them all back.
+
+| Argument  | Type     | Required | Notes |
+|-----------|----------|----------|-------|
+| `boardId` | `string` | no  | The default board for every step (id or name). |
+| `steps`   | `array`  | yes | Up to 200 `{ op, ...arguments }`. `op` is a write tool's name without `kanbini_`; the arguments are that tool's. |
+
+A create step can take `ref: "name"`; later steps pass `"$name"`
+wherever an id goes. Lists and labels made earlier in the batch can also
+be named by name.
+
+```json
+{"boardId":"Dice Inc","steps":[
+  {"op":"create_list","name":"Sprint 4","ref":"s4"},
+  {"op":"create_card","listId":"$s4","title":"Profile drags","labels":["Perf"],"ref":"prof"},
+  {"op":"add_blocker","cardId":"$prof","blockerId":"#142"},
+  {"op":"archive_card","id":"#97","archived":true}]}
+```
+
+Every step is checked (arguments, names, numbers) before anything
+changes; a step the app then refuses rolls the whole batch back. Either
+way the error starts with `Step N (op)`. Returns `{ changes, steps: [{
+step, op, id, ref? }] }`. Attachments can't be batched (they move
+files). Up to 500 underlying changes per batch (a card with labels and a
+checklist is several).
 
 #### `kanbini_create_board`
 Create a new empty board (no lists, no cards). Auto-assigned to
@@ -414,13 +483,22 @@ Append a list (column) to the right end of a board. Use the returned
 | `name`    | `string` | yes      | Min length 1. |
 
 #### `kanbini_create_card`
-Append a card to the end of a list.
+Create a whole card in one call (one undo step). It goes at the end of
+the list unless `beforeId` / `afterId` place it.
 
 | Argument   | Type     | Required | Notes                                                                       |
 |------------|----------|----------|-----------------------------------------------------------------------------|
-| `listId`   | `string` | yes      |                                                                             |
+| `listId`   | `string` | yes      | List id or name (with `boardId`).                                           |
+| `boardId`  | `string` | no       | Needed for list / label names and card numbers.                             |
 | `title`    | `string` | yes      | Min length 1.                                                               |
+| `description` | `string` | no    | Markdown.                                                                   |
+| `due` / `dueAt` | `string` / `number` | no | YYYY-MM-DD, or epoch ms at local midnight.                     |
 | `priority` | `string` | no       | One of `low` / `medium` / `high` / `urgent`; omit for unprioritised.        |
+| `labels`   | `string[]` | no     | Label names or ids on that board.                                           |
+| `checklists` | `{ name, items?: string[] }[]` | no | Each becomes a checklist with those items.                |
+| `repeat`   | `object` | no       | As in `kanbini_update_card`.                                                |
+| `completed` | `boolean` | no     |                                                                             |
+| `beforeId` / `afterId` | `string` | no | The card directly above / below it.                                 |
 
 #### `kanbini_update_card`
 Patch one or more card fields. Omit fields you don't want to change.
@@ -493,12 +571,13 @@ startup cleanup sweep once they're more than an hour old.
 | `id`     | `string` | yes      |
 
 #### `kanbini_set_card_labels`
-Replace the full label set on a card (idempotent).
+Set, add or remove a card's labels.
 
 | Argument    | Type       | Notes                                |
 |-------------|------------|--------------------------------------|
-| `id`        | `string`   | Card id.                             |
-| `labelIds`  | `string[]` | Pass `[]` to remove all labels.      |
+| `id`        | `string`   | Card id or number.                   |
+| `labelIds`  | `string[]` | Label ids or names. With the default mode, `[]` removes all labels. |
+| `mode`      | `"replace" \| "add" \| "remove"` | Default `replace` (exactly these labels). |
 
 Every id must be a label on the **card's own board**. An unknown id or
 one from another board is rejected and nothing changes. Make a missing

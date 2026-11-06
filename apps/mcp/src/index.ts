@@ -5,16 +5,12 @@ import { z } from 'zod'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
-  ACCENT_NAMES,
   APP_CODENAME,
-  AUTO_CARD_LIMIT,
-  AUTO_CARD_LIMIT_ABOVE,
-  MAX_VISIBLE_CARD_LIMIT,
-  decodeEscapedWhitespace,
-  parseCardNumberRef,
-  resolveAccentColor,
   AGENDA_MAX_DAYS,
-  zListSortMode,
+  MAX_MUTATION_BATCH as MAX_BATCH_MUTATIONS,
+  type BoardView,
+  type BoardsListView,
+  type CardView,
   type Mutation,
   type MutationResult
 } from '@kanbini/shared'
@@ -28,6 +24,16 @@ import {
   loadHeadlessSnapshot,
   type HeadlessSnapshot
 } from './headless.js'
+import { CARD_REF_HINT, OPS, OPS_BY_NAME } from './ops.js'
+import { Resolver, findBoard, findLabel, findList, looksLikeId, type ResolverIO } from './refs.js'
+import {
+  filterCards,
+  labelNameMap,
+  nextLocalDay,
+  parseLocalDate,
+  summarizeBoard,
+  summarizeCard
+} from './summary.js'
 
 // @kanbini/mcp - stdio MCP server (M3-B + M3-tail). Claude Desktop /
 // Claude Code launch this process, hand it the MCP protocol over
@@ -236,7 +242,8 @@ async function asToolResult<T>(
   try {
     const result = await fn()
     return {
-      content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+      // Compact JSON: the AI reads it just as well, in fewer tokens.
+      content: [{ type: 'text', text: JSON.stringify(result) }]
     }
   } catch (e) {
     const text = e instanceof Error ? e.message : String(e)
@@ -258,7 +265,7 @@ async function asReadToolResult(
 }> {
   try {
     const { data, source, exportedAt } = await fn()
-    let text = JSON.stringify(data, null, 2)
+    let text = JSON.stringify(data)
     if (source === 'export') {
       const when = exportedAt
         ? new Date(exportedAt).toISOString()
@@ -315,29 +322,111 @@ server.registerTool(
   {
     title: 'Get Kanbini board',
     description:
-      'Return one Kanbini board view (project, lists, cards, labels). ' +
-      'Each card carries `number`, the short #N the app shows on it ' +
-      '(counted per board, so #12 exists on many boards); mention it ' +
-      'when you name a card. ' +
-      'Archived cards are left out; archived lists are included with ' +
-      '`closed: true` (the app hides them) - kanbini_list_archived lists ' +
-      'both. Every other card is returned in full regardless of how the ' +
-      "app draws it (`collapsed`, and each list's `cardDensity` and " +
-      '`visibleCardLimit` are display settings). If boardId is omitted, ' +
-      'returns the first board; call ' +
-      'kanbini_list_boards first if the database may have multiple ' +
-      'boards. Returns null if the id does not match anything. When ' +
-      "the desktop app is closed, falls back to the last on-disk export.",
-    inputSchema: { boardId: z.string().optional() }
+      'Return one board: its labels, and every list with its cards. By default (`detail: ' +
+      '"summary"`) each card is one short line: `number` (the #N shown on the card, counted per ' +
+      'board), `title`, and only what applies: `completed`, `due` (YYYY-MM-DD), `priority`, ' +
+      '`labels` (names), `checklist` ("ticked/total"), `description: true` when it has one, ' +
+      '`comments` / `attachments` counts, `blocked` (waiting on an open card), `repeat`. A list ' +
+      'shows its first `cardsPerList` cards (default 50, in board order); a longer one says how ' +
+      'many it left out in `moreCards`, and kanbini_get_list_cards filters or pages through them. ' +
+      'Cards ' +
+      'are named by number: pass `#142` with this boardId to any tool that takes a card, and use ' +
+      'kanbini_get_card for its description, checklists, comments and history. For one list, ' +
+      'filtered (open / done, label, priority, due, text) or paged, use kanbini_get_list_cards. ' +
+      '`detail: "full"` returns every card with all of its content, which is very large on a big ' +
+      'board: avoid it. Archived cards are left out; archived lists show `closed: true` with no ' +
+      "cards (kanbini_list_archived lists both). A list's `visibleCardLimit` / `cardDensity` and " +
+      "a card's `collapsed` are display settings only: every card is still returned. `boardId` " +
+      'is the id or exact name; omitted, the first board. Returns null if it matches nothing. ' +
+      'When the desktop app is closed, falls back to the last on-disk export.',
+    inputSchema: {
+      boardId: z.string().optional(),
+      detail: z.enum(['summary', 'full']).optional(),
+      cardsPerList: z.number().int().positive().max(1000).optional()
+    }
   },
-  ({ boardId }) =>
-    asReadToolResult(() =>
-      readWithFallback(
+  ({ boardId, detail, cardsPerList }) =>
+    asReadToolResult(async () => {
+      const id = boardId === undefined ? undefined : await readBoardId(boardId)
+      const read = await readWithFallback(
         'board.getView',
-        boardId !== undefined ? { boardId } : {},
-        (snap) => headlessBoardView(snap, boardId)
+        id !== undefined ? { boardId: id } : {},
+        (snap) => headlessBoardView(snap, id)
       )
-    )
+      const view = read.data as BoardView | null
+      return detail === 'full' || !view
+        ? read
+        : { ...read, data: summarizeBoard(view, cardsPerList) }
+    })
+)
+
+server.registerTool(
+  'kanbini_get_list_cards',
+  {
+    title: "Get a list's cards",
+    description:
+      "One list's cards, optionally filtered and paged. `listId` is the list's id or exact name, " +
+      'on `boardId` (id or name). Filters, all optional and combined: `status` "open" | ' +
+      '"completed" | "all" (default); `label` (name or id) the card carries; `priority` ' +
+      '(low/medium/high/urgent, or "none"); `dueFrom` / `dueTo` (YYYY-MM-DD, inclusive; a card ' +
+      'without a due date never matches them); `hasDue` true/false; `query` (text in the title ' +
+      'or description, any case). Returns { boardId, list: { id, name, cardCount }, matched ' +
+      '(cards matching the filters), offset, cards, more (true when another page follows: ' +
+      'call again with offset + cards.length) }. Cards come in the order the list shows them, as ' +
+      'the same one-line summaries kanbini_get_board gives; `detail: "full"` returns them with ' +
+      'all of their content (descriptions, checklists, comments, history). `limit` defaults to ' +
+      '50, max 200. Good for "what is still open in To Do", "every Bug card", or walking a long ' +
+      'list page by page. When the desktop app is closed, falls back to the last on-disk export.',
+    inputSchema: {
+      boardId: z.string(),
+      listId: z.string(),
+      status: z.enum(['open', 'completed', 'all']).optional(),
+      label: z.string().optional(),
+      priority: z.enum(['low', 'medium', 'high', 'urgent', 'none']).optional(),
+      dueFrom: z.string().optional(),
+      dueTo: z.string().optional(),
+      hasDue: z.boolean().optional(),
+      query: z.string().optional(),
+      limit: z.number().int().positive().max(200).optional(),
+      offset: z.number().int().min(0).optional(),
+      detail: z.enum(['summary', 'full']).optional()
+    }
+  },
+  (args) =>
+    asReadToolResult(async () => {
+      const boardId = await readBoardId(args.boardId)
+      const read = await readWithFallback('board.getView', { boardId }, (snap) =>
+        headlessBoardView(snap, boardId)
+      )
+      const view = read.data as BoardView | null
+      if (!view) throw new Error(`There is no board ${args.boardId}.`)
+      const list = findList(view, args.listId)
+      const matched = filterCards(list.cards, {
+        status: args.status,
+        labelId: args.label !== undefined ? findLabel(view, args.label) : undefined,
+        priority: args.priority,
+        dueFrom: args.dueFrom !== undefined ? parseLocalDate(args.dueFrom) : undefined,
+        // Inclusive: anything due before the NEXT day's midnight.
+        dueTo:
+          args.dueTo !== undefined ? nextLocalDay(parseLocalDate(args.dueTo)) - 1 : undefined,
+        hasDue: args.hasDue,
+        query: args.query
+      })
+      const offset = args.offset ?? 0
+      const page = matched.slice(offset, offset + (args.limit ?? 50))
+      const names = labelNameMap(view)
+      return {
+        ...read,
+        data: {
+          boardId: view.board.id,
+          list: { id: list.id, name: list.name, cardCount: list.cards.length },
+          matched: matched.length,
+          offset,
+          cards: args.detail === 'full' ? page : page.map((c) => summarizeCard(c, names)),
+          ...(offset + page.length < matched.length ? { more: true } : {})
+        }
+      }
+    })
 )
 
 server.registerTool(
@@ -345,35 +434,30 @@ server.registerTool(
   {
     title: 'Get Kanbini card',
     description:
-      'Return one Kanbini card by id OR by its number - `#142` or `142`, ' +
-      'the short #N the app shows on the card, which is how the user ' +
-      'refers to cards. Numbers are counted per board, so a number needs ' +
-      'its `boardId` (the board the user means; without one this errors ' +
-      'and lists the boards that have that number). Numbers handed out ' +
-      'before they were per board are gone: look a card up again rather ' +
-      'than trusting an old number. Use this to turn a number the user ' +
-      'gives you into the card `id` the write tools need; `boardId` is ' +
-      'ignored for an id. Includes its `number` and `boardId` ' +
-      '(keep the two together), title, description, ' +
-      'priority (low/medium/high/urgent or null), checklists, comments, ' +
-      'attachments, recent activity feed, and its "waiting on" links: ' +
-      '`blockedBy` (cards it waits on) and `blocking` (cards waiting on ' +
-      'it), each with title, completed, archived, board, and list. A card ' +
-      'is blocked while any `blockedBy` card is neither completed nor ' +
-      'archived. Works for archived cards ' +
-      'too (see kanbini_list_archived). Returns null if the id, or the ' +
-      'number on that board, does not exist. When the desktop app is ' +
-      "closed, falls back to the last on-disk export.",
+      'Return one Kanbini card by id OR by its number - `#142` or `142`, the short #N the app ' +
+      'shows on the card, which is how the user refers to cards. Numbers are counted per board, ' +
+      'so a number needs its `boardId` (the id or name of the board the user means; without one ' +
+      'this errors and lists the boards that have that number). Numbers handed out before they ' +
+      'were per board are gone: look a card up again rather than trusting an old number. ' +
+      '`boardId` is ignored for an id. Includes its `id`, `number` and `boardId` (keep the number ' +
+      'and board together), title, description, priority (low/medium/high/urgent or null), ' +
+      'checklists (with item ids), comments, attachments, recent activity feed, and its "waiting ' +
+      'on" links: `blockedBy` (cards it waits on) and `blocking` (cards waiting on it), each with ' +
+      'title, completed, archived, board, and list. A card is blocked while any `blockedBy` card ' +
+      'is neither completed nor archived. Works for archived cards too (see ' +
+      'kanbini_list_archived). Returns null if the id, or the number on that board, does not ' +
+      'exist. When the desktop app is closed, falls back to the last on-disk export.',
     inputSchema: { id: z.string(), boardId: z.string().optional() }
   },
   ({ id, boardId }) =>
-    asReadToolResult(() =>
-      readWithFallback(
+    asReadToolResult(async () => {
+      const board = boardId === undefined ? undefined : await readBoardId(boardId)
+      return readWithFallback(
         'card.get',
-        boardId !== undefined ? { id, boardId } : { id },
-        (snap) => headlessCardView(snap, id, boardId)
+        board !== undefined ? { id, boardId: board } : { id },
+        (snap) => headlessCardView(snap, id, board)
       )
-    )
+    })
 )
 
 server.registerTool(
@@ -449,925 +533,169 @@ server.registerTool(
   }
 )
 
-// ─── write tools (M3-tail) ───────────────────────────────────────
-// Each tool builds a mutation payload (zMutation discriminated union)
-// and POSTs it through the control channel's `mutate` method. Main
-// validates with the same zod schemas the renderer uses, applies via
-// applyMutation, and broadcasts `changed` so the renderer reflects
-// the edit live. Returns the MutationResult { id, boardId }.
+// ─── write tools ─────────────────────────────────────────────────
+// Every write tool is an entry in OPS (ops.ts): its arguments, and how
+// they become the app's mutations. One mutation goes through the control
+// channel's `mutate`; several (a card made with its labels and checklist,
+// or a kanbini_batch) go through `mutate.batch`: one transaction, so
+// nothing lands unless everything does, and one undo step. Main validates
+// with the same zod schemas the renderer uses and broadcasts `changed`, so
+// an open window shows the edit live.
 
-const mutate = (m: Mutation): Promise<MutationResult> =>
-  rpc('mutate', m) as Promise<MutationResult>
-
-// Card write tools take a card id OR the card's number (#142 / 142), the
-// way the user names cards. Numbers are counted per board, so a number
-// comes with `boardId`; it's turned into the id through card.get.
-const CARD_REF_HINT =
-  'A card can be named by its id, or by its number (`#142`, as shown on ' +
-  'the card) together with `boardId`, the board it is on.'
-
-const zRefBoardId = z
-  .string()
-  .optional()
-  .describe('Only when a card is given by number (#142): the board it is on')
-
-async function cardIdOf(ref: string, boardId: string | undefined): Promise<string> {
-  if (parseCardNumberRef(ref) === null) return ref
-  if (boardId === undefined) {
-    throw new Error(
-      `"${ref}" is a card number, and numbers are per board: pass the ` +
-        '`boardId` of the board it is on (or use the card id).'
-    )
-  }
-  const card = (await rpc('card.get', { id: ref, boardId })) as { id: string } | null
-  if (!card) throw new Error(`There is no card ${ref} on that board.`)
-  return card.id
+const resolverIO: ResolverIO = {
+  listBoards: () => rpc('boards.list', {}) as Promise<BoardsListView>,
+  boardView: (boardId) => rpc('board.getView', { boardId }) as Promise<BoardView | null>,
+  card: (ref, boardId) =>
+    rpc('card.get', boardId !== undefined ? { id: ref, boardId } : { id: ref }) as Promise<CardView | null>
 }
 
-server.registerTool(
-  'kanbini_create_board',
-  {
-    title: 'Create a board',
-    description:
-      'Create a new empty board (no lists, no cards). `name` is the ' +
-      'required board title; `description` is an optional short blurb ' +
-      'shown on the home picker. Returns { id, boardId } - both equal ' +
-      "the new board's id. The board is added to Kanbini's default " +
-      'project automatically (projects are hidden in the UI). Add ' +
-      'columns next with kanbini_create_list, then populate them with ' +
-      'kanbini_create_card.',
-    inputSchema: {
-      name: z.string().min(1),
-      description: z.string().optional()
-    }
-  },
-  ({ name, description }) =>
-    asToolResult(() => mutate({ type: 'board.create', name, description }))
-)
+/** A board given by id or name, for the read tools (works when the app
+ *  is closed too). */
+async function readBoardId(ref: string): Promise<string> {
+  if (looksLikeId(ref)) return ref.trim()
+  const { data } = await readWithFallback('boards.list', {}, (snap) => headlessListBoards(snap))
+  return findBoard(data as BoardsListView, ref)
+}
 
-server.registerTool(
-  'kanbini_create_list',
-  {
-    title: 'Create a list (column)',
-    description:
-      'Create a new list (column) at the right end of a board. Returns ' +
-      '{ id, boardId }; use the returned id as the listId for ' +
-      'kanbini_create_card. Board ids come from kanbini_list_boards or ' +
-      'a fresh kanbini_create_board.',
-    inputSchema: {
-      boardId: z.string(),
-      name: z.string().min(1)
-    }
-  },
-  ({ boardId, name }) =>
-    asToolResult(() => mutate({ type: 'list.create', boardId, name }))
-)
+/** Run a tool's lookups (names, numbers), but report a closed app as
+ *  such rather than as whatever the first lookup tripped over. */
+async function unlessOffline<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn()
+  } catch (e) {
+    if (!(e instanceof AppOfflineError) && !(await loadDiscovery())) throw new AppOfflineError()
+    throw e
+  }
+}
 
-server.registerTool(
-  'kanbini_create_card',
-  {
-    title: 'Create a card',
-    description:
-      'Create a new card at the end of a list. Returns { id, boardId }. ' +
-      'Use kanbini_get_board first to find a listId. `priority` ' +
-      "optionally sets one of 'low' | 'medium' | 'high' | 'urgent' at " +
-      'creation (omit for unprioritised); use kanbini_update_card for ' +
-      'the description and other fields. Respect a list\'s `wipLimit` ' +
-      '(visible in the board view): the limit is advisory and not ' +
-      'enforced server-side, so check the list\'s current card count ' +
-      'before adding when a limit is set.',
-    inputSchema: {
-      listId: z.string(),
-      title: z.string().min(1),
-      priority: z
-        .enum(['low', 'medium', 'high', 'urgent'])
-        .optional()
-    }
-  },
-  ({ listId, title, priority }) =>
-    asToolResult(() =>
-      mutate({
-        type: 'card.create',
-        listId,
-        title,
-        ...(priority ? { priority } : {})
+async function applyMutations(mutations: Mutation[]): Promise<MutationResult[]> {
+  if (mutations.length === 1) return [(await rpc('mutate', mutations[0])) as MutationResult]
+  return (await rpc('mutate.batch', mutations)) as MutationResult[]
+}
+
+for (const spec of OPS) {
+  server.registerTool(
+    `kanbini_${spec.name}`,
+    { title: spec.title, description: spec.description, inputSchema: spec.shape },
+    (args: Record<string, unknown>) =>
+      asToolResult(async () => {
+        const built = await unlessOffline(() => spec.build(args, new Resolver(resolverIO)))
+        const results = await applyMutations(built.mutations)
+        return results[built.primary]
       })
-    )
-)
-
-server.registerTool(
-  'kanbini_update_card',
-  {
-    title: 'Update card fields',
-    description:
-      'Patch one or more card fields. `title` and `description` are ' +
-      'strings; `description` accepts Markdown - use real line breaks for ' +
-      'paragraphs and lists (a literal backslash-n renders as text, not a ' +
-      'break). `dueAt` is epoch ms or ' +
-      'null to clear. `completed` toggles the checkbox. `coverAttachmentId` ' +
-      'is the attachment id to use as the cover banner, or null to clear. ' +
-      "`priority` is one of 'low' | 'medium' | 'high' | 'urgent', or null " +
-      'to clear. `collapsed` only changes how the card is DRAWN in its ' +
-      'list: true shows it compact (title, labels, one badge row), false ' +
-      "keeps it full even in a compact list, null follows the list's " +
-      '`cardDensity`. It hides nothing from you - every read still ' +
-      'returns the full card - so change it only when the user asks for ' +
-      'a tidier board. `repeat` makes the card repeat: ' +
-      "{ unit: 'day' | 'week' | 'month' | 'year', every: 1-99 } (e.g. " +
-      "{ unit: 'week', every: 2 } for every two weeks), or null to stop. " +
-      'When a repeating card is completed, the app adds the next one to ' +
-      'the list it was worked in, due one repeat after the old due date ' +
-      '(always in the future), with the same title, description, labels, ' +
-      'priority, and unticked checklists; the rule moves to the new card. ' +
-      'Omit fields you do not want to change. ' +
-      CARD_REF_HINT,
-    inputSchema: {
-      id: z.string(),
-      boardId: zRefBoardId,
-      patch: z.object({
-        title: z.string().min(1).optional(),
-        description: z.string().nullable().optional(),
-        dueAt: z.number().int().nullable().optional(),
-        completed: z.boolean().optional(),
-        coverAttachmentId: z.string().nullable().optional(),
-        priority: z
-          .enum(['low', 'medium', 'high', 'urgent'])
-          .nullable()
-          .optional(),
-        collapsed: z.boolean().nullable().optional(),
-        repeat: z
-          .object({
-            unit: z.enum(['day', 'week', 'month', 'year']),
-            every: z.number().int().min(1).max(99)
-          })
-          .nullable()
-          .optional()
-      })
-    }
-  },
-  ({ id, boardId, patch }) =>
-    asToolResult(async () =>
-      mutate({
-        type: 'card.update',
-        id: await cardIdOf(id, boardId),
-        // Decode a description that was sent with literal "\n" escapes
-        // instead of real line breaks (see decodeEscapedWhitespace).
-        patch:
-          typeof patch.description === 'string'
-            ? { ...patch, description: decodeEscapedWhitespace(patch.description) }
-            : patch
-      })
-    )
-)
-
-server.registerTool(
-  'kanbini_move_card',
-  {
-    title: 'Move or reorder a card',
-    description:
-      'Move a card between lists, or reorder within its current list. ' +
-      '`toListId` is the destination list. The position is optional and ' +
-      'named from the moved card\'s point of view: `beforeId` is the card ' +
-      'that will sit directly ABOVE it, `afterId` the card directly BELOW ' +
-      'it. So to put card X right under card Y, pass `beforeId: Y` (not ' +
-      '`afterId`). One neighbour is enough, the server works out the ' +
-      'other. Omit both to add the card to the END of the list; pass ' +
-      'only `afterId` = the first card to put it at the top. To place ' +
-      'several cards in order (e.g. most urgent first), move the first ' +
-      'one, then move each next one with `beforeId` = the card you just ' +
-      'moved. Respect the ' +
-      "destination list's `wipLimit` when one is set (advisory, not " +
-      'enforced server-side - check its card count first). Note: lists ' +
-      'with a non-null sortMode order themselves; a move into one ' +
-      'lands wherever the sort puts it, not at the requested slot. ' +
-      'Card numbers are per board: a move to a list on another board ' +
-      "gives the card that board's next number (kanbini_get_card " +
-      "shows it), and its labels follow by name: the other board's " +
-      'label with the same name, or a new one there in the same colour. ' +
-      CARD_REF_HINT +
-      ' A card number in `beforeId` / `afterId` needs the same board.',
-    inputSchema: {
-      id: z.string(),
-      boardId: zRefBoardId,
-      toListId: z.string(),
-      beforeId: z
-        .string()
-        .nullable()
-        .optional()
-        .describe('Card that will sit directly ABOVE the moved card'),
-      afterId: z
-        .string()
-        .nullable()
-        .optional()
-        .describe('Card that will sit directly BELOW the moved card')
-    }
-  },
-  ({ id, boardId, toListId, beforeId, afterId }) =>
-    asToolResult(async () =>
-      mutate({
-        type: 'card.move',
-        id: await cardIdOf(id, boardId),
-        toListId,
-        beforeId: beforeId ? await cardIdOf(beforeId, boardId) : null,
-        afterId: afterId ? await cardIdOf(afterId, boardId) : null
-      })
-    )
-)
-
-server.registerTool(
-  'kanbini_copy_card',
-  {
-    title: 'Copy a card',
-    description:
-      'Make a copy of a card in any list, on this board or another one. ' +
-      'The copy gets the title (or `title`), description, due date, ' +
-      'priority, repeat rule, completion, labels (on another board: the ' +
-      'label with the same name there, or a new one in the same colour), ' +
-      'checklists with their ticks, and attachments. Comments, activity ' +
-      'and "waiting on" links stay with the original. Position works like ' +
-      'kanbini_move_card: `beforeId` is the card that will sit directly ' +
-      'ABOVE the copy, `afterId` the one directly BELOW; omit both for the ' +
-      'end of the list. So to put the copy right under the original, pass ' +
-      'the original as `beforeId`. Returns { id, boardId } of the copy, ' +
-      'which gets its own card number. ' +
-      CARD_REF_HINT,
-    inputSchema: {
-      id: z.string(),
-      boardId: zRefBoardId,
-      toListId: z.string(),
-      title: z.string().min(1).optional(),
-      beforeId: z
-        .string()
-        .nullable()
-        .optional()
-        .describe('Card that will sit directly ABOVE the copy'),
-      afterId: z
-        .string()
-        .nullable()
-        .optional()
-        .describe('Card that will sit directly BELOW the copy')
-    }
-  },
-  ({ id, boardId, toListId, title, beforeId, afterId }) =>
-    asToolResult(async () =>
-      mutate({
-        type: 'card.copy',
-        id: await cardIdOf(id, boardId),
-        toListId,
-        ...(title !== undefined ? { title } : {}),
-        beforeId: beforeId ? await cardIdOf(beforeId, boardId) : null,
-        afterId: afterId ? await cardIdOf(afterId, boardId) : null
-      })
-    )
-)
-
-server.registerTool(
-  'kanbini_delete_card',
-  {
-    title: 'Delete a card',
-    description:
-      'Permanently delete a card. Its checklists, comments, and ' +
-      'attachment rows are removed by the FK cascade. Files attached ' +
-      'to the card stay on disk until the GC sweep - they cannot be ' +
-      'restored from the UI, so confirm intent before calling. ' +
-      CARD_REF_HINT,
-    inputSchema: { id: z.string(), boardId: zRefBoardId }
-  },
-  ({ id, boardId }) =>
-    asToolResult(async () => mutate({ type: 'card.delete', id: await cardIdOf(id, boardId) }))
-)
-
-server.registerTool(
-  'kanbini_set_card_labels',
-  {
-    title: 'Replace card labels',
-    description:
-      'Replace the full set of label ids on a card (idempotent). Pass ' +
-      'an empty array to remove all labels. Label ids come from the ' +
-      "board view's top-level `labels[]`, and must belong to the card's " +
-      'board; make a missing one with kanbini_create_label. ' +
-      CARD_REF_HINT,
-    inputSchema: {
-      id: z.string(),
-      boardId: zRefBoardId,
-      labelIds: z.array(z.string())
-    }
-  },
-  ({ id, boardId, labelIds }) =>
-    asToolResult(async () =>
-      mutate({ type: 'card.setLabels', id: await cardIdOf(id, boardId), labelIds })
-    )
-)
-
-server.registerTool(
-  'kanbini_add_blocker',
-  {
-    title: 'Mark a card as waiting on another',
-    description:
-      'Record that card `cardId` waits on card `blockerId` (a "blocked by" ' +
-      'link). The card shows as blocked in the app until the blocker is ' +
-      'completed or archived. The two cards may be on different boards. ' +
-      'Adding a link that already exists does nothing. Rejected when both ' +
-      'ids are the same card, or when `blockerId` already waits on ' +
-      '`cardId` directly or through other cards (that would make a loop). ' +
-      "A card's links are in the `blockedBy` and `blocking` arrays of " +
-      'kanbini_get_card / kanbini_get_board. The user can undo in the app. ' +
-      CARD_REF_HINT +
-      ' Two numbers must both be on that board; for a blocker on another ' +
-      'board, use its id.',
-    inputSchema: { cardId: z.string(), blockerId: z.string(), boardId: zRefBoardId }
-  },
-  ({ cardId, blockerId, boardId }) =>
-    asToolResult(async () =>
-      mutate({
-        type: 'card.addBlocker',
-        id: await cardIdOf(cardId, boardId),
-        blockerId: await cardIdOf(blockerId, boardId)
-      })
-    )
-)
-
-server.registerTool(
-  'kanbini_remove_blocker',
-  {
-    title: 'Stop a card waiting on another',
-    description:
-      'Remove the link that makes card `cardId` wait on card `blockerId`. ' +
-      "Removing a link that doesn't exist does nothing. Neither card " +
-      'changes otherwise. ' +
-      CARD_REF_HINT,
-    inputSchema: { cardId: z.string(), blockerId: z.string(), boardId: zRefBoardId }
-  },
-  ({ cardId, blockerId, boardId }) =>
-    asToolResult(async () =>
-      mutate({
-        type: 'card.removeBlocker',
-        id: await cardIdOf(cardId, boardId),
-        blockerId: await cardIdOf(blockerId, boardId)
-      })
-    )
-)
-
-server.registerTool(
-  'kanbini_post_comment',
-  {
-    title: 'Post a comment as the AI',
-    description:
-      "Post a comment on a card. Author is automatically set to 'ai' " +
-      'so it renders with the AI badge in the UI (and is distinguishable ' +
-      'from human-written comments). Body is Markdown - put real line ' +
-      'breaks between paragraphs and list items. A literal backslash-n ' +
-      'renders as the text "\\n", not a line break. ' +
-      CARD_REF_HINT,
-    inputSchema: {
-      cardId: z.string(),
-      boardId: zRefBoardId,
-      body: z.string().min(1)
-    }
-  },
-  ({ cardId, boardId, body }) =>
-    asToolResult(async () =>
-      mutate({
-        type: 'comment.create',
-        cardId: await cardIdOf(cardId, boardId),
-        // Recover line breaks if the client sent literal "\n" escapes
-        // instead of real ones (see decodeEscapedWhitespace).
-        body: decodeEscapedWhitespace(body),
-        author: 'ai'
-      })
-    )
-)
-
-server.registerTool(
-  'kanbini_update_comment',
-  {
-    title: 'Edit a comment',
-    description:
-      'Replace the text of a comment (ids are in the `comments` of ' +
-      'kanbini_get_card). Markdown, with real line breaks. Comments the ' +
-      "user wrote (author null) are theirs: change one only when they ask. " +
-      'The user can undo in the app.',
-    inputSchema: { id: z.string(), body: z.string().min(1) }
-  },
-  ({ id, body }) =>
-    asToolResult(() =>
-      mutate({ type: 'comment.update', id, patch: { body: decodeEscapedWhitespace(body) } })
-    )
-)
-
-server.registerTool(
-  'kanbini_delete_comment',
-  {
-    title: 'Delete a comment',
-    description:
-      'Delete a comment from a card. Comments the user wrote (author ' +
-      'null) are theirs: delete one only when they ask. The user can undo ' +
-      'in the app.',
-    inputSchema: { id: z.string() }
-  },
-  ({ id }) => asToolResult(() => mutate({ type: 'comment.delete', id }))
-)
-
-server.registerTool(
-  'kanbini_create_checklist',
-  {
-    title: 'Add a checklist to a card',
-    description:
-      'Create a new checklist on a card. Returns { id, boardId }; use ' +
-      'the returned id with kanbini_add_checklist_item to populate it. ' +
-      CARD_REF_HINT,
-    inputSchema: {
-      cardId: z.string(),
-      boardId: zRefBoardId,
-      name: z.string().min(1)
-    }
-  },
-  ({ cardId, boardId, name }) =>
-    asToolResult(async () =>
-      mutate({ type: 'checklist.create', cardId: await cardIdOf(cardId, boardId), name })
-    )
-)
-
-server.registerTool(
-  'kanbini_rename_checklist',
-  {
-    title: 'Rename a checklist',
-    description:
-      "Rename a card's checklist (ids are in the `checklists` of " +
-      'kanbini_get_card).',
-    inputSchema: { id: z.string(), name: z.string().min(1) }
-  },
-  ({ id, name }) =>
-    asToolResult(() => mutate({ type: 'checklist.update', id, patch: { name } }))
-)
-
-server.registerTool(
-  'kanbini_delete_checklist',
-  {
-    title: 'Delete a checklist',
-    description:
-      'Delete a whole checklist with all of its items. The user can undo ' +
-      'in the app.',
-    inputSchema: { id: z.string() }
-  },
-  ({ id }) => asToolResult(() => mutate({ type: 'checklist.delete', id }))
-)
-
-server.registerTool(
-  'kanbini_add_checklist_item',
-  {
-    title: 'Add a checklist item',
-    description:
-      'Append an item to an existing checklist. Returns { id, boardId }.',
-    inputSchema: {
-      checklistId: z.string(),
-      text: z.string().min(1)
-    }
-  },
-  ({ checklistId, text }) =>
-    asToolResult(() =>
-      mutate({ type: 'checklistItem.create', checklistId, text })
-    )
-)
-
-server.registerTool(
-  'kanbini_toggle_checklist_item',
-  {
-    title: 'Check or uncheck a checklist item',
-    description:
-      'Set the completed flag on a checklist item. Pass true to mark ' +
-      'it done, false to reopen.',
-    inputSchema: {
-      id: z.string(),
-      completed: z.boolean()
-    }
-  },
-  ({ id, completed }) =>
-    asToolResult(() =>
-      mutate({ type: 'checklistItem.update', id, patch: { completed } })
-    )
-)
-
-server.registerTool(
-  'kanbini_update_checklist_item',
-  {
-    title: 'Edit a checklist item',
-    description:
-      "Change a checklist item's `text`, and/or tick it (`completed`). " +
-      'Omit what you do not want to change.',
-    inputSchema: {
-      id: z.string(),
-      text: z.string().min(1).optional(),
-      completed: z.boolean().optional()
-    }
-  },
-  ({ id, text, completed }) =>
-    asToolResult(() => {
-      if (text === undefined && completed === undefined) {
-        throw new Error('Pass `text`, `completed`, or both.')
-      }
-      return mutate({
-        type: 'checklistItem.update',
-        id,
-        patch: {
-          ...(text !== undefined ? { text } : {}),
-          ...(completed !== undefined ? { completed } : {})
-        }
-      })
-    })
-)
-
-server.registerTool(
-  'kanbini_move_checklist_item',
-  {
-    title: 'Reorder or move a checklist item',
-    description:
-      'Move a checklist item within its checklist or to another checklist ' +
-      '(`toChecklistId`, which may be on another card). `beforeId` is the ' +
-      'item that will sit directly ABOVE it, `afterId` the one directly ' +
-      'BELOW; one is enough, and omitting both puts it at the end.',
-    inputSchema: {
-      id: z.string(),
-      toChecklistId: z.string(),
-      beforeId: z
-        .string()
-        .nullable()
-        .optional()
-        .describe('Item that will sit directly ABOVE the moved item'),
-      afterId: z
-        .string()
-        .nullable()
-        .optional()
-        .describe('Item that will sit directly BELOW the moved item')
-    }
-  },
-  ({ id, toChecklistId, beforeId, afterId }) =>
-    asToolResult(() =>
-      mutate({
-        type: 'checklistItem.move',
-        id,
-        toChecklistId,
-        beforeId: beforeId ?? null,
-        afterId: afterId ?? null
-      })
-    )
-)
-
-server.registerTool(
-  'kanbini_delete_checklist_item',
-  {
-    title: 'Delete a checklist item',
-    description: 'Remove one item from a checklist. The user can undo in the app.',
-    inputSchema: { id: z.string() }
-  },
-  ({ id }) => asToolResult(() => mutate({ type: 'checklistItem.delete', id }))
-)
-
-// ─── board / list / label / archive / attachment tools ───────────
-// Everything below closes the gaps the first tool set left: labels could
-// only be assigned (never made), list settings (WIP limit, sort, colour,
-// on-enter rule) and board colour were UI-only, nothing could archive,
-// and attachments were read-only. All of it is either a thin wrapper
-// over an existing zMutation arm (so validation, undo, and the live
-// `changed` broadcast come for free) or one of the file-aware control-
-// channel methods (`attachment.add` / `attachment.delete`).
-
-/** Colour input shared by every colour-taking tool. A palette name maps
- *  to the exact swatch the app's pickers offer (resolved here, before
- *  the mutation, so the stored value is always the real swatch string);
- *  anything else is passed through as a raw CSS colour. */
-const zColorInput = z
-  .string()
-  .min(1)
-  .max(32)
-  .describe(
-    `One of the app palette names (${ACCENT_NAMES.join(', ')}) - ` +
-      'preferred, so the colour matches the swatches in the app - or a ' +
-      'raw CSS colour string such as one read back from another entity.'
   )
+}
 
-const PALETTE_HINT =
-  `Colours: pass a palette name (${ACCENT_NAMES.join(', ')}) so it ` +
-  "matches the app's swatch picker."
-
-server.registerTool(
-  'kanbini_update_board',
-  {
-    title: 'Update board settings',
-    description:
-      'Patch a board. `name` renames it; `description` is the short ' +
-      'blurb on the home picker (null clears it); `color` is the board ' +
-      'accent shown on its home card and header tint (null clears it); ' +
-      '`pinned` favourites it to the top of the home picker. Omit ' +
-      'fields you do not want to change. To archive a board use ' +
-      'kanbini_archive_board. ' +
-      PALETTE_HINT,
-    inputSchema: {
-      id: z.string(),
-      patch: z.object({
-        name: z.string().min(1).optional(),
-        description: z.string().nullable().optional(),
-        color: zColorInput.nullable().optional(),
-        pinned: z.boolean().optional()
-      })
-    }
-  },
-  ({ id, patch }) =>
-    asToolResult(() =>
-      mutate({
-        type: 'board.update',
-        id,
-        patch: {
-          ...patch,
-          ...(typeof patch.color === 'string'
-            ? { color: resolveAccentColor(patch.color) }
-            : {})
-        }
-      })
-    )
-)
+const BATCH_MAX_STEPS = 200
 
 server.registerTool(
-  'kanbini_update_list',
+  'kanbini_batch',
   {
-    title: 'Update list settings',
+    title: 'Make many changes at once',
     description:
-      'Patch a list (column). `name` renames it. `color` tints the list ' +
-      'header and border (null clears it). `wipLimit` sets a work-in-' +
-      'progress cap - a positive integer, or null to remove it; the app ' +
-      'shows the count against the cap and blocks drags past it, but ' +
-      'the limit is NOT enforced for writes, so check the card count ' +
-      'yourself before adding. `sortMode` orders the cards: "manual" ' +
-      '(drag order, the default), "created-asc"/"created-desc" (card ' +
-      'creation time), "added-asc"/"added-desc" (when the card entered ' +
-      'this list), "due-asc" (soonest due first, undated last), ' +
-      '"title-asc"/"title-desc" (alphabetical), "priority-desc" (urgent ' +
-      'first). Switching back to "manual" freezes the current sorted ' +
-      'order as the new drag order. `onEnter` runs when a card is moved ' +
-      'INTO this list from another one: "complete" marks it done, ' +
-      '"uncomplete" reopens it, null removes the rule. `cardDensity` ' +
-      '"compact" draws every card in the list compact (a card can opt out ' +
-      'with kanbini_update_card collapsed: false); "full" is the default. ' +
-      '`visibleCardLimit` shows at most that many cards on screen, then a ' +
-      '"Show N more" button (1-1000); 0 always shows every card; null ' +
-      `(the default) lets the app shorten a list of more than ${AUTO_CARD_LIMIT_ABOVE} cards ` +
-      `to its first ${AUTO_CARD_LIMIT} (the user can turn that off). Both are display ` +
-      'only: kanbini_get_board always returns EVERY card with its full ' +
-      'content, so never read a limit as the list being shorter. Change ' +
-      'them only when the user asks. To reorder lists use ' +
-      'kanbini_move_list; to hide one use kanbini_archive_list. ' +
-      PALETTE_HINT,
+      'Apply many changes in ONE call, as one change: all of them land or none do, and one ' +
+      'Ctrl+Z in the app takes them all back. Use it whenever you would otherwise call write ' +
+      'tools several times (filling a board, tidying a list, moving or relabelling many cards). ' +
+      '`steps` (up to 200) run in order; each is `{ op, ...arguments }` where `op` is a write ' +
+      'tool name without `kanbini_` (create_card, update_card, move_card, set_card_labels, ' +
+      'archive_card, create_list, create_label, post_comment, create_checklist, ...) and the ' +
+      'arguments are exactly that tool\'s. `boardId` (id or name) is the default board for every ' +
+      'step, so steps can name cards by number (`#142`) and lists / labels by name without ' +
+      'repeating it; a step may still pass its own. A step that creates something can take `ref: ' +
+      '"name"`, and later steps use `"$name"` wherever an id goes, e.g. [{ op: "create_list", ' +
+      'name: "Sprint 4", ref: "s4" }, { op: "create_card", listId: "$s4", title: "Plan" }]. ' +
+      'Lists and labels a step creates can also be named by their name later on. Attachments ' +
+      'are not available here. Returns { changes, steps: [{ step, op, id, ref? }] } with the ' +
+      'id of what each step changed or made. A failing step is reported by number and nothing ' +
+      'is changed.',
     inputSchema: {
-      id: z.string(),
-      patch: z.object({
-        name: z.string().min(1).optional(),
-        color: zColorInput.nullable().optional(),
-        wipLimit: z.number().int().positive().nullable().optional(),
-        sortMode: z.enum(['manual', ...zListSortMode.options]).optional(),
-        onEnter: z.enum(['complete', 'uncomplete']).nullable().optional(),
-        cardDensity: z.enum(['full', 'compact']).optional(),
-        visibleCardLimit: z
-          .number()
-          .int()
-          .min(0)
-          .max(MAX_VISIBLE_CARD_LIMIT)
-          .nullable()
-          .optional()
-      })
+      boardId: z.string().optional(),
+      steps: z
+        .array(
+          z
+            .object({
+              op: z.enum(OPS.map((o) => o.name) as [string, ...string[]]),
+              ref: z.string().optional()
+            })
+            .passthrough()
+        )
+        .min(1)
+        .max(BATCH_MAX_STEPS)
     }
   },
-  ({ id, patch }) =>
-    asToolResult(() => {
-      const { color, sortMode, onEnter, cardDensity, ...rest } = patch
-      return mutate({
-        type: 'list.update',
-        id,
-        patch: {
-          ...rest,
-          ...(color !== undefined
-            ? { color: color === null ? null : resolveAccentColor(color) }
-            : {}),
-          ...(sortMode !== undefined
-            ? { sortMode: sortMode === 'manual' ? null : sortMode }
-            : {}),
-          ...(onEnter !== undefined
-            ? { onEnter: onEnter === null ? null : { kind: onEnter } }
-            : {}),
-          // "full" is the stored null; spelled out for the AI so it
-          // never has to know the column's null convention.
-          ...(cardDensity !== undefined
-            ? { cardDensity: cardDensity === 'full' ? null : cardDensity }
-            : {})
+  ({ boardId, steps }) =>
+    asToolResult(async () => {
+      const r = new Resolver(resolverIO, boardId)
+      const mutations: Mutation[] = []
+      const spans: { start: number; primary: number }[] = []
+      await unlessOffline(async () => {
+        for (const [i, step] of steps.entries()) {
+          const spec = OPS_BY_NAME.get(step.op)!
+          const where = `Step ${i + 1} (${step.op})`
+          const { op: _op, ref, ...args } = step as Record<string, unknown> & { ref?: string }
+          if (ref !== undefined && !spec.creates) {
+            throw new Error(
+              `${where}: \`ref\` names something a step creates, and ${step.op} creates nothing.`
+            )
+          }
+          // The batch's board is every step's default, including ops
+          // where `boardId` is required (create_list, create_label).
+          if (boardId !== undefined && 'boardId' in spec.shape && args['boardId'] === undefined) {
+            args['boardId'] = boardId
+          }
+          const parsed = z.object(spec.shape).strict().safeParse(args)
+          if (!parsed.success) {
+            throw new Error(`${where}: ${z.prettifyError(parsed.error)}`)
+          }
+          let built
+          try {
+            built = await spec.build(parsed.data, r, ref)
+          } catch (e) {
+            throw new Error(`${where}: ${e instanceof Error ? e.message : String(e)}`)
+          }
+          spans.push({ start: mutations.length, primary: built.primary })
+          mutations.push(...built.mutations)
         }
       })
+      if (mutations.length > MAX_BATCH_MUTATIONS) {
+        throw new Error(
+          `These steps add up to ${mutations.length} changes; one batch takes up to ` +
+            `${MAX_BATCH_MUTATIONS}. Split it into smaller batches.`
+        )
+      }
+      let results: MutationResult[]
+      try {
+        results = await applyMutations(mutations)
+      } catch (e) {
+        throw new Error(batchFailure(e, spans, steps), { cause: e })
+      }
+      return {
+        changes: mutations.length,
+        steps: steps.map((s, i) => ({
+          step: i + 1,
+          op: s.op,
+          id: results[spans[i]!.start + spans[i]!.primary]!.id,
+          ...(s.ref !== undefined ? { ref: s.ref } : {})
+        }))
+      }
     })
 )
 
-server.registerTool(
-  'kanbini_move_list',
-  {
-    title: 'Reorder a list',
-    description:
-      'Move a list (column) to a new position on its board. Named from ' +
-      "the moved list's point of view: `beforeId` is the list that will " +
-      'sit directly to its LEFT, `afterId` the list directly to its ' +
-      'RIGHT. So to put list X just right of list Y, pass `beforeId: Y`. ' +
-      'One neighbour is enough, the server works out the other. Omit ' +
-      'both for the far right; pass only `afterId` = the first list for ' +
-      'the far left. Neighbours must be lists on the same board (get ' +
-      'the order from kanbini_get_board; closed lists count too, since ' +
-      'they keep their slot).',
-    inputSchema: {
-      id: z.string(),
-      beforeId: z
-        .string()
-        .nullable()
-        .optional()
-        .describe('List that will sit directly LEFT of the moved list'),
-      afterId: z
-        .string()
-        .nullable()
-        .optional()
-        .describe('List that will sit directly RIGHT of the moved list')
-    }
-  },
-  ({ id, beforeId, afterId }) =>
-    asToolResult(() =>
-      mutate({
-        type: 'list.move',
-        id,
-        beforeId: beforeId ?? null,
-        afterId: afterId ?? null
-      })
-    )
-)
-
-server.registerTool(
-  'kanbini_create_label',
-  {
-    title: 'Create a label',
-    description:
-      'Create a new label on a board. Labels are board-scoped: the ' +
-      'returned id can be put on any card of THAT board with ' +
-      'kanbini_set_card_labels. Check the board view\'s `labels[]` first ' +
-      'so you reuse an existing label instead of making a near-duplicate. ' +
-      'Returns { id, boardId }. ' +
-      PALETTE_HINT,
-    inputSchema: {
-      boardId: z.string(),
-      name: z.string().min(1),
-      color: zColorInput
-    }
-  },
-  ({ boardId, name, color }) =>
-    asToolResult(() =>
-      mutate({
-        type: 'label.create',
-        boardId,
-        name,
-        color: resolveAccentColor(color)
-      })
-    )
-)
-
-server.registerTool(
-  'kanbini_update_label',
-  {
-    title: 'Rename or recolour a label',
-    description:
-      'Patch a label. `name` renames it and `color` recolours it - the ' +
-      'change shows on every card carrying the label. Omit fields you ' +
-      'do not want to change. ' +
-      PALETTE_HINT,
-    inputSchema: {
-      id: z.string(),
-      patch: z.object({
-        name: z.string().min(1).optional(),
-        color: zColorInput.optional()
-      })
-    }
-  },
-  ({ id, patch }) =>
-    asToolResult(() =>
-      mutate({
-        type: 'label.update',
-        id,
-        patch: {
-          ...patch,
-          ...(patch.color !== undefined
-            ? { color: resolveAccentColor(patch.color) }
-            : {})
-        }
-      })
-    )
-)
-
-server.registerTool(
-  'kanbini_delete_label',
-  {
-    title: 'Delete a label',
-    description:
-      'Delete a label from its board. It is removed from EVERY card that ' +
-      'carries it. The user can undo this in the app (Ctrl+Z), which ' +
-      'puts it back on the same cards, but confirm intent first when ' +
-      'the label is in use.',
-    inputSchema: { id: z.string() }
-  },
-  ({ id }) => asToolResult(() => mutate({ type: 'label.delete', id }))
-)
-
-// Archive tools. Each description tells the AI to say an item was
-// archived (not deleted) and where the user finds it again: the
-// board's pencil menu -> Archived... in the app.
-
-server.registerTool(
-  'kanbini_archive_card',
-  {
-    title: 'Archive or restore a card',
-    description:
-      'Archive (archived: true) or restore (archived: false) a card. An ' +
-      'archived card disappears from the board, search, and card counts ' +
-      'but keeps its list, position, checklists, comments, and ' +
-      'attachments, so restoring puts it back exactly where it was. Tell ' +
-      'the user the card was archived rather than deleted: they can see ' +
-      'and restore it in the app from the board\'s pencil menu > ' +
-      'Archived..., and kanbini_list_archived finds it too. Prefer this ' +
-      'over kanbini_delete_card when the user ' +
-      'wants a card "out of the way". ' +
-      CARD_REF_HINT,
-    inputSchema: { id: z.string(), boardId: zRefBoardId, archived: z.boolean() }
-  },
-  ({ id, boardId, archived }) =>
-    asToolResult(async () =>
-      mutate({ type: 'card.update', id: await cardIdOf(id, boardId), patch: { archived } })
-    )
-)
-
-server.registerTool(
-  'kanbini_archive_list',
-  {
-    title: 'Archive or restore a list',
-    description:
-      'Archive (archived: true) or restore (archived: false) a whole list ' +
-      '(column). An archived list is hidden from the board along with ' +
-      'every card in it, and its cards drop out of search and counts; ' +
-      'nothing is deleted, and restoring brings the list back in its ' +
-      'original slot with its cards. Tell the user: they can see and ' +
-      'restore it in the app from the board\'s pencil menu > ' +
-      'Archived..., and kanbini_list_archived finds it too.',
-    inputSchema: { id: z.string(), archived: z.boolean() }
-  },
-  ({ id, archived }) =>
-    asToolResult(() =>
-      mutate({ type: 'list.update', id, patch: { closed: archived } })
-    )
-)
-
-server.registerTool(
-  'kanbini_archive_board',
-  {
-    title: 'Archive or restore a board',
-    description:
-      'Archive (archived: true) or restore (archived: false) a board. An ' +
-      'archived board is hidden from the home picker (the user can still ' +
-      'reach it with "Show archived") and its cards drop out of search. ' +
-      'Nothing is deleted. kanbini_list_boards still returns archived ' +
-      'boards, flagged `archived: true`.',
-    inputSchema: { id: z.string(), archived: z.boolean() }
-  },
-  ({ id, archived }) =>
-    asToolResult(() =>
-      mutate({ type: 'board.update', id, patch: { archived } })
-    )
-)
-
-server.registerTool(
-  'kanbini_delete_list',
-  {
-    title: 'Delete a list',
-    description:
-      'Permanently delete a list (column) and every card in it. Prefer ' +
-      'kanbini_archive_list unless the user asks for it to be deleted, and ' +
-      'say how many cards go with it before you do. The user can undo it ' +
-      'in the app (Ctrl+Z on that board).',
-    inputSchema: { id: z.string() }
-  },
-  ({ id }) => asToolResult(() => mutate({ type: 'list.delete', id }))
-)
-
-server.registerTool(
-  'kanbini_delete_board',
-  {
-    title: 'Delete a board',
-    description:
-      'Permanently delete a board with all of its lists, cards and ' +
-      'labels. Prefer kanbini_archive_board unless the user clearly asks ' +
-      'for it to be deleted; confirm the board by name first. The user can ' +
-      'undo it in the app (Ctrl+Z from the boards home).',
-    inputSchema: { id: z.string() }
-  },
-  ({ id }) => asToolResult(() => mutate({ type: 'board.delete', id }))
-)
+/** Name the step behind a batch the app refused ("Change 7 of 12 ..."
+ *  from applyMutationsRecorded, or a single mutate's own error). */
+function batchFailure(
+  e: unknown,
+  spans: { start: number }[],
+  steps: { op: string }[]
+): string {
+  const msg = e instanceof Error ? e.message : String(e)
+  const m = /Change (\d+) of \d+ \([^)]*\) failed: ([\s\S]*)$/.exec(msg)
+  const index = m ? Number(m[1]) - 1 : spans.length === 1 ? 0 : -1
+  if (index < 0) return `The batch failed and nothing was changed: ${msg}`
+  let step = 0
+  while (step + 1 < spans.length && spans[step + 1]!.start <= index) step++
+  return `Step ${step + 1} (${steps[step]!.op}) failed, so nothing was changed: ${m ? m[2] : msg}`
+}
 
 server.registerTool(
   'kanbini_list_archived',
@@ -1412,7 +740,10 @@ server.registerTool(
       CARD_REF_HINT,
     inputSchema: {
       cardId: z.string(),
-      boardId: zRefBoardId,
+      boardId: z
+        .string()
+        .optional()
+        .describe('The board id or name, when the card is given by number (#142)'),
       path: z.string().min(1).optional(),
       filename: z.string().min(1).max(255).optional(),
       content: z.string().optional(),
@@ -1421,7 +752,7 @@ server.registerTool(
   },
   ({ cardId: ref, boardId, path, filename, content, encoding }) =>
     asToolResult(async () => {
-      const cardId = await cardIdOf(ref, boardId)
+      const cardId = await new Resolver(resolverIO).card(ref, boardId)
       const inline = filename !== undefined || content !== undefined
       if (path !== undefined && inline) {
         throw new Error(
@@ -1536,11 +867,11 @@ server.registerPrompt(
                 'fits, ask me which one instead of guessing, and never create ' +
                 'a board without asking.\n\n') +
             'Put the card in a list named like Done or Complete if the board ' +
-            'has one, otherwise in the list the work belongs to. Give it a ' +
-            'short title, and a Markdown description covering what changed, ' +
-            'why, and any follow-ups. Then mark it complete with ' +
-            'kanbini_update_card. If there are follow-ups, offer to add them ' +
-            'as their own cards. Tell me which board and list you used.'
+            'has one, otherwise in the list the work belongs to. Make it with ' +
+            'one kanbini_create_card call: a short title, a Markdown ' +
+            'description covering what changed, why, and any follow-ups, and ' +
+            'completed: true. If there are follow-ups, offer to add them as ' +
+            'their own cards. Tell me which board and list you used.'
         }
       }
     ]

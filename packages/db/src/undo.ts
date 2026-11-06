@@ -1604,7 +1604,18 @@ export function applyMutationsRecorded(
   const groupId = newId()
   return db.transaction((tx) => {
     const txDb = tx as unknown as Db
-    return mutations.map((m) => applyMutationRecorded(txDb, m, { groupId }))
+    return mutations.map((m, i) => {
+      try {
+        return applyMutationRecorded(txDb, m, { groupId })
+      } catch (e) {
+        // Name the change that failed (the whole batch rolls back): a
+        // caller sending dozens of changes needs to know which one.
+        const why = e instanceof Error ? e.message : String(e)
+        throw new Error(`Change ${i + 1} of ${mutations.length} (${m.type}) failed: ${why}`, {
+          cause: e
+        })
+      }
+    })
   })
 }
 

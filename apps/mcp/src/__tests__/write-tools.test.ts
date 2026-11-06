@@ -140,7 +140,7 @@ describe('MCP write tools - uncovered tools', () => {
     }>(
       await client.callTool({
         name: 'kanbini_get_board',
-        arguments: { boardId: board.id }
+        arguments: { boardId: board.id, detail: 'full' }
       }),
       'get_board (bootstrap)'
     )
@@ -153,7 +153,7 @@ describe('MCP write tools - uncovered tools', () => {
       labels: Array<{ id: string; name: string }>
       lists: Array<{ cards: Array<{ id: string; labelIds: string[] }> }>
     }>(
-      await client.callTool({ name: 'kanbini_get_board', arguments: {} }),
+      await client.callTool({ name: 'kanbini_get_board', arguments: { detail: 'full' } }),
       'get_board'
     )
     expect(board.labels.length).toBeGreaterThanOrEqual(2)
@@ -180,7 +180,7 @@ describe('MCP write tools - uncovered tools', () => {
     const board = unwrap<{
       lists: Array<{ cards: Array<{ id: string }> }>
     }>(
-      await client.callTool({ name: 'kanbini_get_board', arguments: {} }),
+      await client.callTool({ name: 'kanbini_get_board', arguments: { detail: 'full' } }),
       'get_board'
     )
     const card = board.lists[0]!.cards[0]!
@@ -209,7 +209,7 @@ describe('MCP write tools - uncovered tools', () => {
         cards: Array<{ id: string; title: string }>
       }>
     }>(
-      await client.callTool({ name: 'kanbini_get_board', arguments: {} }),
+      await client.callTool({ name: 'kanbini_get_board', arguments: { detail: 'full' } }),
       'get_board'
     )
     const [from, to] = board.lists
@@ -237,7 +237,7 @@ describe('MCP write tools - uncovered tools', () => {
         cards: Array<{ id: string; title: string }>
       }>
     }>(
-      await client.callTool({ name: 'kanbini_get_board', arguments: {} }),
+      await client.callTool({ name: 'kanbini_get_board', arguments: { detail: 'full' } }),
       'get_board (after move)'
     )
     const fromAfter = after.lists.find((l) => l.id === from!.id)!
@@ -254,7 +254,7 @@ describe('MCP write tools - uncovered tools', () => {
     const board = unwrap<{
       lists: Array<{ cards: Array<{ id: string }> }>
     }>(
-      await client.callTool({ name: 'kanbini_get_board', arguments: {} }),
+      await client.callTool({ name: 'kanbini_get_board', arguments: { detail: 'full' } }),
       'get_board'
     )
     const card = board.lists[0]!.cards[0]!
@@ -292,7 +292,7 @@ describe('MCP write tools - uncovered tools', () => {
         cards: Array<{ id: string }>
       }>
     }>(
-      await client.callTool({ name: 'kanbini_get_board', arguments: {} }),
+      await client.callTool({ name: 'kanbini_get_board', arguments: { detail: 'full' } }),
       'get_board'
     )
     const targetList = board.lists.find((l) => l.cards.length > 0)!
@@ -353,7 +353,7 @@ describe('MCP write tools - validation errors', () => {
 
   it('rejects create_card with empty title (zod min(1))', async () => {
     const board = unwrap<{ lists: Array<{ id: string }> }>(
-      await client.callTool({ name: 'kanbini_get_board', arguments: {} }),
+      await client.callTool({ name: 'kanbini_get_board', arguments: { detail: 'full' } }),
       'get_board'
     )
     expectValidationError(

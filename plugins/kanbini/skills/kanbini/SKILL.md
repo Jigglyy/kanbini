@@ -14,9 +14,17 @@ edited it themselves. Nothing is sent anywhere else.
 
 ## Finding things
 
-- Never guess an id. Board ids come from `kanbini_list_boards`, list and
-  card ids from `kanbini_get_board`, and `kanbini_search_cards` finds a
-  card by words in its title, description, or label names.
+- Never guess an id, and you rarely need one: boards, lists and labels
+  can be named by their exact name, and cards by number (#142), with
+  `boardId` (a board's id or name). `kanbini_list_boards` lists the
+  boards, and `kanbini_search_cards` finds a card by words in its title,
+  description, or label names.
+- `kanbini_get_board` gives one short line per card (number, title, and
+  only what applies: due, priority, labels, checklist progress, ...), so
+  it works on big boards. Read one card in full with `kanbini_get_card`.
+  For one list, filtered (open or done, a label, a priority, a due range,
+  some text) or a page at a time, use `kanbini_get_list_cards`. Avoid
+  `detail: "full"` on a big board.
 - Every card has a short number the app shows on it, like #142 (`number`
   in reads), counted per board: each board has its own #1, #2, ...
   Users refer to cards that way. `kanbini_get_card` and every write
@@ -36,6 +44,13 @@ edited it themselves. Nothing is sent anywhere else.
 
 ## Changing things
 
+- More than one change? Use `kanbini_batch`: one call, all-or-nothing,
+  and one Ctrl+Z in the app undoes it. Its steps take the same arguments
+  as the matching tools; give the batch a `boardId` so steps can name
+  cards by number and lists / labels by name, and use `ref` / `"$ref"`
+  to point at something an earlier step made.
+- Make a card in one `kanbini_create_card` call: it takes the
+  description, due date, priority, labels, checklists and position too.
 - Move a card with `kanbini_move_card`, to any list on any board (its
   labels follow by name). Don't delete and recreate it: that loses its
   comments, checklists, attachments, and history. For a copy, use
@@ -44,7 +59,8 @@ edited it themselves. Nothing is sent anywhere else.
   deleting. Tell the user what you archived: they can see and restore
   it in the app from the board's pencil menu > Archived..., and
   `kanbini_list_archived` finds it again.
-- Due dates are epoch milliseconds at LOCAL midnight of the due day.
+- Due dates: pass `due` as a day, YYYY-MM-DD (or `dueAt`, epoch ms at
+  LOCAL midnight of the due day). Reads show `due` the same way.
 - Priority is `low`, `medium`, `high`, `urgent`, or null.
 - Repeating cards: set `repeat: { unit: 'day' | 'week' | 'month' |
   'year', every }` with `kanbini_update_card`. Completing one makes the

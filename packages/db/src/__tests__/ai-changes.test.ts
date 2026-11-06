@@ -139,6 +139,19 @@ describe('AI undo groups', () => {
     expect(titles(s.a, s.todo)).toEqual([])
   })
 
+  it('a failing change in a batch is named, and nothing in the batch lands', () => {
+    const s = setup()
+    const card = applyMutation(db, { type: 'card.create', listId: s.todo, title: 'Keep' }).id
+    expect(() =>
+      applyMutationsRecorded(db, [
+        { type: 'card.update', id: card, patch: { title: 'Renamed' } },
+        { type: 'card.create', listId: s.todo, title: 'New' },
+        { type: 'card.addBlocker', id: card, blockerId: card }
+      ])
+    ).toThrow(/^Change 3 of 3 \(card\.addBlocker\) failed: /)
+    expect(titles(s.a, s.todo)).toEqual(['Keep'])
+  })
+
   it('a single AI change says so', () => {
     const s = setup()
     ai({ type: 'card.create', listId: s.todo, title: 'Solo' })

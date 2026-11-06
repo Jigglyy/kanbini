@@ -74,7 +74,7 @@ interface Board {
 }
 
 const getCard = (id: string) => call<Card>('kanbini_get_card', { id })
-const getBoard = (boardId: string) => call<Board>('kanbini_get_board', { boardId })
+const getBoard = (boardId: string) => call<Board>('kanbini_get_board', { boardId, detail: 'full' })
 const created = async (name: string, args: Record<string, unknown>) =>
   (await call<{ id: string }>(name, args)).id
 

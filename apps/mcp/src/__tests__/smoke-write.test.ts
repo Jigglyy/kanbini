@@ -86,7 +86,7 @@ describe('MCP write tools', () => {
     }>(
       await client.callTool({
         name: 'kanbini_get_board',
-        arguments: {}
+        arguments: { detail: 'full' }
       }),
       'get_board'
     )

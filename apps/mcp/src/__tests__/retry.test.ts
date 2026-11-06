@@ -70,7 +70,7 @@ describe('MCP rpc retry - survives a stale keep-alive socket', () => {
     // "[NOTE] app is closed" export prefix would break JSON.parse).
     channel.failNextRequests(1)
     const board = unwrap<{ lists: Array<{ cards: Array<{ id: string }> }> }>(
-      await client.callTool({ name: 'kanbini_get_board', arguments: {} }),
+      await client.callTool({ name: 'kanbini_get_board', arguments: { detail: 'full' } }),
       'get_board after drop'
     )
     expect(Array.isArray(board.lists)).toBe(true)
@@ -107,7 +107,7 @@ describe('MCP rpc retry - survives a stale keep-alive socket', () => {
 
   it('a write tool recovers from a dropped first request', async () => {
     const board = unwrap<{ lists: Array<{ id: string }> }>(
-      await client.callTool({ name: 'kanbini_get_board', arguments: {} }),
+      await client.callTool({ name: 'kanbini_get_board', arguments: { detail: 'full' } }),
       'get_board'
     )
     channel.failNextRequests(1)
@@ -128,7 +128,7 @@ describe('MCP rpc retry - survives a stale keep-alive socket', () => {
     channel.failNextRequests(2)
     const res = await client.callTool({
       name: 'kanbini_get_board',
-      arguments: {}
+      arguments: { detail: 'full' }
     })
     expect(isError(res)).toBe(true)
     expect(errorText(res)).toMatch(/not running|no on-disk export/i)

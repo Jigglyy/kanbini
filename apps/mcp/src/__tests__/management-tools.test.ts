@@ -88,7 +88,7 @@ interface BoardView {
 }
 
 const getBoard = (boardId: string) =>
-  call<BoardView>('kanbini_get_board', { boardId })
+  call<BoardView>('kanbini_get_board', { boardId, detail: 'full' })
 
 /** A fresh board with `lists` columns and `cardsPerList` cards in the
  *  first one, so each test owns its fixtures. */

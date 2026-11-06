@@ -444,7 +444,8 @@ export type MutationResult = z.infer<typeof zMutationResult>
  *  transaction and recorded under one undo-log group (one Ctrl+Z).
  *  Capped well above any realistic selection so a runaway caller can't
  *  stuff an unbounded payload through the boundary. */
-export const zMutationBatch = z.array(zMutation).min(1).max(500)
+export const MAX_MUTATION_BATCH = 500
+export const zMutationBatch = z.array(zMutation).min(1).max(MAX_MUTATION_BATCH)
 export type MutationBatch = z.infer<typeof zMutationBatch>
 
 export const zMutationResults = z.array(zMutationResult)

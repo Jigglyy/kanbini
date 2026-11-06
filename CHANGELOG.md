@@ -9,6 +9,34 @@ Releases are cut by pushing a `v*` tag, which builds the Windows,
 macOS and Linux downloads and publishes a GitHub Release (see
 [`.github/workflows/release.yml`](.github/workflows/release.yml)).
 
+## [Unreleased]
+
+### Changed
+
+- **AI tools are much faster on big boards.** Reading a board now gives
+  the AI one short line per card (number, title, and only what applies:
+  due date, priority, labels, checklist progress, ...) and the first 50
+  cards of each list, so a board with hundreds of cards reads in one go:
+  a 400-card board went from about 1.8 MB to 26 KB. Full details are one
+  card away, and the old full read is still there on request.
+- **AI tools take names and card numbers.** Boards, lists and labels can
+  be named by name and cards by their #number, so the AI no longer looks
+  up ids first. Due dates can be given as a day (YYYY-MM-DD).
+- **Making a card is one step.** The AI's create-card tool now takes the
+  description, due date, priority, labels, checklists and position in
+  the same call.
+
+### Added
+
+- **Bulk changes in one go.** A new batch tool lets the AI make many
+  changes of any kind at once: all of them land or none do, and one
+  Ctrl+Z takes them all back. A step can use something an earlier step
+  made, so a whole board can be built in one call.
+- **List reads for the AI**, filtered by open / done, label, priority,
+  due date or text, and paged for long lists.
+- Labels can be added to or removed from a card without listing the
+  ones it already has.
+
 ## [0.16.0] - 2026-11-05
 
 ### Added

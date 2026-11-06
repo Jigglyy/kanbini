@@ -748,7 +748,7 @@ describe('MCP server falls back to the export when the app is closed', () => {
   it('kanbini_get_board falls back to a real board view', async () => {
     const res = (await client.callTool({
       name: 'kanbini_get_board',
-      arguments: {}
+      arguments: { detail: 'full' }
     })) as { content: Array<{ text: string }>; isError?: boolean }
     expect(res.isError).toBeFalsy()
     const { data } = parseFallback(res.content[0]!.text)

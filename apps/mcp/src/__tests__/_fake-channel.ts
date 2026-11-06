@@ -7,6 +7,7 @@ import { APP_CODENAME, isInternalMutation, mutationName, type Mutation } from '@
 import {
   addAttachmentFromRequest,
   applyMutationRecorded,
+  applyMutationsRecorded,
   deleteAttachmentWithFile,
   getAgenda,
   getArchivedItems,
@@ -25,7 +26,7 @@ import {
 //   - an HTTP server on a random port that mirrors the real
 //     control-channel allow-list (board.getView, card.get, boards.list,
 //     search.cards, agenda.get, board.archived, attachment.add, attachment.delete,
-//     mutate). The attachment methods call the SAME @kanbini/db writers
+//     mutate, mutate.batch). The attachment methods call the SAME @kanbini/db writers
 //     the desktop channel does, against this fake's temp userData, so
 //     the files they write are real and assertable.
 //   - a temp userData dir with `mcp.json` + `mcp-token` so the spawned
@@ -195,6 +196,17 @@ export async function startFakeChannel(opts?: {
                 m.type === 'attachment.delete'
                   ? await deleteAttachmentWithFile(db, { userDataDir, id: m.id })
                   : applyMutationRecorded(db, m)
+              break
+            }
+            case 'mutate.batch': {
+              // Same refusals as the real channel's batch method.
+              const ms = params as Mutation[]
+              for (const m of ms) {
+                if (isInternalMutation(m) || m.type === 'attachment.delete') {
+                  throw new Error(`${mutationName(m)} not allowed in a mutation batch`)
+                }
+              }
+              result = applyMutationsRecorded(db, ms)
               break
             }
             default:
