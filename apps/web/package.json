@@ -5,7 +5,8 @@
   "license": "MIT",
   "description": "Kanbini served to a browser, for Docker. See README.md.",
   "scripts": {
-    "lint": "oxlint"
+    "lint": "oxlint",
+    "test": "vitest run"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -13,6 +14,7 @@
   },
   "devDependencies": {
     "@shadcn/lint": "0.2.3",
-    "oxlint": "1.89.0"
+    "oxlint": "1.89.0",
+    "vitest": "^3.2.4"
   }
 }
