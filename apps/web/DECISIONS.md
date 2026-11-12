@@ -125,9 +125,13 @@ of a workspace share one process, so their live updates come for free.
 - **A Docker container per account:** the app would need the Docker socket,
   which is root on the host.
 
-**Cost.** About 100 MB of memory per active set of boards. App processes run
-until a restart (marked `shortcut:` in the code); stopping idle ones is the
-next step if accounts grow.
+**Cost.** About 100 MB of memory per active set of boards. To keep that
+bounded, an app nobody has used for 30 minutes (no request, no open tab
+holding the live-update stream, no MCP session) is stopped: it runs its
+normal quit path, so its export and daily backup are written, and the next
+request starts it again. A new process for the same folder waits for the
+old one to exit, so two never share a database. One account can own at
+most 20 workspaces, so it can't make the server start an unbounded number.
 
 ## 6. Share by workspace, not by board
 
@@ -220,9 +224,22 @@ until someone removes them.
 - **Passwords are never remembered by the app.** The sign-in form is built
   for password managers (plain fields, autocomplete hints), and they do
   that job better and more safely than a server could.
-- **Lockouts:** ten wrong tries in 15 minutes lock that account's sign-in.
-  Ten wrong invite codes lock registration. A try counts as it starts, so
-  tries sent all at once can't get past the limit.
+- **Lockouts:** ten wrong tries in 15 minutes lock that account's sign-in
+  for browsers that have never signed in to it. A browser that completes a
+  sign-in gets a long-lived `kanbini_device` cookie (the account id and a
+  random device id, signed with a key only the server has); its tries then
+  count against that browser alone. Ten wrong invite codes lock
+  registration. A try counts as it starts, so tries sent all at once can't
+  get past the limit.
+- **Requests from other sites are refused.** Every cookie-authenticated
+  change (forms and `/api/` calls) must come from the app's own origin,
+  judged by `Sec-Fetch-Site`, or by `Origin` against `Host` for browsers
+  without it (`access.ts`). SameSite=Lax cookies alone treat another port
+  on the same NAS, or a sibling subdomain, as the same site.
+- **User names can't be listed.** Saying "no account has that user name"
+  in the share form tells whether a name exists, so an account gets 20
+  misses per 15 minutes, and the "Change access" link only opens people
+  already in (or invited to) a workspace you manage.
 - **Each 2FA code works once,** even across a restart: the last code's time
   step is saved with the account.
 - **First run:** the first account becomes the admin, and set-up only
@@ -238,10 +255,13 @@ until someone removes them.
   survive updates.
 - **"Remember me" off by default:** the safe choice on a shared computer
   costs one click on your own.
-- **Lockout per account, not per IP:** the LAN port lets anyone fake
-  forwarding headers, so an IP limit would be easy to dodge. The cost is
-  that someone who knows a user name can lock that account out for 15
-  minutes.
+- **Lockout per account and trusted browser, not per IP:** the LAN port
+  lets anyone fake forwarding headers, and behind a proxy every request
+  comes from the proxy, so an IP limit would be easy to dodge or would lock
+  out everyone at once. A per-account lockout alone let anyone who knows a
+  user name keep that account locked out; with the device cookie (OWASP's
+  "device cookie" defence) they can only lock out browsers that have never
+  signed in to it.
 - **LAN-only first run:** until the admin exists, whoever reaches set-up
   first would own the server. Requests through NPM or Cloudflare carry
   forwarding headers and are refused.
@@ -416,6 +436,20 @@ database and fail. Separate builds keep each bundle whole.
   of building. Pull requests only build it. It's amd64 only for now: arm64
   through QEMU is slow and untested.
 
+## 18. Link previews are the admin's call
+
+**Problem.** In the desktop app, link previews are the one opt-in path that
+fetches from the internet, and the switch lives in the person's own
+settings. In the web edition that setting is in each browser, but the
+server makes the request, so any signed-in person could have the server
+fetch any public page.
+
+**Decision.** An admin switch, off by default (Admin page). While it's off,
+the gateway refuses `linkPreview:create` before it reaches the app, so the
+server never fetches anything. When it's on, each person still opts in
+from their own Kanbini settings, as on the desktop. The desktop app's
+guard against private and local addresses applies either way.
+
 ---
 
 ## Known limits and next steps
@@ -425,8 +459,6 @@ database and fail. Separate builds keep each bundle whole.
 - **Nothing records who made a change.** Inside a workspace, comments and
   activity don't name the person, and undo works per board, not per person.
 - **No per-account storage quota.**
-- **App processes run until a restart.** Stopping idle ones would save
-  memory if accounts grow.
 - **Board exports pile up** in each folder's `downloads`; cleaning them up
   would help.
 - **Invitations don't expire,** and nobody is notified outside the app.

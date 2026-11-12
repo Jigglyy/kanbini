@@ -3,6 +3,8 @@
 //   node --experimental-strip-types apps/web/smoke.mjs http://<host>:18080; docker rm -f kanbini-smoke
 // Checks set-up, registration, the admin page, sign-in and that accounts
 // don't share boards, then the app itself: a test board + card + attachment.
+// To also check that idle apps stop and come back, start the container with
+// `-e KANBINI_IDLE_MINUTES=0.05` and run this with the same variable set.
 import assert from 'node:assert/strict'
 import net from 'node:net'
 import { base32Decode, totp, totpStep } from './totp.ts'
@@ -275,6 +277,42 @@ const tries = await Promise.all(Array.from({ length: 30 }, () => signIn({ userna
 assert.equal(tries.filter((t) => /Wrong user name/.test(t)).length, 10)
 assert.equal(tries.filter((t) => /Too many wrong tries/.test(t)).length, 20)
 
+// A stranger's guesses lock an account only for browsers that never signed
+// in to it: the browser that signed in earlier keeps its own count.
+const deviceCookie = (res) => res.headers.getSetCookie().find((c) => c.startsWith('kanbini_device=')).split(';')[0]
+const userDevice = deviceCookie(remembered)
+assert.match(remembered.headers.getSetCookie().find((c) => c.startsWith('kanbini_device=')), /HttpOnly; SameSite=Lax/)
+for (let i = 0; i < 10; i++) await signIn({ username: userForm.username, password: 'wrong-password' })
+assert.match(await (await signIn({ username: userForm.username, password: userForm.password })).text(), /Too many wrong tries/)
+const trustedSignIn = await post('/login', { username: userForm.username, password: userForm.password }, { cookie: userDevice })
+assert.equal(trustedSignIn.headers.get('location'), '/', 'the owner still gets in')
+assert.equal(deviceCookie(trustedSignIn), userDevice, 'and keeps the same device cookie')
+const forged = `${userDevice.slice(0, -4)}AAAA`
+assert.match(await (await post('/login', { username: userForm.username, password: userForm.password }, { cookie: forged })).text(), /Too many wrong tries/)
+
+// Changes sent from another site's page (or another port of this host) are refused.
+const boardsWith = (headers) => fetch(`${base}/api/boards:list`, { method: 'POST', headers: { ...admin, ...headers } })
+assert.equal((await boardsWith({ 'sec-fetch-site': 'same-origin' })).status, 200)
+assert.equal((await boardsWith({ 'sec-fetch-site': 'same-site' })).status, 403)
+assert.equal((await boardsWith({ origin: 'https://elsewhere.example' })).status, 403)
+assert.equal((await post('/workspaces', { action: 'create', name: 'Forged' }, { ...admin, 'sec-fetch-site': 'cross-site' })).status, 403)
+assert.equal((await post('/login', { username: adminForm.username, password: adminForm.password }, { origin: 'null' })).status, 403)
+const hostOrigin = new URL(base).origin
+assert.equal((await boardsWith({ origin: hostOrigin })).status, 200)
+
+// Link previews stay off until the admin turns them on: until then the server fetches nothing.
+const preview = await fetch(`${base}/api/linkPreview:create`, {
+  method: 'POST',
+  headers: { ...admin, 'content-type': 'application/json' },
+  body: JSON.stringify({ cardId: 'none', url: 'https://example.com' })
+})
+assert.equal(preview.status, 403)
+assert.match(await preview.text(), /turned off on this server/)
+assert.match(await (await get('/admin', admin)).text(), /Link previews are off/)
+assert.equal((await post('/admin', { action: 'previews-on' }, admin)).status, 303)
+assert.match(await (await get('/admin', admin)).text(), /Link previews are on/)
+assert.equal((await post('/admin', { action: 'previews-off' }, admin)).status, 303)
+
 // When the admin removes an account that owns a workspace, the member with the
 // highest role takes over, not whoever joined first.
 assert.equal((await workspacesAs(user, { action: 'create', name: 'Owned' })).status, 303)
@@ -287,6 +325,11 @@ const thirdForm = { username: `third${stamp}`, password: `third-pass-${stamp}`, 
 const third = cookieOf(await post('/register', thirdForm))
 assert.equal((await shareOwned(thirdForm.username, 'editor')).status, 303)
 assert.equal((await workspacesAs(third, { action: 'accept', id: owned.id })).status, 303)
+// The share form's "Change" link opens only people you already share with,
+// so it can't be used to test which user names exist.
+const changeAccess = async (auth, name) => (await get(`/workspaces?person=${encodeURIComponent(name)}`, auth)).text()
+assert.match(await changeAccess(user, thirdForm.username), /Access for/) // in the user's workspace
+assert.doesNotMatch(await changeAccess(admin, thirdForm.username), /Access for/) // in none of the admin's
 
 // Removing an account ends its sessions and its sign-in.
 assert.equal((await post('/admin', { action: 'remove', id: userHome }, admin)).status, 303)
@@ -373,6 +416,17 @@ assert.equal((await workspacesAs(admin, { action: 'switch', id: team.id })).stat
 
 await api('board:mutate', { type: 'board.delete', id: board.id })
 await reader.cancel()
+
+// With a short idle time (the same KANBINI_IDLE_MINUTES on the container and
+// here), an app nobody uses stops, and the next request brings it back with
+// its boards.
+const idleMinutes = Number(process.env.KANBINI_IDLE_MINUTES ?? 0)
+if (idleMinutes > 0 && idleMinutes <= 0.25) {
+  const kept = `kept ${stamp}`
+  await api('board:mutate', { type: 'board.create', name: kept })
+  await new Promise((done) => setTimeout(done, idleMinutes * 60_000 * 3 + 3000))
+  assert.ok((await api('boards:list')).some((b) => b.name === kept), 'the boards survive an idle stop')
+}
 
 // Signing out ends the session.
 assert.equal((await fetch(`${base}/logout`, { method: 'POST', headers: auth })).status, 204)

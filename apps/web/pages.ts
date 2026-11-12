@@ -232,7 +232,10 @@ export function setupBlocked(res: ServerResponse): void {
 
 const backToBoards = `<a href="/" class="${LINK} text-sm">Back to boards</a>`
 
-export function admin(res: ServerResponse, opts: { registration: boolean; inviteCode: string; users: User[] }): void {
+export function admin(
+  res: ServerResponse,
+  opts: { registration: boolean; inviteCode: string; users: User[]; linkPreviews?: boolean }
+): void {
   const date = (t: number) => new Date(t).toISOString().slice(0, 10)
   authPage(
     res,
@@ -255,6 +258,17 @@ export function admin(res: ServerResponse, opts: { registration: boolean; invite
           <p class="${HINT}">Share it with the people you want in. A new code stops the old one working.</p>
         </div>
         <button name="action" value="invite" class="${SECONDARY}">New code</button>
+      </form>
+      <form method="post" action="/admin" class="${ROW}">
+        <div class="grid gap-0.5">
+          <p class="text-sm font-medium">Link previews are ${opts.linkPreviews ? 'on' : 'off'}</p>
+          <p class="${HINT}">${
+            opts.linkPreviews
+              ? 'People who turn them on in Kanbini get a preview image for links in card titles. This server fetches those pages from the internet.'
+              : 'This server never fetches pages from the internet. Turn on to let people use link previews.'
+          }</p>
+        </div>
+        <button name="action" value="${opts.linkPreviews ? 'previews-off' : 'previews-on'}" class="${SECONDARY}">Turn ${opts.linkPreviews ? 'off' : 'on'}</button>
       </form>
     </div>
     <div class="grid gap-3">
