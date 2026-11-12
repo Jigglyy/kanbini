@@ -63,13 +63,22 @@ The admin opens **Admin** (the menu under their name, top right) to:
   page links to *Create an account*.
 - **See the invite code.** Registering needs it, so share it with the people
   you want in. *New code* stops the old one working.
+- **Turn link previews on or off.** They start off, and while they're off
+  the server never fetches anything from the internet. When on, people who
+  also turn them on in Kanbini get preview images for links in card titles.
 - **See the accounts** (user name, 2FA, data folder) and **remove** any but
   the admin. Removal signs the account out and stops its sign-in. Its data
   folder stays on disk. A workspace it owned passes to the member with the
   highest role (manager, then editor, then viewer).
 
 New accounts choose a user name, a password and optional 2FA. Each starts
-with its own empty set of boards.
+with its own empty set of boards, and can own up to 20 workspaces.
+
+Each set of boards in use runs its own app process (about 100 MB). One
+that nobody has used for 30 minutes (no request, no open tab, no MCP
+session) stops after writing its export and daily backup, and starts again
+on the next request. Set `KANBINI_IDLE_MINUTES` in the container's
+environment to change the 30 minutes.
 
 ## Workspaces: working together
 
@@ -125,8 +134,13 @@ onto your own boards.
 - Your browser or password manager remembers the password itself; the app
   never stores it.
 - Each 2FA code works once.
-- Ten wrong tries in 15 minutes lock that account's sign-in for 15 minutes.
-  Ten wrong invite codes do the same for registration. A restart clears both.
+- Ten wrong tries in 15 minutes lock that account's sign-in for 15 minutes,
+  but only for browsers that have never signed in to it. A browser you've
+  signed in from before keeps its own count, so someone guessing your
+  password can't lock you out. Ten wrong invite codes lock registration the
+  same way. A restart clears all of these.
+- Forms and app calls sent from another site's page (or another port or
+  subdomain on the same machine) are refused.
 - There's no password reset or 2FA change in the app yet.
 
 ## Update and check

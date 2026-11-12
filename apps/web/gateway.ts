@@ -31,6 +31,7 @@ import {
   createWorkspace,
   dataRoot,
   deleteWorkspace,
+  deviceCookie,
   invitesFor,
   managedBy,
   mcpToken,
@@ -49,10 +50,12 @@ import {
   spacesOf,
   store,
   transferOwnership,
+  trustedDevice,
   type User,
   userByMcpToken,
   type Workspace
 } from './accounts'
+import { crossSite, VIEW_ONLY, VIEWER_CHANNELS, VIEWER_TOOLS } from './access'
 import { limitFor } from './limits'
 import * as pages from './pages'
 
@@ -132,6 +135,13 @@ const cookie = (req: IncomingMessage, value: string, maxAgeSeconds: number | und
   (maxAgeSeconds === undefined ? '' : `; Max-Age=${maxAgeSeconds}`) +
   (req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '')
 
+// Marks a browser that has signed in to an account, so its sign-in tries
+// count apart from a stranger's (trustedDevice in accounts.ts). It signs
+// nobody in; a year, renewed at each sign-in.
+const DEVICE_COOKIE = 'kanbini_device'
+const DEVICE_SECONDS = 365 * 24 * 60 * 60
+const deviceOf = (req: IncomingMessage) => token(req, DEVICE_COOKIE)
+
 /** Signs the account in. `remember` keeps it signed in on this device for 30
  *  days; otherwise until the browser closes (12 hours at most). */
 function startSession(req: IncomingMessage, res: ServerResponse, user: User, remember: boolean): void {
@@ -141,9 +151,14 @@ function startSession(req: IncomingMessage, res: ServerResponse, user: User, rem
   saveSessions()
   const pending = token(req, CODE_COOKIE)
   if (pending !== undefined) pendingCode.delete(pending)
+  const known = trustedDevice(user, deviceOf(req))
   res.writeHead(303, {
     location: '/',
-    'set-cookie': [cookie(req, t, remember ? lasts / 1000 : undefined), cookie(req, '', 0, CODE_COOKIE)],
+    'set-cookie': [
+      cookie(req, t, remember ? lasts / 1000 : undefined),
+      cookie(req, '', 0, CODE_COOKIE),
+      cookie(req, known ? deviceOf(req)! : deviceCookie(user), DEVICE_SECONDS, DEVICE_COOKIE)
+    ],
     'cache-control': 'no-store'
   })
   res.end()
@@ -156,12 +171,15 @@ const viaProxy = (req: IncomingMessage) =>
   ['x-forwarded-for', 'x-real-ip', 'cf-connecting-ip', 'forwarded'].some((h) => h in req.headers)
 
 async function readForm(req: IncomingMessage): Promise<URLSearchParams> {
-  let body = ''
+  const chunks: Buffer[] = []
+  let size = 0
   for await (const chunk of req) {
-    body += chunk
-    if (body.length > 8192) throw new Error('form too large')
+    size += (chunk as Buffer).length
+    if (size > 8192) throw new Error('form too large')
+    chunks.push(chunk as Buffer)
   }
-  return new URLSearchParams(body)
+  // Decoded once, whole: a character split across two chunks stays intact.
+  return new URLSearchParams(Buffer.concat(chunks).toString('utf8'))
 }
 
 function redirect(res: ServerResponse, location: string): void {
@@ -174,24 +192,50 @@ function send(res: ServerResponse, status: number, body: string, type = 'text/pl
   res.end(body)
 }
 
-// What a viewer may call: reading, plus the app's own bookkeeping. Anything
-// else (and anything upstream adds later) is refused for viewers.
-const VIEWER_CHANNELS = new Set([
-  'boards:list', 'board:getView', 'search:cards', 'agenda:get', 'archived:get', 'undo:status',
-  'backups:list', 'template:list', 'board:export', 'app:info', 'mcp:info', 'window:prefs',
-  'tray:recentBoards', 'shell:showInFolder', 'notices:open'
-])
-// The MCP tools a viewer's AI may use: the read-only ones.
-const VIEWER_TOOLS = new Set([
-  'kanbini_list_boards', 'kanbini_get_board', 'kanbini_get_card', 'kanbini_get_list_cards',
-  'kanbini_get_agenda', 'kanbini_search_cards', 'kanbini_list_archived'
-])
-const VIEW_ONLY = 'You can only view this workspace. Ask its owner or a manager for edit access.'
+// One app process per set of boards (about 100 MB each), started on its
+// first request and stopped once nobody has used it for IDLE_MS: no new
+// request, none still running (an open tab holds its live-update stream
+// open, so it counts) and no MCP session. Stopping runs the app's quit path
+// (the export and the daily backup); the next request starts it again.
+const IDLE_MS = Math.max(1000, Number(process.env['KANBINI_IDLE_MINUTES'] ?? 30) * 60_000)
+type App = { proc: ChildProcess; ready: Promise<string>; exited: Promise<void>; lastUsed: number }
+const apps = new Map<string, App>()
+// Apps on their way out. A new one for the same folder waits for the old one
+// to finish its export, so two never share a database.
+const stopping = new Map<string, Promise<void>>()
+// Requests being answered right now, by set of boards (live-update streams
+// included), so a long upload or an open tab keeps its app running.
+const active = new Map<string, number>()
 
-// One app process per set of boards, started on its first request.
-// shortcut: processes run until the container stops (~100 MB each); stop idle ones if accounts grow.
-const apps = new Map<string, { proc: ChildProcess; ready: Promise<string> }>()
-function appFor(space: Space): Promise<string> {
+/** Stops the app for this set of boards, if it runs; resolves once it has exited. */
+function stopApp(id: string): Promise<void> {
+  const app = apps.get(id)
+  if (!app) return stopping.get(id) ?? Promise.resolve()
+  apps.delete(id)
+  const done = app.exited.then(() => void stopping.delete(id))
+  stopping.set(id, done)
+  if (app.proc.exitCode === null && app.proc.signalCode === null) app.proc.kill('SIGTERM')
+  return done
+}
+
+/** True while a request (an open tab's stream included) or an MCP session is using these boards. */
+function inUse(spaceId: string): boolean {
+  if ((active.get(spaceId) ?? 0) > 0) return true
+  for (const s of mcpSessions.values()) if (s.spaceId === spaceId) return true
+  return false
+}
+
+setInterval(() => {
+  for (const [id, app] of apps) {
+    if (Date.now() - app.lastUsed < IDLE_MS || inUse(id)) continue
+    console.log(`[gateway] stopping the idle app for ${id}`)
+    void stopApp(id)
+  }
+}, Math.min(5 * 60_000, IDLE_MS)).unref()
+
+async function appFor(space: Space): Promise<string> {
+  const leaving = stopping.get(space.id)
+  if (leaving) await leaving
   let app = apps.get(space.id)
   if (!app) {
     const socket = join(space.dir, 'app.sock')
@@ -212,25 +256,30 @@ function appFor(space: Space): Promise<string> {
       ],
       env: { ...process.env, KANBINI_USERDATA_OVERRIDE: space.dir, KANBINI_SOCKET: socket, TMPDIR: tmp }
     })
+    let exitedNow: () => void
+    const exited = new Promise<void>((resolve) => (exitedNow = resolve))
     const ready = new Promise<string>((resolve, reject) => {
       proc.once('message', (m) => (m === 'ready' ? resolve(socket) : reject(new Error(String(m)))))
       proc.once('exit', (code) => {
-        apps.delete(space.id)
+        if (apps.get(space.id) === started) apps.delete(space.id) // a crash; a stop already took it off
         console.warn(`[gateway] app for ${space.dir} exited (${code})`)
         reject(new Error(`app exited (${code})`))
+        exitedNow()
       })
     })
     ready.catch(() => {}) // the waiting request reports it
-    app = { proc, ready }
+    const started: App = { proc, ready, exited, lastUsed: Date.now() }
+    app = started
     apps.set(space.id, app)
   }
+  app.lastUsed = Date.now()
   return app.ready
 }
 
 /** Stops the app of a workspace or account that no longer exists. */
 function stopOrphans(): void {
-  for (const [id, app] of apps) {
-    if (!store.users.some((u) => u.id === id) && !store.workspaces.some((w) => w.id === id)) app.proc.kill('SIGTERM')
+  for (const id of apps.keys()) {
+    if (!store.users.some((u) => u.id === id) && !store.workspaces.some((w) => w.id === id)) void stopApp(id)
   }
 }
 
@@ -245,6 +294,8 @@ function cutOff(userId: string, spaceId?: string): void {
 }
 
 async function proxy(req: IncomingMessage, res: ServerResponse, space: Space): Promise<void> {
+  active.set(space.id, (active.get(space.id) ?? 0) + 1)
+  res.once('close', () => active.set(space.id, (active.get(space.id) ?? 1) - 1))
   let socketPath: string
   try {
     socketPath = await appFor(space)
@@ -359,8 +410,7 @@ type Choices = { username: string; access: Map<string, string> }
 async function putAway(workspace: Workspace): Promise<void> {
   for (const id of workspace.members) cutOff(id, workspace.id)
   for (const session of mcpSessions.values()) if (session.spaceId === workspace.id) void session.http.close()
-  const app = apps.get(workspace.id)
-  if (app && app.proc.exitCode === null) await new Promise((exited) => (app.proc.once('exit', exited), app.proc.kill('SIGTERM')))
+  await stopApp(workspace.id)
   const dir = join(dataRoot, 'workspaces', workspace.id)
   const kept = join(dataRoot, 'deleted', `${workspace.id}-${Date.now()}`)
   await fsp.mkdir(dirname(kept), { recursive: true })
@@ -395,8 +445,12 @@ async function workspaces(
       }))
       .filter((p) => p.access.length > 0)
     // Change: fill the form with that person's current access.
-    const person = query.get('person')
-    const target = person ? store.users.find((u) => u.username === person.toLowerCase()) : undefined
+    // Only someone already in (or invited to) one of these workspaces, so the
+    // link can't be used to test which user names exist.
+    const person = query.get('person')?.toLowerCase()
+    const target = person
+      ? store.users.find((u) => u.username === person && managed.some((w) => accessOf(w, u.id)))
+      : undefined
     const editing: Choices | undefined =
       choices ??
       (target && {
@@ -501,6 +555,11 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const first = store.users.length === 0
 
   if (path.startsWith('/mcp/')) return mcp(req, res, path.slice('/mcp/'.length))
+  // Everything below is cookie-authenticated (MCP above uses a bearer token),
+  // so a change sent from another site's page is refused (see access.ts).
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method ?? 'GET') && crossSite(req.headers)) {
+    return send(res, 403, 'That request came from another site, so it was refused.')
+  }
   // The sign-in pages use the app's stylesheet (open-source CSS, no user data).
   if (pages.appCss && path === pages.appCss.href) {
     res.writeHead(200, { 'content-type': 'text/css; charset=utf-8', 'cache-control': 'public, max-age=31536000, immutable' })
@@ -510,7 +569,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (first) return redirect(res, '/register')
     if (req.method !== 'POST') return ctx ? redirect(res, '/') : pages.login(res, 200, { open: store.registration })
     const form = await readForm(req)
-    const result = await checkPassword(form)
+    const result = await checkPassword(form, deviceOf(req))
     const remember = form.get('remember') === '1'
     if (typeof result === 'string') {
       console.warn(`[gateway] failed sign-in from ${req.headers['x-forwarded-for'] ?? req.socket.remoteAddress}`)
@@ -527,7 +586,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const pending = pendingSignIn(req)
     if (!pending) return redirect(res, '/login')
     if (req.method !== 'POST') return pages.loginCode(res, 200)
-    const error = checkCode(pending.user, (await readForm(req)).get('code'))
+    const error = checkCode(pending.user, (await readForm(req)).get('code'), deviceOf(req))
     if (error) {
       console.warn(`[gateway] failed 2FA code from ${req.headers['x-forwarded-for'] ?? req.socket.remoteAddress}`)
       return pages.loginCode(res, 401, error)
@@ -578,13 +637,21 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     return send(res, 200, JSON.stringify(account), 'application/json')
   }
   if (path === '/workspaces') return workspaces(req, res, ctx, url.searchParams)
-  if (path === '/api/mcp:info') return send(res, 200, JSON.stringify(mcpInfo(req, user, space)), 'application/json')
+  // The IPC channel an /api/ call names, decoded the way the app decodes it.
+  const channel = path.startsWith('/api/') ? decodeURIComponent(path.slice('/api/'.length)) : undefined
+  if (channel === 'mcp:info') return send(res, 200, JSON.stringify(mcpInfo(req, user, space)), 'application/json')
+  // Link previews make the server fetch pages from the internet, so the
+  // admin decides; the in-app setting alone lives in each person's browser.
+  if (channel === 'linkPreview:create' && !store.linkPreviews) {
+    return send(res, 403, 'Link previews are turned off on this server. The admin can turn them on.')
+  }
   if (path === '/admin') {
     if (!user.admin) return send(res, 403, 'Only the admin can open this page.')
     if (req.method === 'POST') {
       const form = await readForm(req)
       const action = form.get('action')
       if (action === 'open' || action === 'close') store.registration = action === 'open'
+      if (action === 'previews-on' || action === 'previews-off') store.linkPreviews = action === 'previews-on'
       if (action === 'invite') store.inviteCode = newInviteCode()
       if (action === 'remove') removeAccount(form.get('id'))
       save()
@@ -603,7 +670,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
       }) ?? space
   }
   // Viewers read; the server refuses their changes (the UI alone wouldn't stop a script).
-  if (req.method === 'POST' && path.startsWith('/api/') && !canEdit(space, user.id) && !VIEWER_CHANNELS.has(decodeURIComponent(path.slice(5)))) {
+  if (req.method === 'POST' && channel !== undefined && !canEdit(space, user.id) && !VIEWER_CHANNELS.has(channel)) {
     return send(res, 403, VIEW_ONLY)
   }
   if (path.startsWith('/api/') && Number(req.headers['content-length'] ?? 0) > limitFor(req.headers)) {
@@ -634,7 +701,6 @@ const server = createServer((req, res) => {
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     server.close()
-    const exits = [...apps.values()].map(({ proc }) => new Promise((r) => (proc.once('exit', r), proc.kill('SIGTERM'))))
-    void Promise.all(exits).then(() => process.exit(0))
+    void Promise.all([...[...apps.keys()].map(stopApp), ...stopping.values()]).then(() => process.exit(0))
   })
 }

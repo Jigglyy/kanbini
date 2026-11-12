@@ -3,7 +3,7 @@
 // boards in <data>/users/<id>; each shared workspace has boards its members
 // edit together in <data>/workspaces/<id>. Every one of those folders gets
 // its own app process (see ./gateway.ts).
-import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
@@ -37,7 +37,17 @@ export type Workspace = {
   invites?: Invite[] // waiting for the invited account to accept or decline
   created: number
 }
-type Store = { registration: boolean; inviteCode: string; users: User[]; workspaces: Workspace[] }
+type Store = {
+  registration: boolean
+  inviteCode: string
+  users: User[]
+  workspaces: Workspace[]
+  /** Whether the app may fetch link previews for anyone (the server makes
+   *  those requests). Off until the admin turns it on. */
+  linkPreviews?: boolean
+  /** Signs the trusted-device cookies (see deviceCookie). Made on first use. */
+  deviceKey?: string
+}
 
 export const dataRoot = process.env['KANBINI_DATA'] ?? resolve('data')
 const file = join(dataRoot, 'accounts.json')
@@ -78,14 +88,16 @@ export const MIN_PASSWORD = 10
 const USERNAME = /^[a-z0-9._-]{3,32}$/
 
 // Ten wrong tries in 15 minutes locks that account's sign-in (or, for wrong
-// invite codes, registration) until the window passes.
+// invite codes, registration) until the window passes. A browser that has
+// signed in to the account before counts its tries on its own (see
+// deviceCookie), so a stranger guessing can't lock the owner out.
 const WINDOW_MS = 15 * 60_000
 const failures = new Map<string, number[]>()
-function lockedOut(key: string): boolean {
+function lockedOut(key: string, limit = 10): boolean {
   const recent = (failures.get(key) ?? []).filter((t) => t > Date.now() - WINDOW_MS)
   if (recent.length) failures.set(key, recent)
   else failures.delete(key)
-  return recent.length >= 10
+  return recent.length >= limit
 }
 const fail = (key: string) => failures.set(key, [...(failures.get(key) ?? []), Date.now()])
 // Names tried once and never again would otherwise stay in memory for good.
@@ -161,19 +173,56 @@ export async function register(form: URLSearchParams): Promise<User | string> {
 
 const dummySalt = randomBytes(16)
 
-const lockedMessage = 'Too many wrong tries for this account. Wait 15 minutes.'
+const lockedMessage =
+  "Too many wrong tries for this account. Wait 15 minutes, or sign in from a browser you've signed in from before."
+const deviceLockedMessage = 'Too many wrong tries from this browser. Wait 15 minutes.'
+
+// Trusted devices: a browser that completes a sign-in gets a long-lived
+// cookie naming the account, signed with a key only the server has. Its
+// sign-in tries then count against that browser alone, not the account, so
+// the ten-try lockout still stops guessing but a stranger can't use it to
+// keep the owner out. (OWASP's "device cookie" defence; no IP addresses, which
+// behind a proxy would all be the proxy's.)
+const sign = (payload: string) => {
+  if (!store.deviceKey) {
+    store.deviceKey = randomBytes(32).toString('base64url')
+    save()
+  }
+  return createHmac('sha256', store.deviceKey).update(payload).digest('base64url')
+}
+
+/** A new trusted-device cookie value for this account. */
+export function deviceCookie(user: User): string {
+  const payload = `${user.id}.${randomBytes(12).toString('base64url')}`
+  return `${payload}.${sign(payload)}`
+}
+
+/** The device id in `cookie` when this server issued it to `user`, else undefined. */
+export function trustedDevice(user: User | undefined, cookie: string | undefined): string | undefined {
+  if (!user || !cookie || !store.deviceKey) return undefined
+  const [id, device, sig, ...rest] = cookie.split('.')
+  if (rest.length || id !== user.id || !device || !sig) return undefined
+  const want = Buffer.from(sign(`${id}.${device}`))
+  const got = Buffer.from(sig)
+  return got.length === want.length && timingSafeEqual(got, want) ? device : undefined
+}
+
+/** Where a sign-in try counts: the browser when it's trusted for the account, else the account. */
+const tryKey = (username: string, trusted: string | undefined) => (trusted ? `device:${trusted}` : `user:${username}`)
 
 /** Sign-in step 1: the account the user name and password match, or why not.
- *  An account with 2FA still owes a code (checkCode) before it's signed in. */
-export async function checkPassword(form: URLSearchParams): Promise<User | string> {
+ *  An account with 2FA still owes a code (checkCode) before it's signed in.
+ *  `device` is the browser's trusted-device cookie, if it sent one. */
+export async function checkPassword(form: URLSearchParams, device?: string): Promise<User | string> {
   const username = (form.get('username') ?? '').trim().toLowerCase()
   // No account has such a name; this keeps lockout keys short.
   if (!USERNAME.test(username)) return 'Wrong user name or password.'
-  const key = `user:${username}`
-  if (lockedOut(key)) return lockedMessage
+  const user = store.users.find((u) => u.username === username)
+  const trusted = trustedDevice(user, device)
+  const key = tryKey(username, trusted)
+  if (lockedOut(key)) return trusted ? deviceLockedMessage : lockedMessage
   // Counted before the slow hash, so tries sent all at once can't slip past the limit.
   fail(key)
-  const user = store.users.find((u) => u.username === username)
   // Hash even for an unknown name, so timing doesn't tell which names exist.
   const given = await scryptHash(form.get('password') ?? '', user ? Buffer.from(user.salt, 'base64') : dummySalt, 32)
   if (!user || !timingSafeEqual(given, Buffer.from(user.hash, 'base64'))) return 'Wrong user name or password.'
@@ -182,9 +231,10 @@ export async function checkPassword(form: URLSearchParams): Promise<User | strin
 }
 
 /** Sign-in step 2, for accounts with 2FA: '' when the code is right, else why not. */
-export function checkCode(user: User, code: string | null): string {
-  const key = `user:${user.username}`
-  if (lockedOut(key)) return lockedMessage
+export function checkCode(user: User, code: string | null, device?: string): string {
+  const trusted = trustedDevice(user, device)
+  const key = tryKey(user.username, trusted)
+  if (lockedOut(key)) return trusted ? deviceLockedMessage : lockedMessage
   const step = matchCode(user.totpSecret!, code, user.totpStep ?? 0)
   if (step === undefined) {
     fail(key)
@@ -195,9 +245,16 @@ export function checkCode(user: User, code: string | null): string {
   return ''
 }
 
+/** Each workspace in use runs its own app process (about 100 MB), so one
+ *  account can't own an unbounded number. */
+export const MAX_OWNED_WORKSPACES = 20
+
 export function createWorkspace(owner: User, name: string): Workspace | string {
   const clean = name.trim()
   if (!clean || clean.length > 60) return 'Give the workspace a name of up to 60 characters.'
+  if (store.workspaces.filter((w) => w.owner === owner.id).length >= MAX_OWNED_WORKSPACES) {
+    return `You own ${MAX_OWNED_WORKSPACES} workspaces, the most one account can have. Delete one you no longer use first.`
+  }
   const workspace = { id: randomBytes(8).toString('hex'), name: clean, owner: owner.id, members: [owner.id], created: Date.now() }
   store.workspaces.push(workspace)
   save()
@@ -261,8 +318,15 @@ export function share(
   username: string,
   access: Map<string, Role | 'none'>
 ): { target: User; removedFrom: Workspace[] } | string {
+  // Saying a name has no account tells whether it exists, so an account
+  // gets only so many misses: enough for typos, too few to list the users.
+  const misses = `lookup:${by.id}`
+  if (lockedOut(misses, 20)) return 'Too many names that match no account. Wait 15 minutes.'
   const target = store.users.find((u) => u.username === username.trim().toLowerCase())
-  if (!target) return 'No account has that user name.'
+  if (!target) {
+    fail(misses)
+    return 'No account has that user name.'
+  }
   if (target.id === by.id) return 'That’s you. Pick someone else.'
   const anyAccess = managedBy(by).some((w) => accessOf(w, target.id))
   if (!anyAccess && [...access.values()].every((choice) => choice === 'none')) return 'Pick a role in at least one workspace.'
