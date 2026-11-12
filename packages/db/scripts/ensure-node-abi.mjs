@@ -47,8 +47,8 @@ if (!/NODE_MODULE_VERSION/.test(msg)) {
 
 console.log('[ensure-node-abi] ABI mismatch - re-fetching better-sqlite3 prebuilt for active Node…')
 
-// Locate the hoisted better-sqlite3 install. node-linker=hoisted +
-// pnpm => `node_modules/.pnpm/better-sqlite3@<v>/node_modules/better-sqlite3`.
+// Locate better-sqlite3 in pnpm's isolated store (pnpm-workspace.yaml):
+// `node_modules/.pnpm/better-sqlite3@<v>/node_modules/better-sqlite3`.
 // Glob by prefix so a version bump doesn't break this script.
 const pnpmRoot = resolve(repoRoot, 'node_modules/.pnpm')
 if (!existsSync(pnpmRoot)) {

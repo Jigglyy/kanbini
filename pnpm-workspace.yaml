@@ -16,3 +16,12 @@ allowBuilds:
   # target (NSIS + portable only, ADR-0039), so its postinstall is
   # skippable. Flip to true if we add a 'squirrelWindows' target later.
   electron-winstaller: false
+
+# pnpm's default isolated layout, stated explicitly. ADR-0009 asked for
+# hoisted through .npmrc, but pnpm 11 stopped reading that setting there,
+# so every install since the pnpm 11 upgrade (and every release) has been
+# isolated. Switching back to hoisted was tried: electron-builder then
+# can't find Electron (it only looks in apps/desktop/node_modules), and a
+# switch in place leaves stale per-package links that load a second
+# vitest. Changing this needs a clean node_modules and a packaging run.
+nodeLinker: isolated

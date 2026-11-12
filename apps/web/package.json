@@ -6,6 +6,7 @@
   "description": "Kanbini served to a browser, for Docker. See README.md.",
   "scripts": {
     "lint": "oxlint",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
@@ -14,7 +15,15 @@
   },
   "devDependencies": {
     "@shadcn/lint": "0.2.3",
+    "@tailwindcss/vite": "^4.3.0",
+    "@types/node": "^25.9.0",
+    "@types/react": "^19.2.14",
+    "@vitejs/plugin-react": "^6.0.2",
+    "electron-vite": "^5.0.0",
+    "lucide-react": "^1.16.0",
     "oxlint": "1.89.0",
+    "react": "^19.2.6",
+    "vite": "^8.0.13",
     "vitest": "^3.2.4"
   }
 }

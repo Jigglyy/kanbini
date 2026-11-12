@@ -91,9 +91,10 @@ The build says exactly which one.
 **Problem.** The server needs a runtime that loads the app's native SQLite driver.
 
 **Decision.** The container runs Node 22. The build uses the repo's pnpm
-lockfile, in the hoisted layout the repo asks for in `.npmrc`. pnpm 11 only
-honours that setting from the command line or `pnpm-workspace.yaml`, so the
-build passes `--config.node-linker=hoisted`.
+lockfile, installed hoisted (`--config.node-linker=hoisted`) so the runtime
+stage can copy the SQLite binding from the root `node_modules`. The repo
+itself stays on pnpm's isolated layout (`pnpm-workspace.yaml`), which is what
+the desktop packaging is tested with.
 
 **Why.** better-sqlite3, the database driver, is a native add-on that Bun
 refuses to load ("not yet supported in Bun"; tested). The pnpm lockfile is
