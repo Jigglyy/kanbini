@@ -230,5 +230,5 @@ The stdio server still works from the Docker host:
   Restore a dated backup from Settings > Backup & restore instead.
 - The welcome dialog, About and the backup list describe the shared server
   rather than a desktop app. All these changes are listed in `WEB_SWAPS` in
-  `vite.config.ts`, and the build stops if upstream changes one of them.
+  `swaps.ts`, and the build (and `pnpm test`) stops if upstream changes one of them.
 - Theme, shortcuts and other preferences are kept per browser.

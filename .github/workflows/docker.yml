@@ -9,8 +9,10 @@ name: Docker image
 #  - A manual run (Actions tab, or `gh workflow run docker.yml --ref
 #    <branch>`) publishes the branch name as the tag (e.g. `main`), never
 #    `latest`.
-#  - A pull request that touches the image only builds it, without
-#    logging in or pushing, so a broken image build shows up before merge.
+#  - A pull request that touches the image, or the desktop sources it is
+#    built from, only builds it, without logging in or pushing, so a broken
+#    image build shows up before merge. (Direct pushes to main are covered
+#    by apps/web/repo-guards.test.ts, which runs in `pnpm verify`.)
 
 on:
   push:
@@ -23,6 +25,13 @@ on:
       - .dockerignore
       - docker-compose.yml
       - 'apps/web/**'
+      - 'apps/desktop/src/main/**'
+      - 'apps/renderer/src/**'
+      - 'apps/mcp/**'
+      - 'packages/**'
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
       - .github/workflows/docker.yml
 
 permissions:

@@ -70,9 +70,13 @@ is the same typed list as upstream's preload script.
 - the Settings → MCP instructions;
 - the place for the account menu.
 
-**Decision.** `WEB_SWAPS` in `vite.config.ts` lists exact text replacements
+**Decision.** `WEB_SWAPS` in `swaps.ts` lists exact text replacements
 per file, applied only in the web build. Each must find its target, or the
-build stops with a message naming the file.
+build stops with a message naming the file. `repo-guards.test.ts` runs the
+same swaps in `pnpm test`, and checks that the Electron stand-in covers
+every Electron export and member the desktop main process uses, so a
+desktop change that would break the web build fails `pnpm verify` in that
+change rather than at the next Docker build.
 
 **Why this is best.** Upstream files stay untouched, and an upstream
 rewording can't silently leave desktop-only text in place: the build fails
