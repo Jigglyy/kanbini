@@ -405,6 +405,11 @@ database and fail. Separate builds keep each bundle whole.
 - **Proxy-friendly live updates.** The live-update stream sends
   `X-Accel-Buffering: no` so nginx doesn't hold it back, and a heartbeat
   every 25 seconds so Cloudflare doesn't drop idle connections.
+- **Published image.** `.github/workflows/docker.yml` builds the image
+  with the standard Docker actions and pushes it to ghcr.io on each `v*`
+  tag, the same trigger as the desktop release, so users can pull instead
+  of building. Pull requests only build it. It's amd64 only for now: arm64
+  through QEMU is slow and untested.
 
 ---
 
