@@ -249,6 +249,9 @@ importers:
       react:
         specifier: ^19.2.6
         version: 19.2.6
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
       vite:
         specifier: ^8.0.13
         version: 8.0.13(@types/node@25.9.0)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.1)
