@@ -176,6 +176,16 @@ builds are newer, so please [open an
 issue](https://github.com/Jigglyy/kanbini/issues) if something's off
 there.
 
+### Web edition (Docker)
+
+To share boards with other people, run the **web edition**: the same app
+in a browser, served from a Docker container on a machine you control (a
+home server or NAS). It adds accounts, optional 2FA, and shared
+workspaces with viewer / editor / manager roles, and AI tools connect to
+it over HTTPS. It's separate from the desktop app, which stays offline
+and single-user. Setup, sign-in, workspaces and running it behind a
+reverse proxy are in [`apps/web/README.md`](apps/web/README.md).
+
 ## Wire up an AI
 
 The MCP server speaks the standard Model Context Protocol, so **any
@@ -214,6 +224,7 @@ pnpm --filter @kanbini/desktop run test:roundtrip
   /renderer     React + Vite + Tailwind v4 + ShadCN
   /mcp          @kanbini/mcp - stdio MCP server
   /desktop-e2e  Playwright end-to-end suite
+  /web          web edition: the app in a browser, for Docker
 /packages
   /shared       zod schemas, channel names, id/order utils
   /db           Drizzle schema + migrations + data access
