@@ -225,6 +225,9 @@ importers:
       oxlint:
         specifier: 1.89.0
         version: 1.89.0
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@25.9.0)(jiti@2.7.0)(jsdom@26.1.0)(lightningcss@1.32.0)(tsx@4.22.1)
 
   packages/db:
     dependencies:
