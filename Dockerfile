@@ -5,7 +5,8 @@ WORKDIR /app
 RUN npm install -g pnpm@11.0.9
 # The desktop-only Electron and Playwright binaries aren't needed here.
 ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# Every workspace package's manifest (apps/web/repo-guards.test.ts checks the list).
 COPY apps/desktop/package.json apps/desktop/
 COPY apps/desktop-e2e/package.json apps/desktop-e2e/
 COPY apps/mcp/package.json apps/mcp/
@@ -13,7 +14,8 @@ COPY apps/renderer/package.json apps/renderer/
 COPY apps/web/package.json apps/web/
 COPY packages/db/package.json packages/db/
 COPY packages/shared/package.json packages/shared/
-# .npmrc asks for the hoisted layout, but pnpm 11 only reads it from the CLI or pnpm-workspace.yaml.
+# Hoisted here (the repo itself is isolated, see pnpm-workspace.yaml): the
+# runtime stage copies the SQLite binding from the root node_modules.
 RUN pnpm install --frozen-lockfile --config.node-linker=hoisted
 COPY . .
 # The account menu must follow the app's design system (apps/web/.oxlintrc.json).
