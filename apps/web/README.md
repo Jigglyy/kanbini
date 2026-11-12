@@ -48,7 +48,8 @@ The admin opens **Admin** (the menu under their name, top right) to:
   you want in. *New code* stops the old one working.
 - **See the accounts** (user name, 2FA, data folder) and **remove** any but
   the admin. Removal signs the account out and stops its sign-in. Its data
-  folder stays on disk.
+  folder stays on disk. A workspace it owned passes to the member with the
+  highest role (manager, then editor, then viewer).
 
 New accounts choose a user name, a password and optional 2FA. Each starts
 with its own empty set of boards.

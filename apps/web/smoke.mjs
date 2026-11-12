@@ -117,7 +117,13 @@ assert.equal((await account(user)).invites, 0)
 // Both see the workspace's boards, and one's edit reaches the other live.
 const userEvents = (await fetch(`${base}/api/events`, { headers: user })).body.getReader()
 await api('board:mutate', { type: 'board.create', name: `team ${stamp}` })
-for (let text = ''; !text.includes('board:changed'); ) text += new TextDecoder().decode((await userEvents.read()).value)
+// A stream that ends early fails the run instead of hanging it.
+const readText = async (reader) => {
+  const { value, done } = await reader.read()
+  assert.ok(!done, 'the event stream ended')
+  return new TextDecoder().decode(value)
+}
+for (let text = ''; !text.includes('board:changed'); ) text += await readText(userEvents)
 await userEvents.cancel()
 assert.ok((await userApi('boards:list')).some((b) => b.name === `team ${stamp}`))
 assert.ok(!(await userApi('boards:list')).some((b) => b.name === `private ${stamp}`), 'own boards stay private')
@@ -264,10 +270,29 @@ assert.equal((await post('/login/code', { code: code(1) }, pending)).headers.get
 const again = cookieOf(await signIn({ username: adminForm.username, password: adminForm.password }), 'kanbini_2fa')
 assert.equal((await post('/login/code', { code: code(1) }, again)).status, 401, 'a code works once')
 
+// Tries sent all at once still count: ten wrong passwords, then the lockout.
+const tries = await Promise.all(Array.from({ length: 30 }, () => signIn({ username: `ghost${stamp}`, password: 'wrong-password' }).then((r) => r.text())))
+assert.equal(tries.filter((t) => /Wrong user name/.test(t)).length, 10)
+assert.equal(tries.filter((t) => /Too many wrong tries/.test(t)).length, 20)
+
+// When the admin removes an account that owns a workspace, the member with the
+// highest role takes over, not whoever joined first.
+assert.equal((await workspacesAs(user, { action: 'create', name: 'Owned' })).status, 303)
+const owned = (await account(user)).workspace
+const shareOwned = (username, role) => workspacesAs(user, { action: 'share', username, [`role:${owned.id}`]: role })
+assert.equal((await shareOwned(adminForm.username, 'viewer')).status, 303)
+assert.equal((await workspacesAs(admin, { action: 'accept', id: owned.id })).status, 303)
+assert.equal((await workspacesAs(admin, { action: 'switch', id: team.id })).status, 303) // accepting opened it
+const thirdForm = { username: `third${stamp}`, password: `third-pass-${stamp}`, confirm: `third-pass-${stamp}`, invite }
+const third = cookieOf(await post('/register', thirdForm))
+assert.equal((await shareOwned(thirdForm.username, 'editor')).status, 303)
+assert.equal((await workspacesAs(third, { action: 'accept', id: owned.id })).status, 303)
+
 // Removing an account ends its sessions and its sign-in.
 assert.equal((await post('/admin', { action: 'remove', id: userHome }, admin)).status, 303)
 assert.equal((await fetch(`${base}/api/boards:list`, { method: 'POST', headers: user })).status, 401)
 assert.equal((await signIn({ username: userForm.username, password: userForm.password })).status, 401)
+assert.equal((await account(third)).workspace.role, 'owner', 'the editor took over, not the viewer who joined first')
 assert.equal((await post('/admin', { action: 'close' }, admin)).status, 303)
 
 // The app itself, as the admin.
@@ -283,7 +308,7 @@ assert.equal(stream.headers.get('content-type'), 'text/event-stream')
 const reader = stream.body.getReader()
 const nextEvent = async () => {
   let text = ''
-  while (!text.includes('event: board:changed')) text += new TextDecoder().decode((await reader.read()).value)
+  while (!text.includes('event: board:changed')) text += await readText(reader)
   return text
 }
 
