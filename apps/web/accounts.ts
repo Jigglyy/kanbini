@@ -18,6 +18,7 @@ export type User = {
   admin: boolean
   created: number
   mcpToken?: string // bearer token for /mcp, made on first use
+  totpStep?: number // the step of the last code used, so no code works twice (even across restarts)
 }
 /** What a member may do in a workspace. The owner can do everything. */
 export type Role = 'viewer' | 'editor' | 'manager'
@@ -82,13 +83,15 @@ const WINDOW_MS = 15 * 60_000
 const failures = new Map<string, number[]>()
 function lockedOut(key: string): boolean {
   const recent = (failures.get(key) ?? []).filter((t) => t > Date.now() - WINDOW_MS)
-  failures.set(key, recent)
+  if (recent.length) failures.set(key, recent)
+  else failures.delete(key)
   return recent.length >= 10
 }
 const fail = (key: string) => failures.set(key, [...(failures.get(key) ?? []), Date.now()])
-
-// Each code signs in once.
-const lastSteps = new Map<string, number>() // user id -> step
+// Names tried once and never again would otherwise stay in memory for good.
+setInterval(() => {
+  for (const key of failures.keys()) lockedOut(key)
+}, WINDOW_MS).unref()
 
 /** The step of a valid, unused code: the current one or either neighbour (clock drift). */
 function matchCode(secret: string, raw: string | null, after: number): number | undefined {
@@ -148,11 +151,11 @@ export async function register(form: URLSearchParams): Promise<User | string> {
     hash: hash.toString('base64'),
     totpSecret: form.get('twofa') ? secret : null,
     admin: first,
-    created: Date.now()
+    created: Date.now(),
+    totpStep: step
   }
   store.users.push(user)
   save()
-  if (step !== undefined) lastSteps.set(user.id, step)
   return user
 }
 
@@ -164,15 +167,17 @@ const lockedMessage = 'Too many wrong tries for this account. Wait 15 minutes.'
  *  An account with 2FA still owes a code (checkCode) before it's signed in. */
 export async function checkPassword(form: URLSearchParams): Promise<User | string> {
   const username = (form.get('username') ?? '').trim().toLowerCase()
+  // No account has such a name; this keeps lockout keys short.
+  if (!USERNAME.test(username)) return 'Wrong user name or password.'
   const key = `user:${username}`
   if (lockedOut(key)) return lockedMessage
+  // Counted before the slow hash, so tries sent all at once can't slip past the limit.
+  fail(key)
   const user = store.users.find((u) => u.username === username)
   // Hash even for an unknown name, so timing doesn't tell which names exist.
   const given = await scryptHash(form.get('password') ?? '', user ? Buffer.from(user.salt, 'base64') : dummySalt, 32)
-  if (!user || !timingSafeEqual(given, Buffer.from(user.hash, 'base64'))) {
-    fail(key)
-    return 'Wrong user name or password.'
-  }
+  if (!user || !timingSafeEqual(given, Buffer.from(user.hash, 'base64'))) return 'Wrong user name or password.'
+  failures.get(key)?.pop() // a right password isn't a failure
   return user
 }
 
@@ -180,12 +185,13 @@ export async function checkPassword(form: URLSearchParams): Promise<User | strin
 export function checkCode(user: User, code: string | null): string {
   const key = `user:${user.username}`
   if (lockedOut(key)) return lockedMessage
-  const step = matchCode(user.totpSecret!, code, lastSteps.get(user.id) ?? 0)
+  const step = matchCode(user.totpSecret!, code, user.totpStep ?? 0)
   if (step === undefined) {
     fail(key)
     return 'That code is wrong or already used. Wait for a new one, then try again.'
   }
-  lastSteps.set(user.id, step)
+  user.totpStep = step
+  save()
   return ''
 }
 
@@ -306,15 +312,18 @@ export function answerInvite(user: User, workspaceId: string | null, accept: boo
   return workspace
 }
 
-/** Takes the account out of the workspace. The next member inherits ownership;
- *  a workspace left empty is dropped from the list (its folder stays on disk). */
+/** Takes the account out of the workspace. When that's the owner (only when the
+ *  admin removes the account), the member with the highest role takes over, the
+ *  longest-standing first; a workspace left empty is dropped from the list
+ *  (its folder stays on disk). */
 export function removeMember(workspace: Workspace, userId: string): void {
   workspace.members = workspace.members.filter((id) => id !== userId)
-  if (workspace.roles) delete workspace.roles[userId]
-  if (workspace.owner === userId && workspace.members[0]) {
-    workspace.owner = workspace.members[0]
+  if (workspace.owner === userId && workspace.members.length) {
+    const rank = (id: string) => ['manager', 'editor', 'viewer'].indexOf(roleOf(workspace, id)!)
+    workspace.owner = [...workspace.members].sort((a, b) => rank(a) - rank(b))[0]!
     if (workspace.roles) delete workspace.roles[workspace.owner] // the owner has no role entry
   }
+  if (workspace.roles) delete workspace.roles[userId]
   if (workspace.members.length === 0) store.workspaces = store.workspaces.filter((w) => w !== workspace)
   save()
 }

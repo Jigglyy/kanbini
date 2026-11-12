@@ -185,6 +185,9 @@ upstream files.
   - Its app then stops, so the last export and backup are written.
   - Its folder moves to `/data/deleted/` instead of being erased.
 - **Owners can't leave:** they hand over or delete instead.
+- **An owner's account removed by the admin:** the member with the highest
+  role (manager, then editor, then viewer) takes over, so a viewer never
+  outranks an editor or manager.
 
 **Why this is best.** Moving the folder makes a mistaken delete recoverable
 at no cost. Stopping the app first means the kept copy is complete. Handing
@@ -213,7 +216,10 @@ until someone removes them.
   for password managers (plain fields, autocomplete hints), and they do
   that job better and more safely than a server could.
 - **Lockouts:** ten wrong tries in 15 minutes lock that account's sign-in.
-  Ten wrong invite codes lock registration.
+  Ten wrong invite codes lock registration. A try counts as it starts, so
+  tries sent all at once can't get past the limit.
+- **Each 2FA code works once,** even across a restart: the last code's time
+  step is saved with the account.
 - **First run:** the first account becomes the admin, and set-up only
   answers direct LAN requests.
 
