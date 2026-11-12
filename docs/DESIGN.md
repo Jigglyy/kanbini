@@ -4,6 +4,13 @@ Offline, single-user, free and open-source (MIT) desktop kanban app with a
 local MCP server. Clean-room (no Planka/Trello code or assets). Windows is
 the primary target; macOS and Linux build from the same Electron codebase.
 
+This document describes the desktop app, and its rules (offline,
+single-user, no accounts) are the desktop app's. The **web edition**
+(`apps/web`) is a separate, opt-in deliverable: the same app served to a
+browser from a self-hosted Docker container, with accounts and shared
+workspaces. It builds from the desktop sources without changing them; its
+design is in `apps/web/DECISIONS.md`.
+
 ---
 
 ## 1. Goals / non-goals
@@ -19,10 +26,11 @@ the primary target; macOS and Linux build from the same Electron codebase.
   ownership is a product value, not a footnote.
 - One codebase across desktop OSes.
 
-**Non-goals**
+**Non-goals** (for the desktop app)
 - Multi-user / real-time collaboration / sharing / accounts / SSO /
   email / webhooks / cloud sync. (Cloud sync could come later for a
-  mobile companion; not in scope now.)
+  mobile companion; not in scope now.) Sharing, accounts and live
+  collaboration live in the self-hosted web edition (`apps/web`) instead.
 
 ---
 
@@ -195,7 +203,8 @@ export.
 filters and views; more AI-native helpers; optional encrypted cloud sync
 for a future mobile companion.
 
-**Out of scope by definition:** anything multi-user or online.
+**Out of scope by definition (desktop app):** anything multi-user or
+online. Those needs go to the self-hosted web edition (`apps/web`).
 
 ---
 
