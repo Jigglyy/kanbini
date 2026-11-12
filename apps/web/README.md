@@ -26,6 +26,23 @@ docker compose up -d --build
 
 `TZ` sets the clock for "due today" and the daily backup.
 
+### From the published image
+
+Each release (a `v*` tag) also publishes the image to
+`ghcr.io/jigglyy/kanbini`, tagged with the version (for example `0.18.0`), the minor
+version (`0.18`) and `latest`. To use it instead of building, replace
+`build: .` in `docker-compose.yml` with:
+
+```yaml
+    image: ghcr.io/jigglyy/kanbini:latest
+```
+
+Then `docker compose pull && docker compose up -d`. A manual run of the
+*Docker image* workflow publishes the branch name instead (e.g. `main`).
+After the first publish, the maintainer may need to set the package's
+visibility to public once (GitHub > Packages > kanbini > Package settings),
+since new packages can start private.
+
 ## First account
 
 Open `http://<host>:8080` on your network. The first account you create is
