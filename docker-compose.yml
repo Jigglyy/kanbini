@@ -1,0 +1,19 @@
+# Kanbini web edition: the app served to a browser. See apps/web/README.md.
+services:
+  kanbini:
+    build: .
+    container_name: kanbini
+    restart: unless-stopped
+    init: true
+    ports:
+      - "${KANBINI_PORT:-8080}:8080"
+    environment:
+      # "Due today" and the daily backup follow this clock.
+      TZ: ${TZ:-UTC}
+    volumes:
+      - kanbini-data:/data
+    # Room for the export + daily backup the app takes on shutdown.
+    stop_grace_period: 1m
+
+volumes:
+  kanbini-data:
