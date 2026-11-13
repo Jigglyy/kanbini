@@ -6,6 +6,12 @@ surface, and multi-board discovery + creation. Every AI edit flows
 through main, fires `broadcastChange`, and shows up live in the open
 renderer.
 
+This page covers the desktop app (stdio server, loopback control
+channel). The self-hosted **web edition** serves the same tools over
+HTTPS, one endpoint per workspace with a personal bearer token (viewers
+get the read tools only); see "AI tools (MCP)" in
+[`apps/web/README.md`](../apps/web/README.md).
+
 ---
 
 ## Architecture

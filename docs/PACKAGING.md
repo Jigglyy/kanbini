@@ -557,3 +557,11 @@ then publishes one Release with all six files; a manual
 `workflow_dispatch` run (`gh workflow run release.yml --ref <branch>`)
 builds everything as run artifacts without publishing. The e2e suite
 is still local-only; a commented-out job in ci.yml shows how to add it.
+
+The same `v*` tag also runs `.github/workflows/docker.yml`, which builds
+the web edition's image (root `Dockerfile`, see `apps/web/README.md`)
+and publishes it to `ghcr.io/jigglyy/kanbini` as `X.Y.Z`, `X.Y` and
+`latest` (amd64). A manual run (`gh workflow run docker.yml --ref
+<branch>`) publishes the branch name as the tag, never `latest`. Pull
+requests that touch the image or the desktop sources it's built from
+only build it.
