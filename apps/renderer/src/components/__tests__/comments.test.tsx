@@ -167,6 +167,13 @@ function makeCard(overrides: Partial<CardView> = {}): CardView {
 }
 
 describe('<Comments>', () => {
+  it('readOnly hides the composer but keeps the thread', () => {
+    const card = makeCard({ comments: [makeComment({ body: 'kept' })] })
+    render(<Comments card={card} apply={vi.fn()} readOnly />)
+    expect(screen.queryByRole('textbox', { name: 'comment composer' })).toBeNull()
+    expect(screen.getByTestId('markdown-view')).toHaveTextContent('kept')
+  })
+
   it('renders the composer + section heading', () => {
     render(<Comments card={makeCard()} apply={vi.fn()} />)
     expect(

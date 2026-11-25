@@ -98,9 +98,12 @@ export type UndoStatus = z.infer<typeof zUndoStatus>
  *  never silently edits board B (ADR-0036 revision). From home /
  *  settings the field is omitted and any board's entries are
  *  eligible - the result's `boardId` drives an auto-navigate so the
- *  user sees the change. */
+ *  user sees the change. `excludeBoardIds`: boards the renderer has
+ *  locked read-only. Entries logged under one of them, and any group
+ *  with a row logged under one, are skipped. */
 export const zUndoApplyRequest = z.object({
-  scopeBoardId: z.string().nullable().optional()
+  scopeBoardId: z.string().nullable().optional(),
+  excludeBoardIds: z.array(z.string()).optional()
 })
 export type UndoApplyRequest = z.infer<typeof zUndoApplyRequest>
 

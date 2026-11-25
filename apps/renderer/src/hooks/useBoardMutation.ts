@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { BoardView, Mutation } from '@kanbini/shared'
 import { boardKey, boardsRootKey } from './useBoard'
 import { ipc } from '../lib/ipc'
+import { isBoardReadOnly, isTick, notifyWriteBlocked } from '../lib/read-only'
 
 // One optimistic mutation runner shared by the board + label UIs:
 // cancel in-flight → snapshot → optimistic cache write → rollback on
@@ -37,10 +38,19 @@ export function useBoardMutation(
   // Stable identity across renders so consumers can be `React.memo`'d -
   // a fresh closure here would defeat the card/list memoisation that
   // keeps drag reorders from re-rendering the whole board. `mutate` is
-  // itself stable (react-query), so this never actually changes.
+  // itself stable (react-query), so this changes only with the board.
   const { mutate } = mutation
   return useCallback(
-    (m: Mutation, optimistic: Optimistic) => mutate({ m, optimistic }),
-    [mutate]
+    (m: Mutation, optimistic: Optimistic) => {
+      // A locked board: refuse before the optimistic write, so nothing
+      // flickers in and rolls back (the ipc guard alone would do that).
+      // Ticks pass the lock and go through as usual.
+      if (boardId && isBoardReadOnly(boardId) && !isTick(m)) {
+        notifyWriteBlocked(boardId)
+        return
+      }
+      mutate({ m, optimistic })
+    },
+    [mutate, boardId]
   )
 }

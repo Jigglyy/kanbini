@@ -5,6 +5,7 @@ import type { CardRef, CardView, SearchHit } from '@kanbini/shared'
 import { BlockedBadge, CardDependencies } from '../dependencies'
 import { kanbiniMock } from '../../__tests__/_kanbini-mock'
 import { renderWithQuery } from '../../__tests__/_render'
+import { onWriteBlocked, setBoardReadOnly } from '../../lib/read-only'
 
 // "Waiting on" links in the renderer: the preview badge and the card
 // detail section (list, open, remove, add via search, rejected adds).
@@ -232,6 +233,30 @@ describe('<CardDependencies>', () => {
       /already waiting on this one/i
     )
     expect(screen.getByRole('combobox')).toBeInTheDocument()
+  })
+})
+
+describe('<CardDependencies> with the other card on a locked board', () => {
+  it('refuses to add or remove the link from either side', async () => {
+    const user = userEvent.setup()
+    setBoardReadOnly('b2', true)
+    const blocked: string[] = []
+    const off = onWriteBlocked((id) => blocked.push(id))
+    kanbiniMock().searchCards.mockResolvedValue([hit({ cardId: 'h2', title: 'Far', boardId: 'b2' })])
+    renderSection(
+      makeCard({
+        blockedBy: [ref({ cardId: 'r9', title: 'Design', boardId: 'b2' })],
+        blocking: [ref({ cardId: 'w1', title: 'Launch', boardId: 'b2' })]
+      })
+    )
+    await user.click(screen.getByRole('button', { name: 'Stop waiting on "Design"' }))
+    await user.click(screen.getByRole('button', { name: 'Stop "Launch" waiting on this card' }))
+    await user.click(screen.getByRole('button', { name: /add a card/i }))
+    await user.type(screen.getByRole('combobox'), 'far')
+    await user.click((await screen.findAllByRole('option'))[0]!)
+    off()
+    expect(kanbiniMock().mutate).not.toHaveBeenCalled()
+    expect(blocked).toEqual(['b2', 'b2', 'b2'])
   })
 })
 

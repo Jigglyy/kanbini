@@ -1,6 +1,7 @@
 import {
   memo,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -72,6 +73,12 @@ import { glowCard } from '../lib/card-glow'
 import { closestCornersNearby } from '../lib/collision'
 import { ipc } from '../lib/ipc'
 import { tint } from '../lib/palette'
+import {
+  ReadOnlyContext,
+  notifyWriteBlocked,
+  useBoardReadOnly,
+  useReadOnlyScope
+} from '../lib/read-only'
 import { useSettings } from '../lib/settings'
 import {
   resolveBindings,
@@ -174,6 +181,8 @@ const REST_SHADOW =
 // Stable empty-selection identity so "no cards selected" never produces a
 // fresh Set each render (which would bust the memoised cards).
 const EMPTY_SELECTION: ReadonlySet<string> = new Set()
+// A locked board's DndContext: no sensors, so no card or list drag starts.
+const NO_SENSORS: never[] = []
 
 // List reorder: the column sortable id is namespaced so it never
 // collides with a raw card id (card sortables) or the `list:<id>`
@@ -619,10 +628,12 @@ export function Board({
    *  shows its first few cards (effectiveCardLimit). */
   shortenLongLists?: boolean
 }) {
+  useReadOnlyScope(board.board.id)
+  const [readOnly] = useBoardReadOnly(board.board.id)
   useAutoCoverFromUrl({
     boardId: board.board.id,
     data: board,
-    enabled: linkPreviews && autoCoverFromUrl
+    enabled: linkPreviews && autoCoverFromUrl && !readOnly
   })
   const apply = useBoardMutation(board.board.id)
   const qc = useQueryClient()
@@ -1575,6 +1586,9 @@ export function Board({
     'card.delete': (e) => {
       if (!focusedCardId) return
       consume(e)
+      // Locked: the guard would refuse the delete, but focus would still
+      // hop to the neighbour as if the card were gone.
+      if (readOnly) return notifyWriteBlocked(board.board.id)
       // Pick a neighbour to inherit focus BEFORE firing the delete so
       // the user can keep deleting / navigating without scrolling
       // back. Preference order: next card in the same list → previous
@@ -2198,8 +2212,9 @@ export function Board({
 
   return (
     <CardActionsContext.Provider value={cardActions}>
+    <ReadOnlyContext.Provider value={readOnly}>
     <DndContext
-      sensors={sensors}
+      sensors={readOnly ? NO_SENSORS : sensors}
       collisionDetection={collisionDetection}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
@@ -2260,7 +2275,7 @@ export function Board({
         // stub are back so adding more lists works the way it always
         // has.
         if (visibleLists.length === 0) {
-          return <BoardEmptyState onAdd={addList} />
+          return readOnly ? null : <BoardEmptyState onAdd={addList} />
         }
         // ADR-0037 slice 2 swimlane layout - when the board carries a
         // non-null `swimlaneMode` we re-flow into lane rows. The
@@ -2529,6 +2544,7 @@ export function Board({
         onOpenCard={onOpenBoardCard}
       />
     )}
+    </ReadOnlyContext.Provider>
     </CardActionsContext.Provider>
   )
 }
@@ -2767,6 +2783,7 @@ const ListColumn = memo(function ListColumn({
   const { setNodeRef: setDroppableRef, isOver } = useDroppable({
     id: `list:${list.id}`
   })
+  const readOnly = useContext(ReadOnlyContext)
   // The whole column is a horizontal sortable. The header is the drag
   // activator (listeners spread on the <h2>, not the section, so a card
   // drag and a header drag never start from the same element); the
@@ -2864,7 +2881,7 @@ const ListColumn = memo(function ListColumn({
       <ListHeader
         list={list}
         apply={apply}
-        dragListeners={dragListeners}
+        dragListeners={readOnly ? undefined : dragListeners}
         onMove={onMoveList ? (dir) => onMoveList(list.id, dir) : undefined}
         canMoveLeft={canMoveLeft}
         canMoveRight={canMoveRight}
@@ -3170,6 +3187,7 @@ const SortableCard = memo(function SortableCard({
    *  source's hovered styles. See Board's state declaration. */
   postDropHoverMatch: boolean
 }) {
+  const readOnly = useContext(ReadOnlyContext)
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({
       id: card.id,
@@ -3319,7 +3337,9 @@ const SortableCard = memo(function SortableCard({
         // `overflow-hidden` drops its automatic min-height to 0 - so in a
         // height-capped body (lists that scroll on their own) cards would
         // squash to fit instead of the body scrolling.
-        'group/card relative flex shrink-0 flex-col gap-1 overflow-hidden rounded-md border bg-card px-3 py-2 text-sm transition-[border-color,box-shadow] cursor-grab active:cursor-grabbing focus:outline-none',
+        'group/card relative flex shrink-0 flex-col gap-1 overflow-hidden rounded-md border bg-card px-3 py-2 text-sm transition-[border-color,box-shadow] focus:outline-none',
+        // A locked board's cards open on click but don't drag.
+        readOnly ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing',
         // Default vs `cursor-was-on-overlay-at-drop-end` styling.
         // The post-drop force matches what the DragOverlay's last
         // frame is painting (border-ring/60 + shadow-md), so when
@@ -3361,7 +3381,8 @@ const SortableCard = memo(function SortableCard({
       isDragging,
       multiDragActive,
       card.completed,
-      completePhase
+      completePhase,
+      readOnly
     ]
   )
   const body = (
@@ -3669,6 +3690,9 @@ export function AddCard({
     document.addEventListener('kanbini:add-card', onAddRequest)
     return () => document.removeEventListener('kanbini:add-card', onAddRequest)
   }, [listId, full])
+  // Locked board: no input to type a card into and then lose.
+  const readOnly = useContext(ReadOnlyContext)
+  if (readOnly) return null
   // List is at its card limit - show why instead of the add-card input.
   if (full) {
     return (
@@ -3722,6 +3746,8 @@ export function AddList({
     document.addEventListener('kanbini:add-list', onAddRequest)
     return () => document.removeEventListener('kanbini:add-list', onAddRequest)
   }, [])
+  const readOnly = useContext(ReadOnlyContext)
+  if (readOnly) return null
   return (
     <div className="flex w-72 shrink-0 flex-col gap-1">
       <input

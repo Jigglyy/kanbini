@@ -5,6 +5,7 @@ import { useBoardMutation } from '../useBoardMutation'
 import { boardKey, boardsRootKey } from '../useBoard'
 import { renderHookWithQuery } from '../../__tests__/_render'
 import { kanbiniMock } from '../../__tests__/_kanbini-mock'
+import { onWriteBlocked, setBoardReadOnly, useReadOnlyScope } from '../../lib/read-only'
 
 // Tests for the central optimistic-write helper that every renderer
 // CRUD call funnels through (ADR-0013). The contract:
@@ -192,5 +193,54 @@ describe('useBoardMutation', () => {
     rerender()
     rerender()
     expect(result.current).toBe(first)
+  })
+  it('on a locked board: no optimistic write, no IPC, the block is announced', async () => {
+    const boardId = 'b-locked'
+    setBoardReadOnly(boardId, true)
+    const blocked: string[] = []
+    const off = onWriteBlocked((id) => blocked.push(id))
+    const { result, client } = renderHookWithQuery(() =>
+      useBoardMutation(boardId)
+    )
+    client.setQueryData<BoardView>(boardKey(boardId), makeBoard(boardId))
+    let optimisticCalled = false
+    act(() => {
+      result.current(
+        { type: 'list.update', id: 'list-1', patch: { name: 'Nope' } },
+        (b) => {
+          optimisticCalled = true
+          return b
+        }
+      )
+    })
+    await new Promise((r) => setTimeout(r, 20))
+    off()
+    expect(optimisticCalled).toBe(false)
+    expect(client.getQueryData<BoardView>(boardKey(boardId))?.lists[0]?.name).toBe('Todo')
+    expect(kanbiniMock().mutate).not.toHaveBeenCalled()
+    expect(blocked).toEqual([boardId])
+  })
+
+  it('on a locked board a tick still writes optimistically and reaches the IPC', async () => {
+    const boardId = 'b-locked-tick'
+    setBoardReadOnly(boardId, true)
+    const blocked: string[] = []
+    const off = onWriteBlocked((id) => blocked.push(id))
+    const { result, client } = renderHookWithQuery(() => {
+      useReadOnlyScope(boardId)
+      return useBoardMutation(boardId)
+    })
+    client.setQueryData<BoardView>(boardKey(boardId), makeBoard(boardId))
+    const tick: Mutation = { type: 'card.update', id: 'c1', patch: { completed: true } }
+    act(() => {
+      result.current(tick, (b) => ({
+        ...b,
+        lists: b.lists.map((l) => ({ ...l, name: 'Ticked' }))
+      }))
+    })
+    await waitFor(() => expect(kanbiniMock().mutate).toHaveBeenCalledWith(tick))
+    off()
+    expect(client.getQueryData<BoardView>(boardKey(boardId))?.lists[0]?.name).toBe('Ticked')
+    expect(blocked).toEqual([])
   })
 })

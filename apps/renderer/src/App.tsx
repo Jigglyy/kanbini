@@ -24,6 +24,7 @@ import { BoardSettings } from './components/board-settings'
 import { AppSettings } from './components/app-settings'
 import { CommandPalette } from './components/command-palette'
 import { HiddenCardNotice } from './components/hidden-card-notice'
+import { ReadOnlyPill, ReadOnlyToggle } from './components/read-only'
 import { WelcomeModal } from './components/welcome-modal'
 import { ZoomControl } from './components/zoom-control'
 import { Tooltip } from './components/ui/tooltip'
@@ -515,6 +516,7 @@ export function App() {
                     {data.board.name}
                   </span>
                   <BoardSettings board={data} apply={apply} />
+                  <ReadOnlyPill boardId={data.board.id} />
                 </div>
               </>
             )}
@@ -526,6 +528,9 @@ export function App() {
             the cluster sits flush right regardless of how many items
             it contains. */}
         <div className="ml-auto flex items-center gap-2">
+          {route.kind === 'board' && status === 'success' && data && (
+            <ReadOnlyToggle boardId={data.board.id} />
+          )}
           {route.kind === 'board' && (completedCount > 0 || hideCompleted) && (
             <Tooltip
               label={

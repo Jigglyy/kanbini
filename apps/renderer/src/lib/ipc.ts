@@ -41,6 +41,14 @@ import type {
   UndoApplyResult,
   UndoStatus
 } from '@kanbini/shared'
+import {
+  ReadOnlyError,
+  isBoardReadOnly,
+  isTick,
+  lockedScopeId,
+  notifyWriteBlocked,
+  readOnlyBoardIds
+} from './read-only'
 
 // Thin typed accessor over the preload bridge so components don't
 // repeat the window.kanbini guard.
@@ -50,22 +58,73 @@ function bridge() {
   return b
 }
 
+// Read-only boards (lib/read-only.ts): the renderer reaches main through
+// here, so this is the main guard (a few callers also check first). A
+// refusal rejects rather than throws, so it reaches callers like a
+// rejected IPC call.
+function refuse(boardId: string): Promise<never> {
+  notifyWriteBlocked(boardId)
+  return Promise.reject(new ReadOnlyError(boardId))
+}
+
+function guarded<T>(run: () => Promise<T>, boardId?: string): Promise<T> {
+  const locked =
+    lockedScopeId() ?? (boardId && isBoardReadOnly(boardId) ? boardId : null)
+  return locked ? refuse(locked) : run()
+}
+
+/** A board-level write naming a locked board, from anywhere (the home
+ *  screen has no board on screen). Favouriting and reordering arrange
+ *  the home screen, and duplicating reads the board into a new one;
+ *  none of them changes the board's name, lists, labels or cards. */
+function lockedBoardTarget(ms: Mutation[]): string | null {
+  for (const m of ms) {
+    if (m.type === 'board.create' || m.type === 'board.move') continue
+    if (m.type === 'board.duplicate') continue
+    if (!m.type.startsWith('board.') || !('id' in m) || !m.id) continue
+    if (m.type === 'board.update') {
+      const keys = Object.keys(m.patch)
+      if (keys.length > 0 && keys.every((k) => k === 'pinned')) continue
+    }
+    if (isBoardReadOnly(m.id)) return m.id
+  }
+  return null
+}
+
+function guardedMutations<T>(ms: Mutation[], run: () => Promise<T>): Promise<T> {
+  // Ticks pass the lock (lib/read-only.ts), so a call made only of them
+  // runs; one other write in a batch and the whole batch is refused.
+  if (ms.length > 0 && ms.every(isTick)) return run()
+  const target = lockedBoardTarget(ms)
+  return target ? refuse(target) : guarded(run)
+}
+
+/** An unscoped undo / redo (no board open) can pick an entry on any
+ *  board: main skips those logged under a locked board. A scoped one is
+ *  guarded instead. */
+function undoRequest(req: UndoApplyRequest): UndoApplyRequest {
+  if (req.scopeBoardId) return req
+  const locked = readOnlyBoardIds()
+  return locked.length > 0 ? { ...req, excludeBoardIds: locked } : req
+}
+
 export const ipc = {
   listBoards: (): Promise<BoardsListView> => bridge().listBoards(),
   getBoardView: (boardId?: string): Promise<BoardView | null> =>
     bridge().getBoardView(boardId),
-  mutate: (m: Mutation): Promise<MutationResult> => bridge().mutate(m),
+  mutate: (m: Mutation): Promise<MutationResult> =>
+    guardedMutations([m], () => bridge().mutate(m)),
   /** Bulk gesture - one transaction, one undo-log group (one Ctrl+Z). */
   mutateBatch: (ms: Mutation[]): Promise<MutationResult[]> =>
-    bridge().mutateBatch(ms),
+    guardedMutations(ms, () => bridge().mutateBatch(ms)),
   attachmentAdd: (cardId: string): Promise<AttachmentView | null> =>
-    bridge().attachmentAdd(cardId),
+    guarded(() => bridge().attachmentAdd(cardId)),
   /** Attach the clipboard image to a card; resolves null on a non-image
    *  (text) paste. */
   attachmentPasteImage: (cardId: string): Promise<AttachmentView | null> =>
-    bridge().attachmentPasteImage(cardId),
+    guarded(() => bridge().attachmentPasteImage(cardId)),
   linkPreviewCreate: (req: LinkPreviewRequest): Promise<LinkPreviewResult> =>
-    bridge().linkPreviewCreate(req),
+    guarded(() => bridge().linkPreviewCreate(req)),
   exportNow: (): Promise<ExportSummary> => bridge().exportNow(),
   importFolder: (): Promise<ImportSummary | null> => bridge().importFolder(),
   backupsList: (): Promise<BackupList> => bridge().backupsList(),
@@ -84,12 +143,13 @@ export const ipc = {
     bridge().setRecentBoards(req),
   boardSetBackgroundImage: (
     req: BoardSetBackgroundImageRequest
-  ): Promise<BoardBackground | null> => bridge().boardSetBackgroundImage(req),
+  ): Promise<BoardBackground | null> =>
+    guarded(() => bridge().boardSetBackgroundImage(req), req.boardId),
   undoStatus: (): Promise<UndoStatus> => bridge().undoStatus(),
   undoApply: (req: UndoApplyRequest = {}): Promise<UndoApplyResult> =>
-    bridge().undoApply(req),
+    guarded(() => bridge().undoApply(undoRequest(req)), req.scopeBoardId ?? undefined),
   redoApply: (req: UndoApplyRequest = {}): Promise<UndoApplyResult> =>
-    bridge().redoApply(req),
+    guarded(() => bridge().redoApply(undoRequest(req)), req.scopeBoardId ?? undefined),
   undoClear: (): Promise<UndoStatus> => bridge().undoClear(),
   searchCards: (req: SearchCardsRequest): Promise<SearchHits> =>
     bridge().searchCards(req),
@@ -113,7 +173,10 @@ export const ipc = {
     bridge().templateDelete(req),
   templateInstantiate: (
     req: TemplateInstantiateRequest
-  ): Promise<TemplateInstantiateResult> => bridge().templateInstantiate(req),
+  ): Promise<TemplateInstantiateResult> =>
+    req.kind === 'list'
+      ? guarded(() => bridge().templateInstantiate(req), req.targetBoardId)
+      : bridge().templateInstantiate(req),
   onChange: (cb: (e: ChangeEvent) => void): (() => void) =>
     bridge().onChange(cb),
   onTrayOpenBoard: (cb: (boardId: string) => void): (() => void) =>
