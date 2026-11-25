@@ -194,3 +194,66 @@ test('dragging one of a multi-selection moves them all', async () => {
     todo.locator('[data-card-id]').filter({ has: page.getByText('Mover2', { exact: true }) })
   ).toHaveCount(0)
 })
+
+test('a multi-selection drag lists the selected cards under the grabbed one', async () => {
+  const { page } = handle
+
+  await page
+    .getByRole('heading', { name: 'Welcome Board', exact: true })
+    .click()
+  await expect(page.getByRole('heading', { name: /^To Do\b/ })).toBeVisible()
+
+  const addList = page.getByPlaceholder('+ Add a list')
+  await addList.click()
+  await addList.fill('Doing')
+  await addList.press('Enter')
+  await expect(page.getByRole('heading', { name: /^Doing\b/ })).toBeVisible()
+
+  const addCard = page.getByPlaceholder('+ Add a card').first()
+  const titles = ['Pack1', 'Pack2', 'Pack3', 'Pack4', 'Pack5', 'Pack6']
+  for (const title of titles) {
+    await addCard.click()
+    await addCard.fill(title)
+    await addCard.press('Enter')
+    await expect(page.getByText(title, { exact: true })).toBeVisible()
+  }
+  for (const title of titles) {
+    await page.getByText(title, { exact: true }).click({ modifiers: ['Control'] })
+  }
+  await expect(page.getByText('6 selected')).toBeVisible()
+
+  const card = (t: string): Locator =>
+    page.locator('[data-card-id]').filter({ has: page.getByText(t, { exact: true }) })
+  const f = await card('Pack1').boundingBox()
+  const t = await page.getByRole('main').getByPlaceholder('+ Add a card').nth(3).boundingBox()
+  if (!f || !t) throw new Error('boundingBox unavailable')
+  const start = { x: f.x + f.width / 2, y: f.y + f.height / 2 }
+  const end = { x: t.x + t.width / 2, y: t.y + t.height / 2 }
+
+  // Hold the drag mid-flight: the overlay shows the grabbed card plus the
+  // next three selected cards (4 faces), then "+2 more", and counts 6.
+  await page.mouse.move(start.x, start.y)
+  await page.mouse.down()
+  await page.mouse.move(start.x + 12, start.y + 12, { steps: 5 })
+  await page.mouse.move(end.x, end.y, { steps: 25 })
+
+  const overlay = page.locator('.drag-overlay')
+  await expect(overlay.locator('[data-drag-count]')).toHaveText('6')
+  await expect(overlay.locator('[data-drag-follower]')).toHaveCount(3)
+  for (const title of ['Pack2', 'Pack3', 'Pack4']) {
+    await expect(overlay.getByText(title, { exact: true })).toBeVisible()
+  }
+  await expect(overlay.getByText('Pack5', { exact: true })).toHaveCount(0)
+  await expect(overlay.getByText('+2 more')).toBeVisible()
+  // The cards left behind in To Do read as "leaving" (dimmed).
+  for (const title of ['Pack2', 'Pack6']) {
+    expect(Number(await card(title).evaluate((el) => getComputedStyle(el).opacity))).toBeLessThan(1)
+  }
+
+  await page.mouse.up()
+  await expect(overlay).toHaveCount(0)
+  const doing = page.getByRole('list').filter({ hasText: 'Pack1' })
+  for (const title of titles) {
+    await expect(doing.locator('[data-card-id]').filter({ has: page.getByText(title, { exact: true }) })).toBeVisible()
+  }
+})
