@@ -115,6 +115,36 @@ test('a plain click opens a card without leaving it selected', async () => {
   await expect(page.getByRole('dialog', { name: 'Solo' })).not.toBeVisible()
 })
 
+test('Shift+click and Ctrl+click select cards without selecting their text', async () => {
+  const { page } = handle
+
+  await page
+    .getByRole('heading', { name: 'Welcome Board', exact: true })
+    .click()
+  await expect(page.getByRole('heading', { name: /^To Do\b/ })).toBeVisible()
+
+  const addCard = page.getByPlaceholder('+ Add a card').first()
+  for (const title of ['Alpha', 'Beta', 'Gamma']) {
+    await addCard.click()
+    await addCard.fill(title)
+    await addCard.press('Enter')
+    await expect(page.getByText(title, { exact: true })).toBeVisible()
+  }
+
+  // Browser default: a Shift+click after a Ctrl+click on another card
+  // also leaves text selected across the cards.
+  const selectedText = (): Promise<string> =>
+    page.evaluate(() => window.getSelection()?.toString() ?? '')
+
+  await page.getByText('Alpha', { exact: true }).click({ modifiers: ['Control'] })
+  await page.getByText('Gamma', { exact: true }).click({ modifiers: ['Shift'] })
+  await expect(page.getByText('3 selected')).toBeVisible()
+  expect(await selectedText()).toBe('')
+
+  await page.getByText('Beta', { exact: true }).click({ modifiers: ['Control'] })
+  expect(await selectedText()).toBe('')
+})
+
 /** Real PointerEvent drag with enough interpolated steps to clear the
  *  6 px activation threshold (same shape as drag-and-drop.spec). */
 async function dragBetween(
