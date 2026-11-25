@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Modal } from '../modal'
 
@@ -73,6 +73,40 @@ describe('<Modal>', () => {
     // The dialog element IS the backdrop (the inner box uses
     // stopPropagation for content clicks).
     await user.click(screen.getByRole('dialog', { name: 'Backdrop test' }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('a press that starts in the content and is released on the backdrop does NOT fire onClose', () => {
+    // Chromium dispatches the click on the common ancestor of the mousedown
+    // and mouseup targets, i.e. the backdrop, when a text selection drag
+    // leaves the panel.
+    const onClose = vi.fn()
+    render(
+      <Modal open onClose={onClose} label="Drag test">
+        <p>drag from here</p>
+      </Modal>
+    )
+    const dialog = screen.getByRole('dialog', { name: 'Drag test' })
+    fireEvent.mouseDown(screen.getByText('drag from here'))
+    fireEvent.mouseUp(dialog)
+    fireEvent.click(dialog)
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('a press that starts in the content still closes on a later backdrop click', () => {
+    const onClose = vi.fn()
+    render(
+      <Modal open onClose={onClose} label="Drag test">
+        <p>drag from here</p>
+      </Modal>
+    )
+    const dialog = screen.getByRole('dialog', { name: 'Drag test' })
+    fireEvent.mouseDown(screen.getByText('drag from here'))
+    fireEvent.mouseUp(dialog)
+    fireEvent.click(dialog)
+    fireEvent.mouseDown(dialog)
+    fireEvent.mouseUp(dialog)
+    fireEvent.click(dialog)
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
