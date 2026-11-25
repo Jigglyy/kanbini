@@ -68,10 +68,13 @@ const mapChecklist = (
 
 export function Checklists({
   card,
-  apply
+  apply,
+  readOnly = false
 }: {
   card: CardView
   apply: Apply
+  /** Locked board: no add inputs, no rename, no text edit, no delete X. */
+  readOnly?: boolean
 }) {
   const addChecklist = (name: string): void => {
     const temp: ChecklistView = {
@@ -92,9 +95,9 @@ export function Checklists({
     <section className="flex flex-col gap-4">
       <h3 className="text-sm font-medium text-muted-foreground">Checklists</h3>
       {card.checklists.map((cl) => (
-        <ChecklistBlock key={cl.id} cardId={card.id} checklist={cl} apply={apply} />
+        <ChecklistBlock key={cl.id} cardId={card.id} checklist={cl} apply={apply} readOnly={readOnly} />
       ))}
-      <AddChecklist onAdd={addChecklist} />
+      {!readOnly && <AddChecklist onAdd={addChecklist} />}
     </section>
   )
 }
@@ -274,11 +277,13 @@ function ChecklistPreviewRow({
 function ChecklistBlock({
   cardId,
   checklist,
-  apply
+  apply,
+  readOnly
 }: {
   cardId: string
   checklist: ChecklistView
   apply: Apply
+  readOnly: boolean
 }) {
   const [name, setName] = useState(checklist.name)
   const [confirming, setConfirming] = useState(false)
@@ -336,6 +341,7 @@ function ChecklistBlock({
       <div className="flex items-center gap-2">
         <input
           value={name}
+          readOnly={readOnly}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
@@ -387,11 +393,12 @@ function ChecklistBlock({
             checklistId={checklist.id}
             item={it}
             apply={apply}
+            readOnly={readOnly}
           />
         ))}
       </ul>
 
-      <AddItem onAdd={addItem} />
+      {!readOnly && <AddItem onAdd={addItem} />}
     </div>
   )
 }
@@ -400,12 +407,14 @@ function ChecklistItemRow({
   cardId,
   checklistId,
   item,
-  apply
+  apply,
+  readOnly
 }: {
   cardId: string
   checklistId: string
   item: ChecklistItemView
   apply: Apply
+  readOnly: boolean
 }) {
   const [text, setText] = useState(item.text)
   const [editing, setEditing] = useState(false)
@@ -495,7 +504,7 @@ function ChecklistItemRow({
         />
       ) : (
         <span
-          onClick={() => setEditing(true)}
+          onClick={() => !readOnly && setEditing(true)}
           className={`flex-1 cursor-text text-sm ${
             item.completed ? 'text-muted-foreground line-through' : ''
           }`}
@@ -503,13 +512,13 @@ function ChecklistItemRow({
           {item.text}
         </span>
       )}
-      <button
+      {!readOnly && <button
         aria-label="Delete item"
         onClick={del}
         className="opacity-0 transition-opacity group-hover/item:opacity-100"
       >
         <X className="size-3.5 text-muted-foreground hover:text-foreground" />
-      </button>
+      </button>}
     </li>
   )
 }

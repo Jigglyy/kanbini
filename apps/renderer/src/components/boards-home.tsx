@@ -29,6 +29,7 @@ import {
   Download,
   FileUp,
   Image as ImageIcon,
+  Lock,
   PencilLine,
   Plus,
   Search,
@@ -47,6 +48,7 @@ import {
   reduceBoardReorder
 } from '../lib/boards-home-dnd'
 import { loadOpenedMap } from '../lib/last-opened'
+import { isBoardReadOnly, useBoardReadOnly } from '../lib/read-only'
 import { backgroundCss, swatchOptions } from '../lib/palette'
 import { cn } from '../lib/utils'
 import { AgendaPanel } from './agenda'
@@ -726,6 +728,7 @@ function BoardCardFace({
 }) {
   const bg = backgroundCss(board.background)
   const hasBg = bg.image || bg.color
+  const [locked] = useBoardReadOnly(board.id)
   return (
     <div
       style={{
@@ -773,6 +776,13 @@ function BoardCardFace({
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
             <h3 className="min-w-0 flex-1 truncate pr-7 text-base font-semibold">
+              {locked && (
+                <Lock
+                  role="img"
+                  aria-label="Read-only"
+                  className="mr-1.5 inline size-3.5 align-[-0.125em] opacity-70"
+                />
+              )}
               {board.name}
             </h3>
             {board.archived && (
@@ -1161,6 +1171,8 @@ function RenameBoardDialog({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const nameRef = useRef<HTMLInputElement | null>(null)
+  // Locked: the guard would refuse the save, so don't take the typing.
+  const locked = board ? isBoardReadOnly(board.id) : false
 
   useEffect(() => {
     if (!board) return
@@ -1222,6 +1234,7 @@ function RenameBoardDialog({
             onChange={(e) => setName(e.target.value)}
             maxLength={200}
             required
+            readOnly={locked}
             disabled={submitting}
             className="rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
@@ -1236,10 +1249,16 @@ function RenameBoardDialog({
             onChange={(e) => setDescription(e.target.value)}
             rows={3}
             maxLength={2000}
+            readOnly={locked}
             disabled={submitting}
             className="resize-none rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
         </label>
+        {locked && (
+          <p className="text-sm text-muted-foreground">
+            This board is read-only. Unlock it on the board to edit.
+          </p>
+        )}
         {error && <p className="text-sm text-red-400">{error}</p>}
         <div className="flex items-center justify-end gap-2 pt-2">
           <Button

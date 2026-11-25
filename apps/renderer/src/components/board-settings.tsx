@@ -6,6 +6,7 @@ import type {
   SwimlaneMode
 } from '@kanbini/shared'
 import type { Optimistic } from '../hooks/useBoardMutation'
+import { useBoardReadOnly } from '../lib/read-only'
 import { ArchivedItemsDialog } from './archived-items'
 import { BackgroundPicker } from './background-picker'
 import { BoardExportDialog } from './board-export'
@@ -135,6 +136,7 @@ function RenameBody({
   onExport: () => void
 }) {
   const [name, setName] = useState(board.board.name)
+  const [readOnly] = useBoardReadOnly(board.board.id)
   // Re-sync if the board is renamed elsewhere while this popover is
   // open, so a stale buffer can't revert that change on blur.
   useEffect(() => setName(board.board.name), [board.board.name])
@@ -155,6 +157,7 @@ function RenameBody({
         <input
           autoFocus
           value={name}
+          readOnly={readOnly}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {

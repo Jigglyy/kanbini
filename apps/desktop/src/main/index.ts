@@ -664,14 +664,14 @@ function registerIpc(
     return zUndoStatus.parse(undoStatus(db))
   })
   ipcMain.handle(IPC.undoApply, (_event, raw: unknown) => {
-    const { scopeBoardId } = zUndoApplyRequest.parse(raw ?? {})
-    const out = undoOne(db, scopeBoardId ?? undefined)
+    const { scopeBoardId, excludeBoardIds } = zUndoApplyRequest.parse(raw ?? {})
+    const out = undoOne(db, scopeBoardId ?? undefined, excludeBoardIds)
     if (out.applied) broadcastChange(out.boardId)
     return zUndoApplyResult.parse(out)
   })
   ipcMain.handle(IPC.redoApply, (_event, raw: unknown) => {
-    const { scopeBoardId } = zUndoApplyRequest.parse(raw ?? {})
-    const out = redoOne(db, scopeBoardId ?? undefined)
+    const { scopeBoardId, excludeBoardIds } = zUndoApplyRequest.parse(raw ?? {})
+    const out = redoOne(db, scopeBoardId ?? undefined, excludeBoardIds)
     if (out.applied) broadcastChange(out.boardId)
     return zUndoApplyResult.parse(out)
   })

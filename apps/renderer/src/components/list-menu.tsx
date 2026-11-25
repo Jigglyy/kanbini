@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useContext, useState } from 'react'
 import {
   ArrowDownUp,
   BookmarkPlus,
@@ -19,6 +19,7 @@ import type {
 import { AUTO_CARD_LIMIT, AUTO_CARD_LIMIT_ABOVE, SHOW_ALL_CARDS } from '@kanbini/shared'
 import type { Optimistic } from '../hooks/useBoardMutation'
 import { VISIBLE_LIMIT_OPTIONS } from '../lib/list-visibility'
+import { ReadOnlyContext } from '../lib/read-only'
 import { swatchOptions } from '../lib/palette'
 import { cn } from '../lib/utils'
 import { MenuLabel, MenuSep, SubMenu, revealOnMount } from './ui/context-menu'
@@ -108,6 +109,10 @@ export function ListEditor({
   canMoveLeft?: boolean
   canMoveRight?: boolean
 }) {
+  // Locked board (Board provides it): the name can be read and copied,
+  // not typed into; the menu's other edits are refused (saving a template
+  // is not).
+  const readOnly = useContext(ReadOnlyContext)
   const [name, setName] = useState(list.name)
   const [wip, setWip] = useState(list.wipLimit?.toString() ?? '')
   const [confirming, setConfirming] = useState(false)
@@ -176,6 +181,7 @@ export function ListEditor({
       <input
         autoFocus
         value={name}
+        readOnly={readOnly}
         onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
@@ -448,6 +454,7 @@ export function ListEditor({
             type="number"
             min="1"
             value={wip}
+            readOnly={readOnly}
             onChange={(e) => setWip(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {

@@ -5,6 +5,7 @@ import type { AgendaItem, AgendaView } from '@kanbini/shared'
 import { AgendaPanel } from '../agenda'
 import { EMPTY_AGENDA, kanbiniMock } from '../../__tests__/_kanbini-mock'
 import { renderWithQuery } from '../../__tests__/_render'
+import { setBoardReadOnly } from '../../lib/read-only'
 
 // Boards-home Agenda panel. Covers: the empty hint, one group per
 // section with its total, the collapsed summary + persisted toggle,
@@ -153,6 +154,20 @@ describe('<AgendaPanel>', () => {
       type: 'card.update',
       id: 'c-2',
       patch: { completed: false }
+    })
+  })
+})
+
+describe('<AgendaPanel> on a read-only board', () => {
+  it('still completes a card whose board is locked', async () => {
+    setBoardReadOnly('b-ro', true)
+    const user = userEvent.setup()
+    renderPanel(agenda({ today: [item({ cardId: 'c-ro', boardId: 'b-ro', title: 'Locked one' })] }))
+    await user.click(await screen.findByRole('checkbox', { name: /mark "locked one" complete/i }))
+    expect(kanbiniMock().mutate).toHaveBeenCalledWith({
+      type: 'card.update',
+      id: 'c-ro',
+      patch: { completed: true }
     })
   })
 })

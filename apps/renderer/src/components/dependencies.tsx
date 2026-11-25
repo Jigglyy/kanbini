@@ -11,6 +11,7 @@ import {
 } from '@kanbini/shared'
 import { boardsRootKey } from '../hooks/useBoard'
 import { ipc } from '../lib/ipc'
+import { blockIfReadOnly } from '../lib/read-only'
 import { cn } from '../lib/utils'
 
 // "Waiting on" links between cards (card_dependency). Two surfaces:
@@ -83,7 +84,10 @@ export function CardDependencies({
     setError(null)
   }, [card.id])
 
-  async function run(m: Mutation): Promise<boolean> {
+  // A link's other card can sit on a locked board that isn't on screen,
+  // where the ipc guard can't see it: check that board.
+  async function run(m: Mutation, otherBoardId: string): Promise<boolean> {
+    if (blockIfReadOnly(otherBoardId)) return false
     setBusy(true)
     setError(null)
     try {
@@ -143,11 +147,10 @@ export function CardDependencies({
               onOpen={onOpenCard}
               removeLabel={`Stop waiting on "${ref.title}"`}
               onRemove={() =>
-                void run({
-                  type: 'card.removeBlocker',
-                  id: card.id,
-                  blockerId: ref.cardId
-                })
+                void run(
+                  { type: 'card.removeBlocker', id: card.id, blockerId: ref.cardId },
+                  ref.boardId
+                )
               }
             />
           ))}
@@ -160,11 +163,10 @@ export function CardDependencies({
           busy={busy}
           onCancel={() => setAdding(false)}
           onPick={async (hit) => {
-            const ok = await run({
-              type: 'card.addBlocker',
-              id: card.id,
-              blockerId: hit.cardId
-            })
+            const ok = await run(
+              { type: 'card.addBlocker', id: card.id, blockerId: hit.cardId },
+              hit.boardId
+            )
             if (ok) setAdding(false)
           }}
         />
@@ -191,11 +193,10 @@ export function CardDependencies({
                 onOpen={onOpenCard}
                 removeLabel={`Stop "${ref.title}" waiting on this card`}
                 onRemove={() =>
-                  void run({
-                    type: 'card.removeBlocker',
-                    id: ref.cardId,
-                    blockerId: card.id
-                  })
+                  void run(
+                    { type: 'card.removeBlocker', id: ref.cardId, blockerId: card.id },
+                    ref.boardId
+                  )
                 }
               />
             ))}

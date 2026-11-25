@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNotNull } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, or } from 'drizzle-orm'
 import { type Mutation, type MutationResult, newId } from '@kanbini/shared'
 import type { Db } from './client'
 import { applyMutation, listBoardId } from './crud'
@@ -1683,6 +1683,46 @@ export interface UndoApplyResult {
   boardId: string | null
 }
 
+/** Which `status` rows undo / redo may pick from. `excludeBoardIds`
+ *  (boards the renderer has locked read-only) drops the entries logged
+ *  under them AND each group with a row logged under one of them, so
+ *  such a group is skipped whole, not split - an AI batch can span
+ *  boards. */
+function eligibleRows(
+  db: Db,
+  status: 'undoable' | 'undone',
+  scopeBoardId: string | null | undefined,
+  excludeBoardIds: readonly string[]
+) {
+  const conds = [eq(undoLog.status, status)]
+  if (scopeBoardId) conds.push(eq(undoLog.boardId, scopeBoardId))
+  if (excludeBoardIds.length > 0) {
+    const excluded = [...excludeBoardIds]
+    // NOT IN is never true for a NULL board id, so keep those explicitly.
+    conds.push(or(isNull(undoLog.boardId), notInArray(undoLog.boardId, excluded))!)
+    const groups = [
+      ...new Set(
+        db
+          .select({ groupId: undoLog.groupId })
+          .from(undoLog)
+          .where(
+            and(
+              eq(undoLog.status, status),
+              isNotNull(undoLog.groupId),
+              inArray(undoLog.boardId, excluded)
+            )
+          )
+          .all()
+          .map((r) => r.groupId!)
+      )
+    ]
+    if (groups.length > 0) {
+      conds.push(or(isNull(undoLog.groupId), notInArray(undoLog.groupId, groups))!)
+    }
+  }
+  return and(...conds)
+}
+
 /** Pop the most recent undoable entry, apply its inverse silently,
  *  flip the row to 'undone'. On drift (the target row no longer
  *  exists, an FK constraint fails because a parent was deleted by
@@ -1697,22 +1737,19 @@ export interface UndoApplyResult {
  *  currently-open board id so Ctrl+Z on board A never silently edits
  *  board B. From home / settings the renderer omits the scope and
  *  the most-recent entry across all boards is used (and the result's
- *  `boardId` drives an auto-navigate so the user sees the change). */
+ *  `boardId` drives an auto-navigate so the user sees the change).
+ *  `excludeBoardIds` - see `eligibleRows`: the newest entry not logged
+ *  under one of those boards (nor in a group with a row logged under
+ *  one) is used instead. */
 export function undoOne(
   db: Db,
-  scopeBoardId?: string | null
+  scopeBoardId?: string | null,
+  excludeBoardIds: readonly string[] = []
 ): UndoApplyResult {
   const row = db
     .select()
     .from(undoLog)
-    .where(
-      scopeBoardId
-        ? and(
-            eq(undoLog.status, 'undoable'),
-            eq(undoLog.boardId, scopeBoardId)
-          )
-        : eq(undoLog.status, 'undoable')
-    )
+    .where(eligibleRows(db, 'undoable', scopeBoardId, excludeBoardIds))
     // `createdAt` is epoch ms, so bulk gestures (multi-select complete,
     // multi-card drag) record several entries in the SAME millisecond -
     // ordering by createdAt alone leaves the pop order to the query
@@ -1805,19 +1842,13 @@ export function undoOne(
  *  rewinds the user's intent.) */
 export function redoOne(
   db: Db,
-  scopeBoardId?: string | null
+  scopeBoardId?: string | null,
+  excludeBoardIds: readonly string[] = []
 ): UndoApplyResult {
   const row = db
     .select()
     .from(undoLog)
-    .where(
-      scopeBoardId
-        ? and(
-            eq(undoLog.status, 'undone'),
-            eq(undoLog.boardId, scopeBoardId)
-          )
-        : eq(undoLog.status, 'undone')
-    )
+    .where(eligibleRows(db, 'undone', scopeBoardId, excludeBoardIds))
     // Same-millisecond tiebreak as undoOne, mirrored for the redo
     // direction (asc createdAt → asc id).
     .orderBy(asc(undoLog.createdAt), asc(undoLog.id))

@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { BoardView, CardView } from '@kanbini/shared'
 import { boardKey } from '../../hooks/useBoard'
 import { kanbiniMock } from '../../__tests__/_kanbini-mock'
+import { setBoardReadOnly } from '../../lib/read-only'
 
 // Stub the markdown-editor module at the test boundary - same
 // strategy as comments.test.tsx. CardDetail's non-editor surfaces
@@ -482,5 +483,39 @@ describe('<CardDetail> Cover actions', () => {
     expect(
       screen.getByRole('dialog', { name: /set cover from url/i })
     ).toBeInTheDocument()
+  })
+})
+
+describe('<CardDetail> on a read-only board', () => {
+  it('shows the title read-only, the pill, and no add inputs', () => {
+    setBoardReadOnly('b1', true)
+    renderWithBoard(
+      makeCard({
+        title: 'Locked',
+        checklists: [
+          {
+            id: 'cl1',
+            name: 'Steps',
+            position: 'a',
+            items: [{ id: 'i1', text: 'First', completed: false, position: 'a' }]
+          }
+        ]
+      })
+    )
+    expect(screen.getByDisplayValue('Locked')).toHaveAttribute('readonly')
+    expect(screen.getByDisplayValue('Steps')).toHaveAttribute('readonly')
+    expect(screen.getByText('Read-only')).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('+ Add an item')).toBeNull()
+    expect(screen.queryByRole('button', { name: '+ Add checklist' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Delete item' })).toBeNull()
+    // The description renders as a view, not the click-to-edit field.
+    expect(screen.queryByRole('textbox', { name: 'card description' })).toBeNull()
+  })
+
+  it('Ctrl+V does not attach a clipboard image', () => {
+    setBoardReadOnly('b1', true)
+    renderWithBoard(makeCard({ id: 'c1' }))
+    fireEvent.keyDown(document, { key: 'v', ctrlKey: true })
+    expect(kanbiniMock().attachmentPasteImage).not.toHaveBeenCalled()
   })
 })

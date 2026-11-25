@@ -3,6 +3,7 @@ import type { Mutation } from '@kanbini/shared'
 import { useBoard } from '../hooks/useBoard'
 import { useBoardsList } from '../hooks/useBoardsList'
 import { ipc } from '../lib/ipc'
+import { ReadOnlyError, isBoardReadOnly } from '../lib/read-only'
 import { cn } from '../lib/utils'
 import { Button } from './ui/button'
 import { Modal } from './ui/modal'
@@ -111,7 +112,12 @@ export function CardTransferDialog({
   const many = cardIds.length > 1
   const noun = many ? `${cardIds.length} cards` : 'card'
   const verb = mode === 'move' ? 'Move' : 'Copy'
-  const boardOptions = (boards.data ?? []).filter((b) => !b.archived || b.id === sourceBoardId)
+  // A locked board isn't offered as a target (the guard only sees the
+  // board on screen, the source). The source stays listed; its own lock
+  // is guarded.
+  const boardOptions = (boards.data ?? []).filter(
+    (b) => (!b.archived && !isBoardReadOnly(b.id)) || b.id === sourceBoardId
+  )
   const boardName = boardOptions.find((b) => b.id === boardId)?.name ?? ''
   const copyTitle = title.trim()
   const canSubmit =
@@ -122,6 +128,7 @@ export function CardTransferDialog({
     setBusy(true)
     setError(null)
     try {
+      if (isBoardReadOnly(boardId)) throw new ReadOnlyError(boardId)
       const ms = transferMutations({
         mode,
         cardIds,

@@ -35,10 +35,13 @@ const mapCard = (
 
 export function Comments({
   card,
-  apply
+  apply,
+  readOnly = false
 }: {
   card: CardView
   apply: Apply
+  /** Locked board: the thread only, no composer to type into and lose. */
+  readOnly?: boolean
 }) {
   const add = (body: string): void => {
     const temp: CommentView = {
@@ -67,7 +70,7 @@ export function Comments({
   return (
     <section className="flex flex-col gap-3">
       <h3 className="text-sm font-medium text-muted-foreground">Comments</h3>
-      <CommentComposer onSubmit={add} />
+      {!readOnly && <CommentComposer onSubmit={add} />}
       {card.comments.length === 0 && (
         <p className="text-xs text-muted-foreground/70">No comments yet.</p>
       )}

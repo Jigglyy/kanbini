@@ -14,9 +14,11 @@ import { DueBadge } from './due-date'
 import { PriorityBadge } from './priority'
 import { RepeatBadge } from './repeat'
 import { Modal } from './ui/modal'
-import { MarkdownField } from './ui/markdown-editor'
+import { MarkdownField, MarkdownView } from './ui/markdown-editor'
 import { UrlCoverModal } from './url-cover-modal'
+import { ReadOnlyPill } from './read-only'
 import { ipc } from '../lib/ipc'
+import { useBoardReadOnly, useReadOnlyScope } from '../lib/read-only'
 
 // Card detail modal (M2 chunk A): editable title + description (TipTap
 // → Markdown). Labels, due, completion are shown read-only here; they
@@ -69,6 +71,8 @@ export function CardDetail({
 }) {
   const { data } = useBoard(boardId)
   const apply = useBoardMutation(boardId)
+  useReadOnlyScope(boardId)
+  const [readOnly] = useBoardReadOnly(boardId)
   const card = cardId ? findCard(data, cardId) : null
 
   // Local title; sync when card swaps.
@@ -103,7 +107,8 @@ export function CardDetail({
   const lastPasteAtRef = useRef(0)
   useEffect(() => {
     const id = card?.id
-    if (!id) return
+    // Locked: a paste is just a paste (copying text out still works).
+    if (!id || readOnly) return
     const onKeyDown = (e: KeyboardEvent): void => {
       if (e.repeat) return
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return
@@ -115,7 +120,7 @@ export function CardDetail({
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [card?.id])
+  }, [card?.id, readOnly])
 
   if (!card) return <Modal open={false} onClose={onClose}>{null}</Modal>
 
@@ -163,6 +168,7 @@ export function CardDetail({
             />
             <input
               value={title}
+              readOnly={readOnly}
               onChange={(e) => setTitle(e.target.value)}
               onBlur={saveTitle}
               onKeyDown={(e) => {
@@ -200,6 +206,7 @@ export function CardDetail({
               <CardNumberCopy number={card.number} />
             </div>
           </div>
+          <ReadOnlyPill boardId={boardId} />
           <button
             aria-label="Close"
             onClick={onClose}
@@ -216,14 +223,18 @@ export function CardDetail({
           <h3 className="text-sm font-medium text-muted-foreground">
             Description
           </h3>
-          <MarkdownField
-            key={card.id}
-            value={card.description ?? ''}
-            onChange={saveDescription}
-          />
+          {readOnly ? (
+            <MarkdownView value={card.description ?? ''} />
+          ) : (
+            <MarkdownField
+              key={card.id}
+              value={card.description ?? ''}
+              onChange={saveDescription}
+            />
+          )}
         </section>
 
-        <Checklists card={card} apply={apply} />
+        <Checklists card={card} apply={apply} readOnly={readOnly} />
 
         <CardDependencies
           card={card}
@@ -239,7 +250,7 @@ export function CardDetail({
 
         <Attachments card={card} apply={apply} />
 
-        <Comments card={card} apply={apply} />
+        <Comments card={card} apply={apply} readOnly={readOnly} />
 
         <Activity card={card} labels={data?.labels ?? []} />
       </div>
