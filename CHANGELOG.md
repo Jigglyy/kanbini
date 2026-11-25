@@ -9,6 +9,38 @@ Releases are cut by pushing a `v*` tag, which builds the Windows,
 macOS and Linux downloads and publishes a GitHub Release (see
 [`.github/workflows/release.yml`](.github/workflows/release.yml)).
 
+## [0.18.0] - 2026-11-25
+
+### Added
+
+- **Read-only boards.** A lock button in the board header makes a board
+  read-only for you while the AI can still change it, and its changes
+  show up live. A locked board hides its add inputs, its card and list
+  names can't be typed into, cards and lists don't drag, and other edits
+  are refused (a "Read-only" tag beside the board name gives a little
+  shake to say why). You can still tick checklist items and mark cards
+  complete. The lock is saved on this computer only, not in the board's
+  data, exports or backups.
+
+### Changed
+
+- **Dragging a multi-selection shows what's coming along.** The card
+  you drag now carries up to three of the other selected cards under it,
+  plus a "+N more" line for the rest.
+- **Checklist items edit from a pencil.** Clicking an item's text in a
+  card no longer starts an edit, so you can select and copy it. Hover the
+  item and click the pencil instead. The editor grows to fit a long item
+  instead of squashing it onto one line, Shift+Enter adds a line break,
+  and line breaks in an item now show in the card.
+
+### Fixed
+
+- Dialogs no longer close when you drag from inside one and let go over
+  the dark backdrop, for example while selecting text in a card title.
+  Clicking the backdrop still closes them.
+- Shift+click (and Ctrl+Shift+click) to extend a card selection no
+  longer also selects the text across the cards.
+
 ## [0.17.0] - 2026-11-06
 
 ### Changed
