@@ -116,6 +116,7 @@ import { CollapseToggle, CompactBadges } from './card-density'
 import { DueBadge } from './due-date'
 import { PriorityBadge } from './priority'
 import { CardMenu } from './card-menu'
+import { MultiDragBlock } from './drag-block'
 import {
   BulkCardMenu,
   SelectionBar,
@@ -649,6 +650,11 @@ export function Board({
   // pre-drag order (the block to re-cluster).
   const [multiDragActive, setMultiDragActive] = useState(false)
   const multiDragBlockRef = useRef<string[]>([])
+  // The other selected cards as the drag overlay lists them under the
+  // grabbed one (pre-drag order, captured at pickup).
+  const [multiDragFollowers, setMultiDragFollowers] = useState<
+    { card: CardView; compact: boolean }[]
+  >([])
   // Cursor-on-overlay tracker. The live DragOverlay's inner div fires
   // mouseenter/leave on `overlayHoveredRef`; at onDragEnd we snapshot
   // it into `postDropHoverMatch`. The matching SortableCard (the one
@@ -1718,13 +1724,24 @@ export function Board({
     const sel = selectedIdsRef.current
     if (!board.board.swimlaneMode && sel.has(activeId) && sel.size > 1) {
       const snap = snapshot.current
-      multiDragBlockRef.current = (snap ?? board).lists
+      const lists = (snap ?? board).lists
+      multiDragBlockRef.current = lists
         .flatMap((l) => l.cards)
         .filter((c) => sel.has(c.id))
         .map((c) => c.id)
+      // Frozen like `draggingCompact`: each follower keeps its own list's
+      // density even after the live reorder moves cards around.
+      setMultiDragFollowers(
+        lists.flatMap((l) =>
+          l.cards
+            .filter((c) => sel.has(c.id) && c.id !== activeId)
+            .map((c) => ({ card: c, compact: isCardCompact(c.collapsed, l.cardDensity) }))
+        )
+      )
       setMultiDragActive(true)
     } else {
       multiDragBlockRef.current = []
+      setMultiDragFollowers([])
       setMultiDragActive(false)
     }
     // Cursor starts on the source card you just clicked, so the
@@ -2410,24 +2427,42 @@ export function Board({
               overlayHoveredRef.current = false
             }}
           >
-            <CardFace
-              card={dragging}
-              labels={board.labels}
-              dragging
-              focused={ringCardId === dragging.id}
-              selected={selectedIds.has(dragging.id)}
-              showChecklist={showChecklist}
-              showNumber={showNumber}
-              labelsExpanded={labelsExpanded}
-              compact={draggingCompact}
-            />
-            {/* Multi-card drag: a count badge so it's clear the whole
-                selection is moving, not just the grabbed card. */}
-            {multiDragActive && selectedIds.size > 1 && (
-              <span className="absolute -right-2 -top-2 z-10 flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 py-0.5 text-xs font-semibold text-primary-foreground shadow">
-                {selectedIds.size}
-              </span>
-            )}
+            {/* Multi-card drag: the other selected cards hang under the
+                grabbed one with a count badge, so it's clear the whole
+                selection is moving. A single-card drag renders CardFace
+                alone. */}
+            <MultiDragBlock
+              followers={
+                multiDragActive
+                  ? multiDragFollowers.map((f) => ({
+                      id: f.card.id,
+                      face: (
+                        <CardFace
+                          card={f.card}
+                          labels={board.labels}
+                          resting
+                          showChecklist={showChecklist}
+                          showNumber={showNumber}
+                          labelsExpanded={labelsExpanded}
+                          compact={f.compact}
+                        />
+                      )
+                    }))
+                  : []
+              }
+            >
+              <CardFace
+                card={dragging}
+                labels={board.labels}
+                dragging
+                focused={ringCardId === dragging.id}
+                selected={selectedIds.has(dragging.id)}
+                showChecklist={showChecklist}
+                showNumber={showNumber}
+                labelsExpanded={labelsExpanded}
+                compact={draggingCompact}
+              />
+            </MultiDragBlock>
           </div>
         )}
         {draggingList && (
