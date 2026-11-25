@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
 // Generic modal: body portal, Escape + backdrop click to close, locks
@@ -27,6 +27,7 @@ export function Modal({
   label?: string
   children: ReactNode
 }) {
+  const pressStartedInPanel = useRef(false)
   useEffect(() => {
     if (!open) return
     escapeStack.push(onClose)
@@ -61,7 +62,17 @@ export function Modal({
       role="dialog"
       aria-modal="true"
       aria-label={label}
-      onClick={onClose}
+      // Capture phase so a child stopping mousedown can't hide where the
+      // press began: a drag that starts in the panel (text selection) and
+      // ends on the backdrop gets its click dispatched on the backdrop.
+      onMouseDownCapture={(e) => {
+        pressStartedInPanel.current = e.target !== e.currentTarget
+      }}
+      onClick={() => {
+        const fromPanel = pressStartedInPanel.current
+        pressStartedInPanel.current = false
+        if (!fromPanel) onClose()
+      }}
       // `overflow-anchor: none` - when a child's height changes (e.g. the
       // description swapping to its taller edit mode), the browser's
       // scroll-anchoring would otherwise re-adjust scrollTop and let the
