@@ -3262,6 +3262,14 @@ const SortableCard = memo(function SortableCard({
     },
     [onCardClick, card.id]
   )
+  // A Shift+click after a Ctrl+click on another card left browser text
+  // selected across the cards; the preventDefault in onCardClick does
+  // not stop it, so cancel the default on mousedown for every non-`open`
+  // click.
+  const onMouseDown = useCallback((e: React.MouseEvent<HTMLLIElement>) => {
+    if ((e.target as HTMLElement).closest('button, a, input')) return
+    if (clickIntent(e) !== 'open') e.preventDefault()
+  }, [])
   const liClass = useMemo(
     () =>
       cn(
@@ -3382,6 +3390,7 @@ const SortableCard = memo(function SortableCard({
             style={{ transform: CSS.Transform.toString(transform), transition }}
             onContextMenu={open}
             onClick={onClick}
+            onMouseDown={onMouseDown}
             className={liClass}
           >
             {body}
