@@ -7,7 +7,7 @@ import type {
   ChecklistView,
   Mutation
 } from '@kanbini/shared'
-import { CardChecklistPreview } from '../checklists'
+import { CardChecklistPreview, Checklists } from '../checklists'
 
 // Component tests for the in-list card-preview checklist pill
 // (ADR-0029). The visual contract:
@@ -183,5 +183,47 @@ describe('<CardChecklistPreview>', () => {
     expect(
       screen.getByRole('button', { name: 'Mark complete' })
     ).toBeInTheDocument()
+  })
+})
+
+describe('<Checklists> item editing', () => {
+  function setup(text = 'Buy bulbs') {
+    const item = makeItem({ text })
+    const card = makeCard({ checklists: [makeChecklist({ items: [item] })] })
+    const apply = vi.fn<(m: Mutation, o: unknown) => void>()
+    render(<Checklists card={card} apply={apply} />)
+    return { item, apply, user: userEvent.setup() }
+  }
+
+  it('opens no editor when the text is clicked', async () => {
+    const { user } = setup()
+    await user.click(screen.getByText('Buy bulbs'))
+    // Upstream opened an <input>, so check for any field holding the text.
+    expect(document.querySelector('li textarea')).toBeNull()
+    expect(screen.queryByDisplayValue('Buy bulbs')).toBeNull()
+  })
+
+  it('opens a textarea holding the text from the pencil, and Enter saves', async () => {
+    const { item, apply, user } = setup()
+    await user.click(screen.getByRole('button', { name: 'Edit item' }))
+    const editor = document.querySelector('li textarea') as HTMLTextAreaElement
+    expect(editor.value).toBe('Buy bulbs')
+    await user.type(editor, ' today{Enter}')
+    expect(apply).toHaveBeenCalledTimes(1)
+    expect(apply.mock.calls[0]?.[0]).toEqual({
+      type: 'checklistItem.update',
+      id: item.id,
+      patch: { text: 'Buy bulbs today' }
+    })
+  })
+
+  it('Escape cancels the edit', async () => {
+    const { apply, user } = setup()
+    await user.click(screen.getByRole('button', { name: 'Edit item' }))
+    const editor = document.querySelector('li textarea') as HTMLTextAreaElement
+    await user.type(editor, ' today{Escape}')
+    expect(document.querySelector('li textarea')).toBeNull()
+    expect(screen.getByText('Buy bulbs')).toBeInTheDocument()
+    expect(apply).not.toHaveBeenCalled()
   })
 })
