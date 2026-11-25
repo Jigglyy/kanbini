@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Check, X } from 'lucide-react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Check, Pencil, X } from 'lucide-react'
 import type {
   BoardView,
   CardView,
@@ -409,8 +409,23 @@ function ChecklistItemRow({
 }) {
   const [text, setText] = useState(item.text)
   const [editing, setEditing] = useState(false)
+  const editorRef = useRef<HTMLTextAreaElement>(null)
   // Re-sync if the item text changes externally - see ChecklistBlock.
   useEffect(() => setText(item.text), [item.text])
+  // Grow the editor to its content so a long item keeps its wrapped height.
+  useLayoutEffect(() => {
+    const el = editorRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    // border-box: scrollHeight leaves out the border.
+    el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`
+  }, [editing, text])
+  useEffect(() => {
+    const el = editorRef.current
+    if (!editing || !el) return
+    el.focus()
+    el.setSelectionRange(el.value.length, el.value.length)
+  }, [editing])
 
   const toggle = (): void => {
     apply(
@@ -478,31 +493,50 @@ function ChecklistItemRow({
       >
         {item.completed && <Check className="size-3" />}
       </button>
+      {/* The editor's negative margins cancel its border and padding, so it
+          sits over the text and the row keeps its height when editing
+          starts. Both use pre-wrap so newlines written through MCP show in
+          each. */}
       {editing ? (
-        <input
-          autoFocus
+        <textarea
+          ref={editorRef}
+          rows={1}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              e.currentTarget.blur()
+            }
             if (e.key === 'Escape') {
               setText(item.text)
               setEditing(false)
             }
           }}
           onBlur={saveText}
-          className="flex-1 rounded border border-border bg-background px-1.5 py-0.5 text-sm focus:border-ring focus:outline-none"
+          className="block min-w-0 flex-1 resize-none overflow-hidden whitespace-pre-wrap wrap-anywhere -mx-[7px] -my-[3px] rounded border border-border bg-background px-1.5 py-0.5 text-sm focus:border-ring focus:outline-none"
         />
       ) : (
         <span
-          onClick={() => setEditing(true)}
-          className={`flex-1 cursor-text text-sm ${
+          className={`min-w-0 flex-1 cursor-text select-text whitespace-pre-wrap wrap-anywhere text-sm ${
             item.completed ? 'text-muted-foreground line-through' : ''
           }`}
         >
           {item.text}
         </span>
       )}
+      {/* Keeps its slot while editing so the text column has the same width. */}
+      <button
+        aria-label="Edit item"
+        onClick={() => setEditing(true)}
+        disabled={editing}
+        tabIndex={editing ? -1 : undefined}
+        className={`opacity-0 transition-opacity focus-visible:opacity-100 group-hover/item:opacity-100 ${
+          editing ? 'invisible' : ''
+        }`}
+      >
+        <Pencil className="size-3.5 text-muted-foreground hover:text-foreground" />
+      </button>
       <button
         aria-label="Delete item"
         onClick={del}
