@@ -75,7 +75,11 @@ export function Comments({
         <p className="text-xs text-muted-foreground/70">No comments yet.</p>
       )}
       {card.comments.map((cm) => (
-        <CommentItem key={cm.id} comment={cm} onDelete={() => del(cm.id)} />
+        <CommentItem
+          key={cm.id}
+          comment={cm}
+          onDelete={readOnly ? undefined : () => del(cm.id)}
+        />
       ))}
     </section>
   )
@@ -149,7 +153,8 @@ function CommentItem({
   onDelete
 }: {
   comment: CommentView
-  onDelete: () => void
+  /** Omitted on a locked board: the thread can be read, not trimmed. */
+  onDelete?: () => void
 }) {
   const isAi = comment.author === 'ai'
   return (
@@ -168,13 +173,15 @@ function CommentItem({
             timeStyle: 'short'
           })}
         </span>
-        <button
-          aria-label="Delete comment"
-          onClick={onDelete}
-          className="ml-auto opacity-0 transition-opacity group-hover/comment:opacity-100"
-        >
-          <X className="size-3.5 text-muted-foreground hover:text-foreground" />
-        </button>
+        {onDelete && (
+          <button
+            aria-label="Delete comment"
+            onClick={onDelete}
+            className="ml-auto opacity-0 transition-opacity group-hover/comment:opacity-100"
+          >
+            <X className="size-3.5 text-muted-foreground hover:text-foreground" />
+          </button>
+        )}
       </div>
       <MarkdownView value={comment.body} />
     </div>

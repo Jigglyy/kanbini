@@ -11,6 +11,7 @@ import {
 import { parseRepeat, repeatSpawnPlan } from './repeat'
 import { missingLabels } from './card-copy'
 import { isAiUndoGroup } from './ai-changes'
+import { boardsChangedBy } from './changed-boards'
 import {
   activity,
   attachment,
@@ -1681,23 +1682,45 @@ export function undoStatus(db: Db): UndoStatus {
 export interface UndoApplyResult {
   applied: boolean
   boardId: string | null
+  /** Set when the next entry would change this board, which the user
+   *  locked read-only: nothing was applied and the entry stays put. */
+  lockedBoardId?: string
 }
 
-/** Which `status` rows undo / redo may pick from. `excludeBoardIds`
- *  (boards the renderer has locked read-only) drops the entries logged
- *  under them AND each group with a row logged under one of them, so
- *  such a group is skipped whole, not split - an AI batch can span
- *  boards. */
+/** Thrown inside the undo / redo transaction to roll it back when an
+ *  entry would change a locked board. Not drift: the entry is kept. */
+class LockedBoardChange extends Error {
+  constructor(readonly boardId: string) {
+    super(`would change locked board ${boardId}`)
+  }
+}
+
+/** Throw LockedBoardChange when applying `m` now would change one of
+ *  `locked` (ADR-0089). Read before applying, inside the transaction, so
+ *  each entry of a group is judged after the ones before it. */
+function assertNotLocked(db: Db, m: Mutation, locked: ReadonlySet<string>): void {
+  if (locked.size === 0) return
+  const hit = boardsChangedBy(db, m).find((b) => locked.has(b))
+  if (hit) throw new LockedBoardChange(hit)
+}
+
+/** Which `status` rows undo / redo may pick from. With no scope (home,
+ *  Settings), `lockedBoardIds` (boards the renderer has locked
+ *  read-only) drops the entries logged under them AND each group with a
+ *  row logged under one of them, so such a group is skipped whole, not
+ *  split - an AI batch can span boards. A scoped call filters by board
+ *  already; an entry there that would still reach a locked board is
+ *  refused by `assertNotLocked` instead. */
 function eligibleRows(
   db: Db,
   status: 'undoable' | 'undone',
   scopeBoardId: string | null | undefined,
-  excludeBoardIds: readonly string[]
+  lockedBoardIds: readonly string[]
 ) {
   const conds = [eq(undoLog.status, status)]
   if (scopeBoardId) conds.push(eq(undoLog.boardId, scopeBoardId))
-  if (excludeBoardIds.length > 0) {
-    const excluded = [...excludeBoardIds]
+  if (!scopeBoardId && lockedBoardIds.length > 0) {
+    const excluded = [...lockedBoardIds]
     // NOT IN is never true for a NULL board id, so keep those explicitly.
     conds.push(or(isNull(undoLog.boardId), notInArray(undoLog.boardId, excluded))!)
     const groups = [
@@ -1738,18 +1761,21 @@ function eligibleRows(
  *  board B. From home / settings the renderer omits the scope and
  *  the most-recent entry across all boards is used (and the result's
  *  `boardId` drives an auto-navigate so the user sees the change).
- *  `excludeBoardIds` - see `eligibleRows`: the newest entry not logged
- *  under one of those boards (nor in a group with a row logged under
- *  one) is used instead. */
+ *  `lockedBoardIds` (ADR-0089) - boards the user locked read-only. With
+ *  no scope, entries logged under them are skipped (see `eligibleRows`).
+ *  Either way, an entry that would change one of them (a cross-board
+ *  move or link, an AI group spanning boards) is refused: nothing is
+ *  applied, the entry stays, and the result names the board. */
 export function undoOne(
   db: Db,
   scopeBoardId?: string | null,
-  excludeBoardIds: readonly string[] = []
+  lockedBoardIds: readonly string[] = []
 ): UndoApplyResult {
+  const locked = new Set(lockedBoardIds)
   const row = db
     .select()
     .from(undoLog)
-    .where(eligibleRows(db, 'undoable', scopeBoardId, excludeBoardIds))
+    .where(eligibleRows(db, 'undoable', scopeBoardId, lockedBoardIds))
     // `createdAt` is epoch ms, so bulk gestures (multi-select complete,
     // multi-card drag) record several entries in the SAME millisecond -
     // ordering by createdAt alone leaves the pop order to the query
@@ -1799,6 +1825,7 @@ export function undoOne(
       let boardId: string | null = null
       for (const r of rows) {
         current = r
+        assertNotLocked(txDb, r.inverse as Mutation, locked)
         const result = applyMutationRecorded(txDb, r.inverse as Mutation, {
           silent: true
         })
@@ -1811,6 +1838,10 @@ export function undoOne(
       return { applied: true, boardId }
     })
   } catch (err) {
+    if (err instanceof LockedBoardChange) {
+      log('undo: refused, would change locked board', shortId(err.boardId))
+      return { applied: false, boardId: null, lockedBoardId: err.boardId }
+    }
     // The cleanup HAS to happen outside the failed transaction -
     // any DELETE inside would be rolled back along with the failed
     // mutation, and the next undo would hit the same bad entry
@@ -1843,12 +1874,13 @@ export function undoOne(
 export function redoOne(
   db: Db,
   scopeBoardId?: string | null,
-  excludeBoardIds: readonly string[] = []
+  lockedBoardIds: readonly string[] = []
 ): UndoApplyResult {
+  const locked = new Set(lockedBoardIds)
   const row = db
     .select()
     .from(undoLog)
-    .where(eligibleRows(db, 'undone', scopeBoardId, excludeBoardIds))
+    .where(eligibleRows(db, 'undone', scopeBoardId, lockedBoardIds))
     // Same-millisecond tiebreak as undoOne, mirrored for the redo
     // direction (asc createdAt → asc id).
     .orderBy(asc(undoLog.createdAt), asc(undoLog.id))
@@ -1885,6 +1917,7 @@ export function redoOne(
       let boardId: string | null = null
       for (const r of rows) {
         current = r
+        assertNotLocked(txDb, r.forward as Mutation, locked)
         const result = applyMutationRecorded(txDb, r.forward as Mutation, {
           silent: true
         })
@@ -1897,6 +1930,10 @@ export function redoOne(
       return { applied: true, boardId }
     })
   } catch (err) {
+    if (err instanceof LockedBoardChange) {
+      log('redo: refused, would change locked board', shortId(err.boardId))
+      return { applied: false, boardId: null, lockedBoardId: err.boardId }
+    }
     warn(
       'redo drift - dropping entry',
       shortId(current.id),

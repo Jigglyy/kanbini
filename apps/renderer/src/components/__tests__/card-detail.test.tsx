@@ -509,6 +509,9 @@ describe('<CardDetail> on a read-only board', () => {
     expect(screen.queryByRole('button', { name: '+ Add checklist' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Delete item' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Edit item' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Delete checklist' })).toBeNull()
+    expect(screen.queryByTestId('cover-actions')).toBeNull()
+    expect(screen.queryByRole('button', { name: /Add attachment/ })).toBeNull()
     // The description renders as a view, not the click-to-edit field.
     expect(screen.queryByRole('textbox', { name: 'card description' })).toBeNull()
   })

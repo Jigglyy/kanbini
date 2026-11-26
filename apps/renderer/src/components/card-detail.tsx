@@ -240,15 +240,18 @@ export function CardDetail({
           card={card}
           boardId={boardId}
           onOpenCard={onOpenCard ?? (() => {})}
+          readOnly={readOnly}
         />
 
-        <CoverActions
-          card={card}
-          apply={apply}
-          onRequestUrl={() => setUrlCoverOpen(true)}
-        />
+        {!readOnly && (
+          <CoverActions
+            card={card}
+            apply={apply}
+            onRequestUrl={() => setUrlCoverOpen(true)}
+          />
+        )}
 
-        <Attachments card={card} apply={apply} />
+        <Attachments card={card} apply={apply} readOnly={readOnly} />
 
         <Comments card={card} apply={apply} readOnly={readOnly} />
 

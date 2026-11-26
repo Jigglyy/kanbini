@@ -352,7 +352,7 @@ function ChecklistBlock({
         <span className="text-xs tabular-nums text-muted-foreground">
           {done}/{total}
         </span>
-        {confirming ? (
+        {readOnly ? null : confirming ? (
           <div className="flex items-center gap-1">
             <button
               onClick={() => setConfirming(false)}

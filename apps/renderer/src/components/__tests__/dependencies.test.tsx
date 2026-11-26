@@ -236,27 +236,67 @@ describe('<CardDependencies>', () => {
   })
 })
 
-describe('<CardDependencies> with the other card on a locked board', () => {
-  it('refuses to add or remove the link from either side', async () => {
-    const user = userEvent.setup()
+describe('<CardDependencies> and locked boards (ADR-0089)', () => {
+  it('hides remove on a link whose other card is on a locked board', () => {
     setBoardReadOnly('b2', true)
-    const blocked: string[] = []
-    const off = onWriteBlocked((id) => blocked.push(id))
-    kanbiniMock().searchCards.mockResolvedValue([hit({ cardId: 'h2', title: 'Far', boardId: 'b2' })])
     renderSection(
       makeCard({
-        blockedBy: [ref({ cardId: 'r9', title: 'Design', boardId: 'b2' })],
+        blockedBy: [
+          ref({ cardId: 'r9', title: 'Design', boardId: 'b2' }),
+          ref({ cardId: 'r8', title: 'Copy', boardId: 'b1' })
+        ],
         blocking: [ref({ cardId: 'w1', title: 'Launch', boardId: 'b2' })]
       })
     )
-    await user.click(screen.getByRole('button', { name: 'Stop waiting on "Design"' }))
-    await user.click(screen.getByRole('button', { name: 'Stop "Launch" waiting on this card' }))
+    expect(screen.queryByRole('button', { name: 'Stop waiting on "Design"' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Stop "Launch" waiting on this card' })).toBeNull()
+    // A link to an unlocked board keeps its remove button.
+    expect(screen.getByRole('button', { name: 'Stop waiting on "Copy"' })).toBeInTheDocument()
+  })
+
+  it('leaves cards on locked boards out of the search', async () => {
+    const user = userEvent.setup()
+    setBoardReadOnly('b2', true)
+    kanbiniMock().searchCards.mockResolvedValue([
+      hit({ cardId: 'h2', title: 'Far', boardId: 'b2' }),
+      hit({ cardId: 'h3', title: 'Near', boardId: 'b1' })
+    ])
+    renderSection(makeCard())
+    await user.click(screen.getByRole('button', { name: /add a card/i }))
+    await user.type(screen.getByRole('combobox'), 'a')
+    expect(await screen.findByRole('option', { name: /Near/ })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /Far/ })).toBeNull()
+  })
+
+  it('on a locked board: no Add a card and no remove buttons', () => {
+    renderWithQuery(
+      <CardDependencies
+        card={makeCard({ blockedBy: [ref({ title: 'Design' })] })}
+        boardId="b1"
+        onOpenCard={vi.fn()}
+        readOnly
+      />
+    )
+    expect(screen.queryByRole('button', { name: /add a card/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Stop waiting on "Design"' })).toBeNull()
+    // The link itself can still be followed.
+    expect(screen.getByRole('button', { name: 'Design' })).toBeInTheDocument()
+  })
+
+  it('still refuses a pick on a board locked after the search ran', async () => {
+    const user = userEvent.setup()
+    const blocked: string[] = []
+    const off = onWriteBlocked((id) => blocked.push(id))
+    kanbiniMock().searchCards.mockResolvedValue([hit({ cardId: 'h2', title: 'Far', boardId: 'b2' })])
+    renderSection(makeCard())
     await user.click(screen.getByRole('button', { name: /add a card/i }))
     await user.type(screen.getByRole('combobox'), 'far')
-    await user.click((await screen.findAllByRole('option'))[0]!)
+    const option = await screen.findByRole('option', { name: /Far/ })
+    setBoardReadOnly('b2', true)
+    await user.click(option)
     off()
     expect(kanbiniMock().mutate).not.toHaveBeenCalled()
-    expect(blocked).toEqual(['b2', 'b2', 'b2'])
+    expect(blocked).toEqual(['b2'])
   })
 })
 

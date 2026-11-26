@@ -5,6 +5,7 @@ import type { ArchivedItemsView } from '@kanbini/shared'
 import { ArchivedItemsDialog } from '../archived-items'
 import { renderWithQuery } from '../../__tests__/_render'
 import { kanbiniMock } from '../../__tests__/_kanbini-mock'
+import { setBoardReadOnly } from '../../lib/read-only'
 
 // The board's Archived view: archived cards + closed lists, each with
 // Restore and Delete (Delete asks first). Restoring a card whose list is
@@ -121,5 +122,15 @@ describe('<ArchivedItemsDialog>', () => {
     await waitFor(() =>
       expect(screen.getByText(/nothing is archived on this board/i)).toBeInTheDocument()
     )
+  })
+})
+
+describe('<ArchivedItemsDialog> on a locked board (ADR-0089)', () => {
+  it('lists the items without Restore or Delete', async () => {
+    setBoardReadOnly('b1', true)
+    renderDialog()
+    expect(await screen.findByRole('listitem', { name: 'Parked idea' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Restore/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Delete/ })).toBeNull()
   })
 })

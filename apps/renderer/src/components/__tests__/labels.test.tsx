@@ -10,6 +10,7 @@ import {
   withLabelUpdate,
   withLabels
 } from '../labels'
+import { setBoardReadOnly } from '../../lib/read-only'
 
 // Tests for the M1 labels surface - three components + the
 // `withLabels` immutable cache transformer:
@@ -548,5 +549,26 @@ describe('<LabelToggleList>', () => {
     const featureRow = screen.getByRole('button', { name: /Feature/ })
     expect(bugRow.textContent).toContain('✓')
     expect(featureRow.textContent).not.toContain('✓')
+  })
+})
+
+describe('<LabelBar> on a locked board (ADR-0089)', () => {
+  it('hides New label; a chip right-click offers only the (local) reorder', () => {
+    setBoardReadOnly('b1', true)
+    render(
+      <LabelBar
+        boardId="b1"
+        labels={labels}
+        active={new Set()}
+        onToggle={vi.fn()}
+        onMove={vi.fn()}
+        apply={vi.fn()}
+      />
+    )
+    expect(screen.queryByRole('button', { name: /New label/ })).toBeNull()
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Bug' }))
+    expect(screen.getByRole('button', { name: /Move right/ })).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('Label name')).toBeNull()
+    expect(screen.queryByRole('button', { name: /Delete label/ })).toBeNull()
   })
 })

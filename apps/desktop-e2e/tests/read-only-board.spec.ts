@@ -3,7 +3,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { launchKanbini, type E2EHandle } from './_launch.js'
-import { mutate, rpc, waitForDiscovery } from './_channel.js'
+import { mutate, rpc, waitForDiscovery, type Discovery } from './_channel.js'
 
 // A locked board (renderer-only, lib/read-only.ts) refuses YOUR edits -
 // typing, drags, shortcuts - but still takes your ticks (a checklist
@@ -131,4 +131,133 @@ test('a locked board refuses your edits, takes the AI’s, and survives a reload
   await add.fill('Mine again')
   await add.press('Enter')
   await expect(card(page, 'Mine again')).toBeVisible()
+})
+
+// ─── Follow-ups (board card #12) ───────────────────────────────────
+
+/** A fresh data folder with Welcome Board open; returns the channel. */
+async function openFresh(): Promise<{ page: Page; d: Discovery; welcomeId: string }> {
+  const userDataDir = await mkdtemp(join(tmpdir(), 'kanbini-e2e-ro-'))
+  handle = await launchKanbini({ userDataDir })
+  const d = await waitForDiscovery(userDataDir)
+  const boards = await rpc<Array<{ id: string; name: string }>>(d, 'boards.list', {})
+  const welcomeId = boards.find((b) => b.name === 'Welcome Board')!.id
+  await openWelcome(handle.page)
+  return { page: handle.page, d, welcomeId }
+}
+
+async function lockOpenBoard(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Lock board (read-only)' }).click()
+  await expect(page.getByTestId('read-only-pill')).toBeVisible()
+}
+
+const menu = (page: Page): Locator => page.locator('[data-overlay="context-menu"]')
+
+test('a locked board hides what it refuses and still takes view settings', async () => {
+  const { page, d, welcomeId } = await openFresh()
+  await lockOpenBoard(page)
+  const title = 'Drag a card to another list'
+  const view = await rpc<ViewLite>(d, 'board.getView', { boardId: welcomeId })
+  const cardId = view.lists.flatMap((l) => l.cards).find((c) => c.title === title)!.id
+  const toDoId = view.lists.find((l) => l.name === 'To Do')!.id
+
+  // The card menu keeps only Collapse and Mark complete.
+  await card(page, title).click({ button: 'right' })
+  await expect(menu(page).getByRole('button', { name: 'Mark complete' })).toBeVisible()
+  await expect(menu(page).getByRole('button', { name: /Delete card/ })).toHaveCount(0)
+  await expect(menu(page).getByRole('button', { name: /^Labels/ })).toHaveCount(0)
+  // Collapsing is a view setting: it goes through.
+  await menu(page).getByRole('button', { name: 'Collapse card' }).click()
+  await expect
+    .poll(async () => (await rpc<{ collapsed: boolean | null }>(d, 'card.get', { id: cardId })).collapsed)
+    .toBe(true)
+
+  // The list menu: no colour / sort / delete, but "Show at most" works.
+  await page.getByRole('button', { name: 'Edit list' }).first().click()
+  await expect(menu(page).getByRole('button', { name: /^Colour/ })).toHaveCount(0)
+  await expect(menu(page).getByRole('button', { name: /Delete list/ })).toHaveCount(0)
+  await menu(page).getByRole('button', { name: /^Cards/ }).click()
+  await page.getByRole('button', { name: 'Show at most 10 cards' }).click()
+  await expect
+    .poll(async () => {
+      const v = await rpc<{ lists: Array<{ id: string; visibleCardLimit: number | null }> }>(
+        d,
+        'board.getView',
+        { boardId: welcomeId }
+      )
+      return v.lists.find((l) => l.id === toDoId)!.visibleCardLimit
+    })
+    .toBe(10)
+  // No "New label" in the label bar.
+  await expect(page.getByRole('button', { name: /New label/ })).toHaveCount(0)
+})
+
+test('a Ctrl+Z that would change a locked board is refused, with a note', async () => {
+  const { page, d, welcomeId } = await openFresh()
+  const otherId = await mutate(d, { type: 'board.create', name: 'Other' })
+  const inbox = await mutate(d, { type: 'list.create', boardId: otherId, name: 'Inbox' })
+  const welcome = await rpc<ViewLite>(d, 'board.getView', { boardId: welcomeId })
+  const moved = welcome.lists[0]!.cards[0]!
+  const otherTitles = async (): Promise<string[]> =>
+    (await rpc<ViewLite>(d, 'board.getView', { boardId: otherId })).lists.flatMap((l) =>
+      l.cards.map((c) => c.title)
+    )
+
+  // Lock Other from its own header, then come back to Welcome.
+  await page.keyboard.press('Alt+b')
+  await page.getByText('Other', { exact: true }).click()
+  await lockOpenBoard(page)
+  await page.keyboard.press('Alt+b')
+  await openWelcome(page)
+
+  // The AI moves a Welcome card onto Other: the move is in Welcome's
+  // history, but undoing it would take the card off the locked board.
+  await mutate(d, { type: 'card.move', id: moved.id, toListId: inbox })
+  await expect(card(page, moved.title)).toHaveCount(0)
+  await page.keyboard.press('Control+z')
+  const note = page.getByRole('status').filter({ hasText: 'Can’t undo' })
+  await expect(note).toContainText('“Other”, which is locked')
+  await page.waitForTimeout(300)
+  expect(await otherTitles()).toContain(moved.title)
+
+  // "Go to board" opens Other to unlock it; then the undo goes through.
+  await note.getByRole('button', { name: 'Go to board' }).click()
+  await page.getByRole('button', { name: 'Unlock board' }).click()
+  await page.keyboard.press('Alt+b')
+  await openWelcome(page)
+  await page.keyboard.press('Control+z')
+  await expect(card(page, moved.title)).toHaveCount(1)
+  expect(await otherTitles()).not.toContain(moved.title)
+})
+
+test('a lock on a board the AI deleted is forgotten', async () => {
+  const { page, d } = await openFresh()
+  const tempId = await mutate(d, { type: 'board.create', name: 'Temp' })
+  await page.keyboard.press('Alt+b')
+  await page.getByText('Temp', { exact: true }).click()
+  await lockOpenBoard(page)
+  await page.keyboard.press('Alt+b')
+  const locks = (): Promise<string[]> =>
+    page.evaluate(() => JSON.parse(localStorage.getItem('kanbini.readOnlyBoards') ?? '[]'))
+  expect(await locks()).toContain(tempId)
+  await mutate(d, { type: 'board.delete', id: tempId })
+  await expect.poll(locks).not.toContain(tempId)
+})
+
+test('a locked board can be grouped into swimlanes; nothing drags or adds there', async () => {
+  const { page, d, welcomeId } = await openFresh()
+  await lockOpenBoard(page)
+  await page.getByRole('button', { name: 'Rename board' }).click()
+  await page.getByRole('button', { name: 'Priority', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Urgent' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByPlaceholder('+ Add a card')).toHaveCount(0)
+
+  const title = 'Drag a card to another list'
+  const view = await rpc<ViewLite>(d, 'board.getView', { boardId: welcomeId })
+  const cardId = view.lists.flatMap((l) => l.cards).find((c) => c.title === title)!.id
+  await drag(page, card(page, title), page.getByRole('heading', { name: 'Urgent' }))
+  await page.waitForTimeout(400)
+  const stored = await rpc<{ priority: string | null }>(d, 'card.get', { id: cardId })
+  expect(stored.priority).toBeNull()
 })

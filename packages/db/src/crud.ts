@@ -1,5 +1,7 @@
 import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm'
 import {
+  CARD_VIEW_FIELDS,
+  LIST_VIEW_FIELDS,
   type Mutation,
   type MutationResult,
   newId,
@@ -275,16 +277,12 @@ export function boardName(db: Db, boardId: string): string | null {
   return db.select({ n: board.name }).from(board).where(eq(board.id, boardId)).get()?.n ?? null
 }
 
-/** Display-only fields: changing how a card or list is DRAWN isn't an
- *  edit, so a patch made only of these leaves `updatedAt` alone (it
- *  feeds search tiebreaks and the archived-items "recently touched"
- *  order). They're also excluded from the undo log - see inverseBefore. */
-const CARD_VIEW_FIELDS: ReadonlySet<string> = new Set(['collapsed'])
-const LIST_VIEW_FIELDS: ReadonlySet<string> = new Set([
-  'cardDensity',
-  'visibleCardLimit'
-])
-
+/** Display-only fields (CARD_VIEW_FIELDS / LIST_VIEW_FIELDS, kept in
+ *  @kanbini/shared read-only.ts so the read-only lock lets the same ones
+ *  through): changing how a card or list is DRAWN isn't an edit, so a
+ *  patch made only of these leaves `updatedAt` alone (it feeds search
+ *  tiebreaks and the archived-items "recently touched" order). They're
+ *  also excluded from the undo log - see inverseBefore. */
 function isViewOnlyPatch(
   patch: Record<string, unknown>,
   viewFields: ReadonlySet<string>

@@ -5,6 +5,7 @@ import type { ListView, Mutation } from '@kanbini/shared'
 import { ACCENTS } from '../../lib/palette'
 import { ListEditor } from '../list-menu'
 import { ContextMenu } from '../ui/context-menu'
+import { ReadOnlyContext } from '../../lib/read-only'
 
 // Tests for the ListEditor - the body of the per-list pencil / right-
 // click context menu. Covers the surfaces three ADRs converge on:
@@ -508,5 +509,30 @@ describe('<ListEditor>', () => {
     expect(row('Card limit')).toHaveTextContent('5')
     // The options wait in the fly-outs.
     expect(screen.queryByRole('button', { name: 'Newest created' })).toBeNull()
+  })
+})
+
+describe('<ListEditor> on a locked board (ADR-0089)', () => {
+  it('shows the name read-only and keeps only Cards and Save as template', () => {
+    renderMenu(
+      <ReadOnlyContext.Provider value>
+        <ListEditor
+          list={makeList()}
+          apply={vi.fn()}
+          close={vi.fn()}
+          onMove={vi.fn()}
+          canMoveLeft
+          canMoveRight
+          onSaveAsTemplate={vi.fn()}
+        />
+      </ReadOnlyContext.Provider>
+    )
+    expect(screen.getByText('Name')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Todo')).toHaveAttribute('readonly')
+    for (const name of [/^Colour/, /^Sort cards/, /^On card enter/, /^Card limit/, /Delete list/, /Left/]) {
+      expect(screen.queryByRole('button', { name })).toBeNull()
+    }
+    expect(screen.getByRole('button', { name: /^Cards/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Save as template/ })).toBeInTheDocument()
   })
 })

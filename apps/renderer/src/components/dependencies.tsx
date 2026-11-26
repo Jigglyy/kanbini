@@ -11,7 +11,7 @@ import {
 } from '@kanbini/shared'
 import { boardsRootKey } from '../hooks/useBoard'
 import { ipc } from '../lib/ipc'
-import { blockIfReadOnly } from '../lib/read-only'
+import { blockIfReadOnly, isBoardReadOnly, useBoardReadOnly } from '../lib/read-only'
 import { cn } from '../lib/utils'
 
 // "Waiting on" links between cards (card_dependency). Two surfaces:
@@ -65,13 +65,19 @@ function useDebounced<T>(value: T, ms: number): T {
 export function CardDependencies({
   card,
   boardId,
-  onOpenCard
+  onOpenCard,
+  readOnly = false
 }: {
   card: CardView
   boardId: string
   /** Open a linked card (same board: swap the detail; other board:
    *  navigate there). */
   onOpenCard: (boardId: string, cardId: string) => void
+  /** This card's board is locked (ADR-0089): links can be followed, not
+   *  added or removed. A link whose OTHER card is on a locked board hides
+   *  its own remove button (LinkRow), and the search leaves locked boards
+   *  out. */
+  readOnly?: boolean
 }) {
   const qc = useQueryClient()
   const [adding, setAdding] = useState(false)
@@ -115,7 +121,7 @@ export function CardDependencies({
     <section className="flex flex-col gap-2" aria-label="Waiting on">
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-sm font-medium text-muted-foreground">Waiting on</h3>
-        {!adding && (
+        {!adding && !readOnly && (
           <button
             type="button"
             onClick={() => {
@@ -132,7 +138,7 @@ export function CardDependencies({
 
       {card.blockedBy.length === 0 && !adding && (
         <p className="text-xs text-muted-foreground/80">
-          Not waiting on anything. Add a card that has to be done first.
+          Not waiting on anything.{!readOnly && ' Add a card that has to be done first.'}
         </p>
       )}
 
@@ -144,6 +150,7 @@ export function CardDependencies({
               refCard={ref}
               currentBoardId={boardId}
               busy={busy}
+              readOnly={readOnly}
               onOpen={onOpenCard}
               removeLabel={`Stop waiting on "${ref.title}"`}
               onRemove={() =>
@@ -190,6 +197,7 @@ export function CardDependencies({
                 refCard={ref}
                 currentBoardId={boardId}
                 busy={busy}
+                readOnly={readOnly}
                 onOpen={onOpenCard}
                 removeLabel={`Stop "${ref.title}" waiting on this card`}
                 onRemove={() =>
@@ -211,6 +219,7 @@ function LinkRow({
   refCard,
   currentBoardId,
   busy,
+  readOnly,
   onOpen,
   onRemove,
   removeLabel
@@ -218,10 +227,13 @@ function LinkRow({
   refCard: CardRef
   currentBoardId: string
   busy: boolean
+  readOnly: boolean
   onOpen: (boardId: string, cardId: string) => void
   onRemove: () => void
   removeLabel: string
 }) {
+  // Removing a link changes the card at the other end too.
+  const [farLocked] = useBoardReadOnly(refCard.boardId)
   const place =
     refCard.boardId === currentBoardId
       ? refCard.listName
@@ -266,16 +278,18 @@ function LinkRow({
         )}
         <span className="block truncate text-xs text-muted-foreground">{where}</span>
       </div>
-      <button
-        type="button"
-        aria-label={removeLabel}
-        title="Remove link"
-        disabled={busy}
-        onClick={onRemove}
-        className="rounded p-1 text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40 group-hover:opacity-100"
-      >
-        <X className="size-3.5" aria-hidden />
-      </button>
+      {!readOnly && !farLocked && (
+        <button
+          type="button"
+          aria-label={removeLabel}
+          title="Remove link"
+          disabled={busy}
+          onClick={onRemove}
+          className="rounded p-1 text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40 group-hover:opacity-100"
+        >
+          <X className="size-3.5" aria-hidden />
+        </button>
+      )}
     </li>
   )
 }
@@ -309,7 +323,11 @@ function BlockerSearch({
     queryFn: () => ipc.searchCards({ query: q, limit: 20 }),
     enabled: q.length > 0
   })
-  const results = q.length > 0 ? hits.filter((h) => !exclude.has(h.cardId)).slice(0, 8) : []
+  // A card on a locked board can't be linked: the link changes it too.
+  const results =
+    q.length > 0
+      ? hits.filter((h) => !exclude.has(h.cardId) && !isBoardReadOnly(h.boardId)).slice(0, 8)
+      : []
 
   useEffect(() => setActive(0), [q])
 

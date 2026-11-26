@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { BoardSummary } from '@kanbini/shared'
 import { BoardsHome } from '../boards-home'
 import { kanbiniMock } from '../../__tests__/_kanbini-mock'
+import { setBoardReadOnly } from '../../lib/read-only'
 
 // Tests for the boards-home shell - filter / sort / archive toggle /
 // empty states / Trello import + New board / From template dialogs.
@@ -613,5 +614,21 @@ describe('<BoardsHome> board right-click menu', () => {
     expect(
       await screen.findByRole('dialog', { name: 'Board background' })
     ).toBeInTheDocument()
+  })
+})
+
+describe('<BoardsHome> menu for a locked board (ADR-0089)', () => {
+  it('keeps favourite, move, duplicate and export; hides the edits', () => {
+    setBoardReadOnly('b1', true)
+    renderBoardsHome([makeBoard()])
+    fireEvent.contextMenu(screen.getByRole('heading', { name: /Welcome/ }))
+    const menu = within(document.querySelector('[data-overlay="context-menu"]') as HTMLElement)
+    for (const name of ['Rename…', 'Background…', 'Archive', 'Delete board…']) {
+      expect(menu.queryByRole('button', { name })).toBeNull()
+    }
+    expect(menu.queryAllByRole('button', { name: /^Colour / })).toHaveLength(0)
+    for (const name of ['Favorite', 'Duplicate', 'Export…']) {
+      expect(menu.getByRole('button', { name })).toBeInTheDocument()
+    }
   })
 })

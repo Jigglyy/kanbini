@@ -24,7 +24,11 @@ import { BoardSettings } from './components/board-settings'
 import { AppSettings } from './components/app-settings'
 import { CommandPalette } from './components/command-palette'
 import { HiddenCardNotice } from './components/hidden-card-notice'
-import { ReadOnlyPill, ReadOnlyToggle } from './components/read-only'
+import {
+  LockedUndoNotice,
+  ReadOnlyPill,
+  ReadOnlyToggle
+} from './components/read-only'
 import { WelcomeModal } from './components/welcome-modal'
 import { ZoomControl } from './components/zoom-control'
 import { Tooltip } from './components/ui/tooltip'
@@ -33,6 +37,7 @@ import { recentBoardIds, recordOpened } from './lib/last-opened'
 import { filterByLabels, pruneLabelFilter } from './lib/label-filter'
 import { hiddenCardReason } from './lib/hidden-card'
 import { startupBoardId } from './lib/startup'
+import { pruneReadOnlyBoards } from './lib/read-only'
 import {
   countCompleted,
   filterCompleted,
@@ -106,6 +111,19 @@ export function App() {
       setRoute({ kind: 'board', id })
     }
   }, [boardsStatus, boards, settings.startMode, settings.startBoardId])
+
+  // A lock on a board that no longer exists (the AI deleted it, taking
+  // the unlock toggle with it) would keep Ctrl+Z from home skipping that
+  // delete forever. The list includes archived boards.
+  useEffect(() => {
+    if (boardsStatus === 'success' && boards) {
+      pruneReadOnlyBoards(boards.map((b) => b.id))
+    }
+  }, [boardsStatus, boards])
+  // The board a refused Ctrl+Z / Ctrl+Y would have changed (it's locked).
+  const [lockedUndo, setLockedUndo] = useState<{ boardId: string; redo: boolean } | null>(
+    null
+  )
 
   const openBoard = useCallback((id: string, openCardId?: string) => {
     localStorage.setItem(LAST_BOARD_KEY, id)
@@ -210,6 +228,9 @@ export function App() {
       void ipc
         .undoApply({ scopeBoardId: scope })
         .then((result) => {
+          setLockedUndo(
+            result.lockedBoardId ? { boardId: result.lockedBoardId, redo: false } : null
+          )
           if (
             result.applied &&
             result.boardId &&
@@ -226,6 +247,9 @@ export function App() {
       void ipc
         .redoApply({ scopeBoardId: scope })
         .then((result) => {
+          setLockedUndo(
+            result.lockedBoardId ? { boardId: result.lockedBoardId, redo: true } : null
+          )
           if (
             result.applied &&
             result.boardId &&
@@ -730,6 +754,23 @@ export function App() {
           reason={hiddenCard}
           onShow={showHiddenCard}
           onDismiss={() => setHiddenTarget(null)}
+        />
+      )}
+      {lockedUndo && (
+        <LockedUndoNotice
+          boardName={
+            boards?.find((b) => b.id === lockedUndo.boardId)?.name ?? 'another board'
+          }
+          redo={lockedUndo.redo}
+          onOpen={
+            route.kind === 'board' && route.id === lockedUndo.boardId
+              ? undefined
+              : () => {
+                  openBoard(lockedUndo.boardId)
+                  setLockedUndo(null)
+                }
+          }
+          onDismiss={() => setLockedUndo(null)}
         />
       )}
     </div>

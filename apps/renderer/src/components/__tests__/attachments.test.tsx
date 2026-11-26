@@ -363,3 +363,21 @@ describe('<CardCoverThumb>', () => {
     expect(onClick).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('<Attachments> on a locked board (ADR-0089)', () => {
+  it('no add, no cover buttons, no delete; the file still previews', () => {
+    render(
+      <Attachments
+        card={makeCard({
+          attachments: [makeAttachment({ id: 'a1', filename: 'shot.png', mime: 'image/png' })]
+        })}
+        apply={vi.fn()}
+        readOnly
+      />
+    )
+    expect(screen.queryByRole('button', { name: /Add attachment/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Make cover' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Delete attachment' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Preview image' })).toBeInTheDocument()
+  })
+})

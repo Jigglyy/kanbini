@@ -842,6 +842,10 @@ function BoardCardMenu({
 }) {
   const qc = useQueryClient()
   const [confirming, setConfirming] = useState(false)
+  // Locked board (ADR-0089): what the lock refuses is hidden. Left:
+  // favourite / move (arranging the home screen), duplicate and export
+  // (read the board).
+  const [locked] = useBoardReadOnly(board.id)
 
   // Every menu item is "dispatch a mutation, swallow errors, close
   // the menu" - one helper keeps each handler a one-liner.
@@ -882,38 +886,42 @@ function BoardCardMenu({
 
   return (
     <>
-      <MenuRow icon={<PencilLine className="size-3.5" />} onClick={onRequestRename}>
-        Rename…
-      </MenuRow>
-      <MenuSep />
-      <MenuLabel>Colour</MenuLabel>
-      <div className="flex flex-wrap items-center gap-1.5 px-2 py-1">
-        {swatchOptions(board.color).map((c) => (
-          <button
-            key={c}
-            onClick={() => setColor(c)}
-            className={cn(
-              'size-5 rounded-full',
-              board.color === c ? 'ring-2 ring-ring' : ''
-            )}
-            style={{ backgroundColor: c }}
-            aria-label={`Colour ${c}`}
-          />
-        ))}
-        <button
-          onClick={clearColor}
-          className="ml-1 text-xs text-muted-foreground hover:text-foreground"
-        >
-          None
-        </button>
-      </div>
-      <MenuRow
-        icon={<ImageIcon className="size-3.5" />}
-        onClick={onRequestBackground}
-      >
-        Background…
-      </MenuRow>
-      <MenuSep />
+      {!locked && (
+        <>
+          <MenuRow icon={<PencilLine className="size-3.5" />} onClick={onRequestRename}>
+            Rename…
+          </MenuRow>
+          <MenuSep />
+          <MenuLabel>Colour</MenuLabel>
+          <div className="flex flex-wrap items-center gap-1.5 px-2 py-1">
+            {swatchOptions(board.color).map((c) => (
+              <button
+                key={c}
+                onClick={() => setColor(c)}
+                className={cn(
+                  'size-5 rounded-full',
+                  board.color === c ? 'ring-2 ring-ring' : ''
+                )}
+                style={{ backgroundColor: c }}
+                aria-label={`Colour ${c}`}
+              />
+            ))}
+            <button
+              onClick={clearColor}
+              className="ml-1 text-xs text-muted-foreground hover:text-foreground"
+            >
+              None
+            </button>
+          </div>
+          <MenuRow
+            icon={<ImageIcon className="size-3.5" />}
+            onClick={onRequestBackground}
+          >
+            Background…
+          </MenuRow>
+          <MenuSep />
+        </>
+      )}
       <MenuRow
         icon={
           <Star
@@ -948,47 +956,51 @@ function BoardCardMenu({
       <MenuRow icon={<Download className="size-3.5" />} onClick={onRequestExport}>
         Export…
       </MenuRow>
-      <MenuRow
-        icon={
-          board.archived ? (
-            <ArchiveRestore className="size-3.5" />
+      {!locked && (
+        <>
+          <MenuRow
+            icon={
+              board.archived ? (
+                <ArchiveRestore className="size-3.5" />
+              ) : (
+                <Archive className="size-3.5" />
+              )
+            }
+            onClick={toggleArchive}
+          >
+            {board.archived ? 'Unarchive' : 'Archive'}
+          </MenuRow>
+          <MenuSep />
+          {confirming ? (
+            <div ref={revealOnMount} className="flex flex-col gap-1 px-1">
+              <span className="px-1 text-xs text-muted-foreground">
+                Delete “{board.name}” and all its lists/cards? You can undo this with Ctrl+Z.
+              </span>
+              <div className="flex gap-1">
+                <button
+                  onClick={() => setConfirming(false)}
+                  className="flex-1 rounded px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={del}
+                  className="flex-1 rounded bg-red-500/90 px-2 py-1.5 text-sm text-white hover:bg-red-500"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
           ) : (
-            <Archive className="size-3.5" />
-          )
-        }
-        onClick={toggleArchive}
-      >
-        {board.archived ? 'Unarchive' : 'Archive'}
-      </MenuRow>
-      <MenuSep />
-      {confirming ? (
-        <div ref={revealOnMount} className="flex flex-col gap-1 px-1">
-          <span className="px-1 text-xs text-muted-foreground">
-            Delete “{board.name}” and all its lists/cards? You can undo this with Ctrl+Z.
-          </span>
-          <div className="flex gap-1">
-            <button
-              onClick={() => setConfirming(false)}
-              className="flex-1 rounded px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+            <MenuRow
+              icon={<Trash2 className="size-3.5" />}
+              onClick={() => setConfirming(true)}
+              danger
             >
-              Cancel
-            </button>
-            <button
-              onClick={del}
-              className="flex-1 rounded bg-red-500/90 px-2 py-1.5 text-sm text-white hover:bg-red-500"
-            >
-              Delete
-            </button>
-          </div>
-        </div>
-      ) : (
-        <MenuRow
-          icon={<Trash2 className="size-3.5" />}
-          onClick={() => setConfirming(true)}
-          danger
-        >
-          Delete board…
-        </MenuRow>
+              Delete board…
+            </MenuRow>
+          )}
+        </>
       )}
     </>
   )

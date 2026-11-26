@@ -309,10 +309,13 @@ export function CoverActions({
 
 export function Attachments({
   card,
-  apply
+  apply,
+  readOnly = false
 }: {
   card: CardView
   apply: Apply
+  /** Locked board (ADR-0089): the files can be opened, not changed. */
+  readOnly?: boolean
 }) {
   const [busy, setBusy] = useState(false)
 
@@ -357,13 +360,15 @@ export function Attachments({
         <h3 className="text-sm font-medium text-muted-foreground">
           Attachments
         </h3>
-        <button
-          onClick={add}
-          disabled={busy}
-          className="rounded border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
-        >
-          {busy ? 'Adding…' : '+ Add attachment'}
-        </button>
+        {!readOnly && (
+          <button
+            onClick={add}
+            disabled={busy}
+            className="rounded border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+          >
+            {busy ? 'Adding…' : '+ Add attachment'}
+          </button>
+        )}
       </div>
       {card.attachments.length === 0 && (
         <p className="text-xs text-muted-foreground/70">No attachments yet.</p>
@@ -376,6 +381,7 @@ export function Attachments({
           onDelete={() => del(att.id)}
           onSetCover={() => setCover(att.id)}
           onRemoveCover={() => setCover(null)}
+          readOnly={readOnly}
         />
       ))}
     </section>
@@ -387,13 +393,15 @@ function AttachmentRow({
   isCover,
   onDelete,
   onSetCover,
-  onRemoveCover
+  onRemoveCover,
+  readOnly
 }: {
   att: AttachmentView
   isCover: boolean
   onDelete: () => void
   onSetCover: () => void
   onRemoveCover: () => void
+  readOnly: boolean
 }) {
   const img = isImage(att)
   const [preview, setPreview] = useState(false)
@@ -440,6 +448,7 @@ function AttachmentRow({
       </div>
       <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover/att:opacity-100">
         {img &&
+          !readOnly &&
           (isCover ? (
             <button
               onClick={onRemoveCover}
@@ -455,8 +464,12 @@ function AttachmentRow({
               Make cover
             </button>
           ))}
+        {/* `hidden`, not a condition: the web edition's swap inserts a
+            Download link right before this button (apps/web/swaps.ts),
+            which must stay a plain sibling to remain valid JSX. */}
         <button
           aria-label="Delete attachment"
+          hidden={readOnly}
           onClick={onDelete}
           className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
         >

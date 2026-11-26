@@ -5,6 +5,7 @@ import type { Mutation } from '@kanbini/shared'
 import { boardsRootKey } from '../hooks/useBoard'
 import { boardsListKey } from '../hooks/useBoardsList'
 import { ipc } from '../lib/ipc'
+import { useBoardReadOnly } from '../lib/read-only'
 import { Modal } from './ui/modal'
 
 // The board's Archived view (opened from the board's pencil menu):
@@ -30,6 +31,8 @@ export function ArchivedItemsDialog({
   onClose: () => void
 }) {
   const qc = useQueryClient()
+  // Locked board (ADR-0089): the list can be looked through, not changed.
+  const [readOnly] = useBoardReadOnly(boardId)
   const { data, status } = useQuery({
     queryKey: archivedKey(boardId),
     queryFn: () => ipc.archivedItems({ boardId }),
@@ -101,6 +104,7 @@ export function ArchivedItemsDialog({
                   )
                 }
                 onDelete={() => run({ type: 'card.delete', id: c.id })}
+                readOnly={readOnly}
               />
             ))}
           </Section>
@@ -121,6 +125,7 @@ export function ArchivedItemsDialog({
                   run({ type: 'list.update', id: l.id, patch: { closed: false } })
                 }
                 onDelete={() => run({ type: 'list.delete', id: l.id })}
+                readOnly={readOnly}
               />
             ))}
           </Section>
@@ -151,7 +156,8 @@ function ItemRow({
   detail,
   confirmText,
   onRestore,
-  onDelete
+  onDelete,
+  readOnly
 }: {
   name: string
   color?: string | null
@@ -159,6 +165,7 @@ function ItemRow({
   confirmText: string
   onRestore: () => void
   onDelete: () => void
+  readOnly: boolean
 }) {
   const [confirming, setConfirming] = useState(false)
   return (
@@ -175,7 +182,7 @@ function ItemRow({
           <div className="truncate text-sm font-medium wrap-anywhere">{name}</div>
           <div className="truncate text-xs text-muted-foreground">{detail}</div>
         </div>
-        {!confirming && (
+        {!confirming && !readOnly && (
           <>
             <button
               type="button"

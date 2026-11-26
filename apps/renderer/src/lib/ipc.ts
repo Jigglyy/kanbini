@@ -41,10 +41,10 @@ import type {
   UndoApplyResult,
   UndoStatus
 } from '@kanbini/shared'
+import { isViewChange, passesReadOnlyLock } from '@kanbini/shared'
 import {
   ReadOnlyError,
   isBoardReadOnly,
-  isTick,
   lockedScopeId,
   notifyWriteBlocked,
   readOnlyBoardIds
@@ -74,38 +74,36 @@ function guarded<T>(run: () => Promise<T>, boardId?: string): Promise<T> {
 }
 
 /** A board-level write naming a locked board, from anywhere (the home
- *  screen has no board on screen). Favouriting and reordering arrange
- *  the home screen, and duplicating reads the board into a new one;
- *  none of them changes the board's name, lists, labels or cards. */
+ *  screen has no board on screen). Reordering arranges the home screen
+ *  and duplicating reads the board into a new one; neither changes the
+ *  board's name, lists, labels or cards (favouriting is a view change,
+ *  let through before this runs). */
 function lockedBoardTarget(ms: Mutation[]): string | null {
   for (const m of ms) {
     if (m.type === 'board.create' || m.type === 'board.move') continue
-    if (m.type === 'board.duplicate') continue
+    if (m.type === 'board.duplicate' || isViewChange(m)) continue
     if (!m.type.startsWith('board.') || !('id' in m) || !m.id) continue
-    if (m.type === 'board.update') {
-      const keys = Object.keys(m.patch)
-      if (keys.length > 0 && keys.every((k) => k === 'pinned')) continue
-    }
     if (isBoardReadOnly(m.id)) return m.id
   }
   return null
 }
 
 function guardedMutations<T>(ms: Mutation[], run: () => Promise<T>): Promise<T> {
-  // Ticks pass the lock (lib/read-only.ts), so a call made only of them
-  // runs; one other write in a batch and the whole batch is refused.
-  if (ms.length > 0 && ms.every(isTick)) return run()
+  // Ticks and view settings pass the lock (passesReadOnlyLock), so a call
+  // made only of them runs; one other write in a batch and the whole
+  // batch is refused.
+  if (ms.length > 0 && ms.every(passesReadOnlyLock)) return run()
   const target = lockedBoardTarget(ms)
   return target ? refuse(target) : guarded(run)
 }
 
-/** An unscoped undo / redo (no board open) can pick an entry on any
- *  board: main skips those logged under a locked board. A scoped one is
- *  guarded instead. */
+/** Undo / redo tell main which boards are locked: it refuses an entry
+ *  that would change one (a card moved or linked across boards, an AI
+ *  run spanning boards) and, with no board open, skips their own
+ *  entries. The board on screen being locked is refused here first. */
 function undoRequest(req: UndoApplyRequest): UndoApplyRequest {
-  if (req.scopeBoardId) return req
   const locked = readOnlyBoardIds()
-  return locked.length > 0 ? { ...req, excludeBoardIds: locked } : req
+  return locked.length > 0 ? { ...req, lockedBoardIds: locked } : req
 }
 
 export const ipc = {

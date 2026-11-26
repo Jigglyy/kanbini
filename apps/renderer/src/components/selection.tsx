@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useContext, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   ArrowRightLeft,
@@ -14,6 +14,7 @@ import { PRIORITY_LEVELS, priorityColor, priorityLabel } from './priority'
 import { Popover } from './ui/popover'
 import { MenuItem, MenuLabel, MenuSep, SubMenu } from './ui/context-menu'
 import { accentText } from '../lib/palette'
+import { ReadOnlyContext } from '../lib/read-only'
 
 // Multi-select bulk actions (ADR-0035 follow-up). Two surfaces share one
 // action set: a floating SelectionBar (discoverable, always visible while
@@ -54,6 +55,8 @@ export function SelectionBar({ actions }: { actions: BulkActions }): React.React
 
 function SelectionBarInner({ actions }: { actions: BulkActions }): React.JSX.Element {
   const [confirmDelete, setConfirmDelete] = useState(false)
+  // Locked board (ADR-0089): only Complete (a tick) and Clear.
+  const readOnly = useContext(ReadOnlyContext)
   return (
     <div
       data-overlay="selection-bar"
@@ -85,74 +88,78 @@ function SelectionBarInner({ actions }: { actions: BulkActions }): React.JSX.Ele
             {actions.allComplete ? 'Uncomplete' : 'Complete'}
           </BarButton>
 
-          <Popover
-            width={188}
-            trigger={({ toggle }) => (
-              <BarButton onClick={toggle}>
-                <Flag className="size-3.5" /> Priority
-              </BarButton>
-            )}
-          >
-            {(close) => (
-              <PriorityRows
-                onPick={(p) => {
-                  actions.onSetPriority(p)
-                  close()
-                }}
-              />
-            )}
-          </Popover>
+          {!readOnly && (
+            <>
+              <Popover
+                width={188}
+                trigger={({ toggle }) => (
+                  <BarButton onClick={toggle}>
+                    <Flag className="size-3.5" /> Priority
+                  </BarButton>
+                )}
+              >
+                {(close) => (
+                  <PriorityRows
+                    onPick={(p) => {
+                      actions.onSetPriority(p)
+                      close()
+                    }}
+                  />
+                )}
+              </Popover>
 
-          <Popover
-            width={208}
-            trigger={({ toggle }) => (
-              <BarButton onClick={toggle}>
-                <Tag className="size-3.5" /> Labels
-              </BarButton>
-            )}
-          >
-            {() => (
-              <LabelRows
-                labels={actions.labels}
-                presence={actions.labelPresence}
-                onToggle={actions.onToggleLabel}
-              />
-            )}
-          </Popover>
+              <Popover
+                width={208}
+                trigger={({ toggle }) => (
+                  <BarButton onClick={toggle}>
+                    <Tag className="size-3.5" /> Labels
+                  </BarButton>
+                )}
+              >
+                {() => (
+                  <LabelRows
+                    labels={actions.labels}
+                    presence={actions.labelPresence}
+                    onToggle={actions.onToggleLabel}
+                  />
+                )}
+              </Popover>
 
-          <Popover
-            width={208}
-            trigger={({ toggle }) => (
-              <BarButton onClick={toggle}>
-                <ArrowRightLeft className="size-3.5" /> Move
-              </BarButton>
-            )}
-          >
-            {(close) => (
-              <>
-                <ListRows
-                  lists={actions.lists}
-                  onPick={(id) => {
-                    actions.onMoveTo(id)
-                    close()
-                  }}
-                />
-                <div className="my-1 h-px bg-border" />
-                <RowButton
-                  onClick={() => {
-                    close()
-                    actions.onMoveElsewhere()
-                  }}
-                >
-                  Another board…
-                </RowButton>
-              </>
-            )}
-          </Popover>
+              <Popover
+                width={208}
+                trigger={({ toggle }) => (
+                  <BarButton onClick={toggle}>
+                    <ArrowRightLeft className="size-3.5" /> Move
+                  </BarButton>
+                )}
+              >
+                {(close) => (
+                  <>
+                    <ListRows
+                      lists={actions.lists}
+                      onPick={(id) => {
+                        actions.onMoveTo(id)
+                        close()
+                      }}
+                    />
+                    <div className="my-1 h-px bg-border" />
+                    <RowButton
+                      onClick={() => {
+                        close()
+                        actions.onMoveElsewhere()
+                      }}
+                    >
+                      Another board…
+                    </RowButton>
+                  </>
+                )}
+              </Popover>
 
-          <BarButton danger onClick={() => setConfirmDelete(true)}>
-            <Trash2 className="size-3.5" /> Delete
-          </BarButton>
+              <BarButton danger onClick={() => setConfirmDelete(true)}>
+                <Trash2 className="size-3.5" /> Delete
+              </BarButton>
+            </>
+          )}
         </>
       )}
 
@@ -318,12 +325,20 @@ export function BulkCardMenu({
     fn()
     close()
   }
-  return (
+  // Locked board (ADR-0089): only the tick.
+  const readOnly = useContext(ReadOnlyContext)
+  const header = (
     <>
       <MenuLabel>{actions.count} cards selected</MenuLabel>
       <MenuItem onClick={act(actions.onToggleComplete)}>
         {actions.allComplete ? 'Mark incomplete' : 'Mark complete'}
       </MenuItem>
+    </>
+  )
+  if (readOnly) return header
+  return (
+    <>
+      {header}
 
       <MenuSep />
       {/* Fly-outs keep the menu short however many labels / lists the

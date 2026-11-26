@@ -1,3 +1,4 @@
+import { useContext } from 'react'
 import {
   Archive,
   ArrowRightLeft,
@@ -26,6 +27,7 @@ import {
 import type { Optimistic } from '../hooks/useBoardMutation'
 import { dueLabel } from '../lib/due-presets'
 import { ipc } from '../lib/ipc'
+import { ReadOnlyContext } from '../lib/read-only'
 import { useCardActions } from './card-transfer'
 import { LabelToggleList } from './labels'
 import { DueEditor } from './due-date'
@@ -119,6 +121,57 @@ export function CardMenu({
   }
 
   const actions = useCardActions()
+  // Locked board (ADR-0089): only what the lock lets through - the
+  // view setting (collapse) and the tick (Mark complete).
+  const readOnly = useContext(ReadOnlyContext)
+
+  const toggleComplete = (): void => {
+    apply(
+      {
+        type: 'card.update',
+        id: card.id,
+        patch: { completed: !card.completed }
+      },
+      (b) => mapCard(b, card.id, (c) => ({ ...c, completed: !c.completed }))
+    )
+    close()
+  }
+  const collapseItem = onToggleCollapse && (
+    <MenuItem
+      onClick={() => {
+        onToggleCollapse()
+        close()
+      }}
+    >
+      <Row
+        icon={
+          compact ? (
+            <ChevronsUpDown className="size-3.5" />
+          ) : (
+            <ChevronsDownUp className="size-3.5" />
+          )
+        }
+      >
+        {compact ? 'Expand card' : 'Collapse card'}
+      </Row>
+    </MenuItem>
+  )
+  const completeItem = (
+    <MenuItem onClick={toggleComplete}>
+      <Row icon={<CheckSquare className="size-3.5" />}>
+        {card.completed ? 'Mark incomplete' : 'Mark complete'}
+      </Row>
+    </MenuItem>
+  )
+
+  if (readOnly) {
+    return (
+      <>
+        {collapseItem}
+        {completeItem}
+      </>
+    )
+  }
 
   const labelNames = card.labelIds
     .map((id) => labels.find((l) => l.id === id)?.name)
@@ -216,43 +269,8 @@ export function CardMenu({
           <MenuSep />
         </>
       )}
-      {onToggleCollapse && (
-        <MenuItem
-          onClick={() => {
-            onToggleCollapse()
-            close()
-          }}
-        >
-          <Row
-            icon={
-              compact ? (
-                <ChevronsUpDown className="size-3.5" />
-              ) : (
-                <ChevronsDownUp className="size-3.5" />
-              )
-            }
-          >
-            {compact ? 'Expand card' : 'Collapse card'}
-          </Row>
-        </MenuItem>
-      )}
-      <MenuItem
-        onClick={() => {
-          apply(
-            {
-              type: 'card.update',
-              id: card.id,
-              patch: { completed: !card.completed }
-            },
-            (b) => mapCard(b, card.id, (c) => ({ ...c, completed: !c.completed }))
-          )
-          close()
-        }}
-      >
-        <Row icon={<CheckSquare className="size-3.5" />}>
-          {card.completed ? 'Mark incomplete' : 'Mark complete'}
-        </Row>
-      </MenuItem>
+      {collapseItem}
+      {completeItem}
       {/* Off the board but kept: the board's Archived view brings it
           back. Undoable like any edit. */}
       <MenuItem

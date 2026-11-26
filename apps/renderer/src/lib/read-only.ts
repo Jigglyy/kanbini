@@ -1,11 +1,11 @@
 import { createContext, useCallback, useEffect, useSyncExternalStore } from 'react'
-import type { Mutation } from '@kanbini/shared'
 
 // Per-board read-only lock (a view preference, like hide-completed:
 // renderer-only, localStorage, never a DB column). It stops YOUR edits
 // only: the AI writes through the desktop control channel, which never
 // passes through the renderer, so a locked board still changes under it.
-// Ticks (isTick) still pass: a locked board can be worked through.
+// Ticks and view settings still pass (`passesReadOnlyLock` in
+// @kanbini/shared): a locked board can be worked through and arranged.
 //
 // lib/ipc.ts is the guard; this module holds the lock, the boards on
 // screen (scopes mounted by the board view and the card detail) and the
@@ -39,19 +39,27 @@ export function isBoardReadOnly(boardId: string): boolean {
   return readIds().includes(boardId)
 }
 
-/** A write the lock lets through: ticking a checklist item or a card
- *  done / not done, and nothing else in the same patch. Judged by the
- *  write, so every checkbox, menu item and shortcut behaves the same. */
-export function isTick(m: Mutation): boolean {
-  if (m.type !== 'checklistItem.update' && m.type !== 'card.update') return false
-  const keys = Object.keys(m.patch)
-  return keys.length === 1 && keys[0] === 'completed'
-}
-
-/** Every locked board id: an unscoped undo / redo asks main to skip
- *  the entries logged under them. */
+/** Every locked board id: undo / redo send them so main refuses an
+ *  entry that would change one (and, from home, skips their own). */
 export function readOnlyBoardIds(): string[] {
   return readIds()
+}
+
+/** Forget locks on boards that no longer exist (the AI can delete a
+ *  locked board, which takes its unlock toggle with it). `existing`: every
+ *  board id, archived ones included. Returns true when it removed any. */
+export function pruneReadOnlyBoards(existing: Iterable<string>): boolean {
+  const keep = new Set(existing)
+  const ids = readIds()
+  const next = ids.filter((id) => keep.has(id))
+  if (next.length === ids.length) return false
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+  } catch {
+    return false
+  }
+  notifyLock()
+  return true
 }
 
 export function setBoardReadOnly(boardId: string, locked: boolean): void {

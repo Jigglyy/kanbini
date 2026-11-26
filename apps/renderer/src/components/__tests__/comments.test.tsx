@@ -265,3 +265,10 @@ describe('<Comments>', () => {
     })
   })
 })
+
+describe('<Comments> on a locked board', () => {
+  it('has no delete buttons', () => {
+    render(<Comments card={makeCard({ comments: [makeComment({ body: 'kept' })] })} apply={vi.fn()} readOnly />)
+    expect(screen.queryByRole('button', { name: 'Delete comment' })).toBeNull()
+  })
+})

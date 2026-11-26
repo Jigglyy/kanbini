@@ -20,6 +20,7 @@ import type { BoardView, CardView, LabelView, Mutation } from '@kanbini/shared'
 import type { Optimistic } from '../hooks/useBoardMutation'
 import { projectReorder } from '../lib/label-order'
 import { ACCENTS, accentText, swatchOptions } from '../lib/palette'
+import { useBoardReadOnly } from '../lib/read-only'
 import { Popover } from './ui/popover'
 import { ContextMenu, MenuItem, MenuLabel, MenuSep } from './ui/context-menu'
 
@@ -124,6 +125,10 @@ export function LabelBar({
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   )
+  // Locked board (ADR-0089): no new labels, no rename / recolour /
+  // delete. The bar's order is a local display preference, so dragging
+  // a chip and Move left / right still work.
+  const [readOnly] = useBoardReadOnly(boardId)
 
   // Live reorder (mirrors the board's onDragOver pattern). While a chip
   // is being dragged we reorder a LOCAL id list as it crosses each
@@ -194,6 +199,7 @@ export function LabelBar({
               on={active.has(l.id)}
               onToggle={onToggle}
               apply={apply}
+              readOnly={readOnly}
               onMoveLeft={onMove && i > 0 ? () => onMove(l.id, -1) : undefined}
               onMoveRight={
                 onMove && i < ordered.length - 1
@@ -205,19 +211,21 @@ export function LabelBar({
         </SortableContext>
       </DndContext>
 
-      <Popover
-        width={224}
-        trigger={({ toggle }) => (
-          <button
-            onClick={toggle}
-            className="flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground"
-          >
-            <Tag className="size-3" /> New label
-          </button>
-        )}
-      >
-        {(close) => <CreateLabel boardId={boardId} apply={apply} close={close} />}
-      </Popover>
+      {!readOnly && (
+        <Popover
+          width={224}
+          trigger={({ toggle }) => (
+            <button
+              onClick={toggle}
+              className="flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <Tag className="size-3" /> New label
+            </button>
+          )}
+        >
+          {(close) => <CreateLabel boardId={boardId} apply={apply} close={close} />}
+        </Popover>
+      )}
     </div>
   )
 }
@@ -230,6 +238,7 @@ function SortableLabelChip({
   on,
   onToggle,
   apply,
+  readOnly,
   onMoveLeft,
   onMoveRight
 }: {
@@ -237,9 +246,13 @@ function SortableLabelChip({
   on: boolean
   onToggle: (id: string) => void
   apply: Apply
+  readOnly: boolean
   onMoveLeft?: () => void
   onMoveRight?: () => void
 }) {
+  // Locked with a single chip: nothing to offer on right-click.
+  const hasMenu = !readOnly || !!onMoveLeft || !!onMoveRight
+  const hint = readOnly ? 'drag to reorder' : 'drag to reorder, right-click to edit'
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: label.id })
   const style: React.CSSProperties = {
@@ -265,6 +278,7 @@ function SortableLabelChip({
           label={label}
           apply={apply}
           close={close}
+          readOnly={readOnly}
           onMoveLeft={onMoveLeft}
           onMoveRight={onMoveRight}
         />
@@ -281,12 +295,8 @@ function SortableLabelChip({
           // theme-aware box-shadow rather than a class).
           aria-pressed={on}
           onClick={() => onToggle(label.id)}
-          onContextMenu={open}
-          title={
-            on
-              ? 'Filtering by this label (drag to reorder, right-click to edit)'
-              : 'Filter by this label (drag to reorder, right-click to edit)'
-          }
+          onContextMenu={hasMenu ? open : undefined}
+          title={on ? `Filtering by this label (${hint})` : `Filter by this label (${hint})`}
           className={`flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium transition-[filter] duration-150 ${
             isDragging ? 'cursor-grabbing' : 'cursor-grab hover:brightness-110'
           }`}
@@ -359,12 +369,15 @@ function LabelEditor({
   label,
   apply,
   close,
+  readOnly,
   onMoveLeft,
   onMoveRight
 }: {
   label: LabelView
   apply: Apply
   close: () => void
+  /** Locked board: only the (local) reorder rows. */
+  readOnly: boolean
   /** Reorder the chip in the bar; undefined at the respective edge. */
   onMoveLeft?: () => void
   onMoveRight?: () => void
@@ -393,6 +406,32 @@ function LabelEditor({
     )
     close()
   }
+  const reorder = (onMoveLeft || onMoveRight) && (
+    <>
+      <MenuLabel>Reorder</MenuLabel>
+      {onMoveLeft && (
+        <MenuItem
+          onClick={() => {
+            onMoveLeft()
+            close()
+          }}
+        >
+          ← Move left
+        </MenuItem>
+      )}
+      {onMoveRight && (
+        <MenuItem
+          onClick={() => {
+            onMoveRight()
+            close()
+          }}
+        >
+          → Move right
+        </MenuItem>
+      )}
+    </>
+  )
+  if (readOnly) return <>{reorder}</>
   return (
     <>
       <MenuLabel>Rename label</MenuLabel>
@@ -424,30 +463,10 @@ function LabelEditor({
       >
         Save name
       </button>
-      {(onMoveLeft || onMoveRight) && (
+      {reorder && (
         <>
           <MenuSep />
-          <MenuLabel>Reorder</MenuLabel>
-          {onMoveLeft && (
-            <MenuItem
-              onClick={() => {
-                onMoveLeft()
-                close()
-              }}
-            >
-              ← Move left
-            </MenuItem>
-          )}
-          {onMoveRight && (
-            <MenuItem
-              onClick={() => {
-                onMoveRight()
-                close()
-              }}
-            >
-              → Move right
-            </MenuItem>
-          )}
+          {reorder}
         </>
       )}
       <MenuSep />

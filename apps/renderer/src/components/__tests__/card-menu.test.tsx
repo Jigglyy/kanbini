@@ -11,6 +11,7 @@ import { CardMenu } from '../card-menu'
 import { CardActionsContext, type CardActions } from '../card-transfer'
 import { ContextMenu } from '../ui/context-menu'
 import { kanbiniMock } from '../../__tests__/_kanbini-mock'
+import { ReadOnlyContext } from '../../lib/read-only'
 
 // Tests for the right-click card menu - focused on the orchestration
 // only (Cover / Complete / Delete). The composed children (labels,
@@ -446,6 +447,38 @@ describe('<CardMenu>', () => {
       await user.click(screen.getByRole('button', { name }))
       check(actions)
       expect(close).toHaveBeenCalledTimes(1)
+    })
+  })
+})
+
+describe('<CardMenu> on a locked board (ADR-0089)', () => {
+  it('keeps only Collapse and Mark complete', async () => {
+    const user = userEvent.setup()
+    const onToggleCollapse = vi.fn()
+    const apply = vi.fn<(m: Mutation, o: unknown) => void>()
+    renderMenu(
+      <ReadOnlyContext.Provider value>
+        <CardMenu
+          card={makeCard()}
+          labels={NO_LABELS}
+          apply={apply}
+          close={vi.fn()}
+          onRequestCoverFromUrl={vi.fn()}
+          compact={false}
+          onToggleCollapse={onToggleCollapse}
+        />
+      </ReadOnlyContext.Provider>
+    )
+    for (const name of [/^Labels/, /^Due date/, /^Priority/, /^Cover/, /Archive card/, /Delete card/]) {
+      expect(screen.queryByRole('button', { name })).toBeNull()
+    }
+    await user.click(screen.getByRole('button', { name: 'Collapse card' }))
+    expect(onToggleCollapse).toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Mark complete' }))
+    expect(apply.mock.calls[0]?.[0]).toEqual({
+      type: 'card.update',
+      id: 'c1',
+      patch: { completed: true }
     })
   })
 })

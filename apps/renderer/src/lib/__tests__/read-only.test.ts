@@ -5,6 +5,7 @@ import {
   lockedScopeId,
   notifyWriteBlocked,
   onWriteBlocked,
+  pruneReadOnlyBoards,
   setBoardReadOnly,
   useBoardReadOnly,
   useReadOnlyScope
@@ -61,5 +62,22 @@ describe('read-only boards', () => {
     off()
     notifyWriteBlocked('b1')
     expect(cb).toHaveBeenCalledTimes(1)
+  })
+
+  it('forgets locks on boards that no longer exist', () => {
+    setBoardReadOnly('b1', true)
+    setBoardReadOnly('gone', true)
+    const { result } = renderHook(() => useBoardReadOnly('gone'))
+    expect(result.current[0]).toBe(true)
+    let removed = false
+    act(() => {
+      removed = pruneReadOnlyBoards(['b1', 'b2'])
+    })
+    expect(removed).toBe(true)
+    expect(isBoardReadOnly('b1')).toBe(true)
+    expect(isBoardReadOnly('gone')).toBe(false)
+    expect(result.current[0]).toBe(false)
+    // Nothing stale: nothing written.
+    expect(pruneReadOnlyBoards(['b1'])).toBe(false)
   })
 })

@@ -1,9 +1,9 @@
 import { useCallback } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import type { BoardView, Mutation } from '@kanbini/shared'
+import { type BoardView, type Mutation, passesReadOnlyLock } from '@kanbini/shared'
 import { boardKey, boardsRootKey } from './useBoard'
 import { ipc } from '../lib/ipc'
-import { isBoardReadOnly, isTick, notifyWriteBlocked } from '../lib/read-only'
+import { isBoardReadOnly, notifyWriteBlocked } from '../lib/read-only'
 
 // One optimistic mutation runner shared by the board + label UIs:
 // cancel in-flight → snapshot → optimistic cache write → rollback on
@@ -44,8 +44,8 @@ export function useBoardMutation(
     (m: Mutation, optimistic: Optimistic) => {
       // A locked board: refuse before the optimistic write, so nothing
       // flickers in and rolls back (the ipc guard alone would do that).
-      // Ticks pass the lock and go through as usual.
-      if (boardId && isBoardReadOnly(boardId) && !isTick(m)) {
+      // Ticks and view settings pass the lock and go through as usual.
+      if (boardId && isBoardReadOnly(boardId) && !passesReadOnlyLock(m)) {
         notifyWriteBlocked(boardId)
         return
       }

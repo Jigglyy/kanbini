@@ -136,15 +136,45 @@ describe('ipc read-only guard', () => {
     expect(kanbiniMock().mutate).toHaveBeenCalledWith(dup)
   })
 
-  it('an unscoped undo / redo (home, Settings) tells main to skip locked boards', async () => {
+  it('undo / redo tell main which boards are locked, scoped or not', async () => {
     setBoardReadOnly('b1', true)
     setBoardReadOnly('b3', true)
     await ipc.undoApply({})
     await ipc.redoApply()
-    expect(kanbiniMock().undoApply).toHaveBeenCalledWith({ excludeBoardIds: ['b1', 'b3'] })
-    expect(kanbiniMock().redoApply).toHaveBeenCalledWith({ excludeBoardIds: ['b1', 'b3'] })
-    // A scoped one on an unlocked board goes as it was.
+    expect(kanbiniMock().undoApply).toHaveBeenCalledWith({ lockedBoardIds: ['b1', 'b3'] })
+    expect(kanbiniMock().redoApply).toHaveBeenCalledWith({ lockedBoardIds: ['b1', 'b3'] })
+    // Scoped on an unlocked board: main still needs the list, to refuse
+    // an entry that would reach a locked board.
     await ipc.undoApply({ scopeBoardId: 'b2' })
-    expect(kanbiniMock().undoApply).toHaveBeenLastCalledWith({ scopeBoardId: 'b2' })
+    expect(kanbiniMock().undoApply).toHaveBeenLastCalledWith({
+      scopeBoardId: 'b2',
+      lockedBoardIds: ['b1', 'b3']
+    })
+  })
+
+  it('nothing locked: the request goes as it was', async () => {
+    await ipc.undoApply({ scopeBoardId: 'b2' })
+    expect(kanbiniMock().undoApply).toHaveBeenCalledWith({ scopeBoardId: 'b2' })
+  })
+
+  it('lets view settings through a locked board on screen', async () => {
+    setBoardReadOnly('b1', true)
+    renderHook(() => useReadOnlyScope('b1'))
+    const blocked = vi.fn()
+    const off = onWriteBlocked(blocked)
+    const views = [
+      { type: 'card.update', id: 'c1', patch: { collapsed: true } },
+      { type: 'list.update', id: 'l1', patch: { visibleCardLimit: 10 } },
+      { type: 'list.update', id: 'l1', patch: { cardDensity: 'compact' } },
+      { type: 'board.update', id: 'b1', patch: { swimlaneMode: 'priority' } }
+    ] as const
+    for (const m of views) await ipc.mutate(m)
+    expect(kanbiniMock().mutate).toHaveBeenCalledTimes(views.length)
+    expect(blocked).not.toHaveBeenCalled()
+    // A view setting with a real edit in the same patch is still refused.
+    await expect(
+      ipc.mutate({ type: 'list.update', id: 'l1', patch: { visibleCardLimit: 10, name: 'x' } })
+    ).rejects.toBeInstanceOf(ReadOnlyError)
+    off()
   })
 })

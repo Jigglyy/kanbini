@@ -169,14 +169,20 @@ function RenameBody({
           className="rounded border border-border bg-background px-2 py-1 text-sm text-foreground focus:border-ring focus:outline-none"
         />
       </label>
-      <button
-        type="button"
-        onClick={onOpenBackground}
-        className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-foreground hover:bg-muted"
-      >
-        <ImageIcon className="size-3.5 text-muted-foreground" />
-        Background…
-      </button>
+      {/* Locked board: the background is the board's look, not a view
+          setting, so it's refused - and hidden. The rest only read the
+          board (template, archived list, export) or are view settings
+          (Group by). */}
+      {!readOnly && (
+        <button
+          type="button"
+          onClick={onOpenBackground}
+          className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-foreground hover:bg-muted"
+        >
+          <ImageIcon className="size-3.5 text-muted-foreground" />
+          Background…
+        </button>
+      )}
       <button
         type="button"
         onClick={onSaveAsTemplate}

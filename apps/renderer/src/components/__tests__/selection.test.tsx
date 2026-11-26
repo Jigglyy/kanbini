@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BulkCardMenu, SelectionBar, type BulkActions } from '../selection'
 import { ContextMenu } from '../ui/context-menu'
+import { ReadOnlyContext } from '../../lib/read-only'
 
 // SelectionBar (floating bulk-action bar) + BulkCardMenu (the same
 // actions on a selected card's right-click). The selection-set maths
@@ -165,5 +166,20 @@ describe('<BulkCardMenu>', () => {
     await user.click(screen.getByText('Bug'))
     expect(actions.onToggleLabel).toHaveBeenCalledWith('L1')
     expect(close).not.toHaveBeenCalled()
+  })
+})
+
+describe('bulk actions on a locked board (ADR-0089)', () => {
+  it('the bar keeps only Complete and Clear', () => {
+    render(
+      <ReadOnlyContext.Provider value>
+        <SelectionBar actions={makeActions()} />
+      </ReadOnlyContext.Provider>
+    )
+    expect(screen.getByRole('button', { name: /Complete/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Clear/ })).toBeInTheDocument()
+    for (const name of [/Priority/, /Labels/, /Move/, /Delete/]) {
+      expect(screen.queryByRole('button', { name })).toBeNull()
+    }
   })
 })
