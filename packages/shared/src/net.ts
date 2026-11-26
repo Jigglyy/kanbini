@@ -171,3 +171,34 @@ export function isPrivateOrReservedHost(host: string): boolean {
   // A domain name - the caller resolves + re-checks the resolved IPs.
   return false
 }
+
+/** One byte range from an HTTP `Range` header, for the `kanbini-file://`
+ *  handler (a <video> seeks by asking for ranges). `null`: no usable
+ *  range, serve the whole file (absent header, another unit, or several
+ *  ranges - rare, and the whole file is a valid answer). `'unsatisfiable'`:
+ *  a range past the end, answered with 416. Ends are inclusive. */
+export function parseByteRange(
+  header: string | null | undefined,
+  size: number
+): { start: number; end: number } | 'unsatisfiable' | null {
+  if (!header) return null
+  const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim())
+  if (!m) return null
+  const [, a, b] = m
+  if (a === '' && b === '') return null
+  if (size === 0) return 'unsatisfiable'
+  let start: number
+  let end: number
+  if (a === '') {
+    // Suffix: the last N bytes.
+    const n = Number(b)
+    if (n === 0) return 'unsatisfiable'
+    start = Math.max(0, size - n)
+    end = size - 1
+  } else {
+    start = Number(a)
+    end = b === '' ? size - 1 : Math.min(Number(b), size - 1)
+    if (start >= size || start > end) return 'unsatisfiable'
+  }
+  return { start, end }
+}

@@ -1,5 +1,14 @@
-import { useState } from 'react'
-import { File as FileIcon, FileImage, Globe, ImageOff, X } from 'lucide-react'
+import { useRef, useState } from 'react'
+import {
+  ExternalLink,
+  File as FileIcon,
+  FileImage,
+  Globe,
+  ImageOff,
+  Maximize2,
+  Play,
+  X
+} from 'lucide-react'
 import {
   decodeHtmlEntities,
   type AttachmentView,
@@ -10,8 +19,26 @@ import {
 import type { Optimistic } from '../hooks/useBoardMutation'
 import { ipc } from '../lib/ipc'
 import { domainOf } from '../lib/url'
-import { ImageLightbox } from './ui/lightbox'
+import { cardMedia, humanSize, isImage, isVideo, srcFor, videoPosterSrc } from '../lib/media'
+import { MediaViewer } from './ui/media-viewer'
 import { ContextMenu, MenuItem } from './ui/context-menu'
+
+export { humanSize }
+
+/** "Open in default app" hands the file to the OS. The web edition can't
+ *  (apps/web/swaps.ts turns this off; it has a Download link instead). */
+const CAN_OPEN_IN_APP = true
+
+/** Open an attachment in the OS's default app; resolves to the reason
+ *  when it didn't (no app for the type, a program shown in its folder). */
+async function openInApp(id: string): Promise<string | null> {
+  try {
+    const r = await ipc.attachmentOpen(id)
+    return r.ok ? null : (r.error ?? "Couldn't open the file.")
+  } catch {
+    return "Couldn't open the file."
+  }
+}
 
 // Attachments section + cover image. `attachment:add` is a native
 // file-dialog IPC (separate from the mutate channel); delete + cover
@@ -32,41 +59,6 @@ const mapCard = (
     cards: l.cards.map((c) => (c.id === cardId ? fn(c) : c))
   }))
 })
-
-const IMAGE_EXTS = new Set([
-  'png',
-  'jpg',
-  'jpeg',
-  'gif',
-  'webp',
-  'svg',
-  'bmp',
-  'tiff',
-  'avif',
-  'ico',
-  'heic',
-  'heif'
-])
-const isImage = (a: AttachmentView): boolean => {
-  if (a.mime?.startsWith('image/')) return true
-  // Extension fallback - main's MIME map may not cover every format.
-  const ext = a.filename.toLowerCase().split('.').pop() ?? ''
-  return IMAGE_EXTS.has(ext)
-}
-
-// Chromium canonicalises standard-scheme URLs so the first path segment
-// becomes the host. We emit `kanbini-file://attachments/<id>/<file>`
-// (no triple-slash) to match what the protocol handler in main expects
-// (host + pathname recombined).
-const srcFor = (a: AttachmentView): string =>
-  `kanbini-file://${a.relPath.split(/[\\/]/).map(encodeURIComponent).join('/')}`
-
-export function humanSize(bytes: number | null): string {
-  if (bytes == null) return ''
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / 1024 ** 2).toFixed(1)} MB`
-}
 
 /** Small in-list cover thumbnail (M4-H). Bleeds to the card's edges
  *  via negative margins so it acts as a banner without redesigning
@@ -91,7 +83,8 @@ export function CardCoverThumb({
   const cover = card.coverAttachmentId
     ? card.attachments.find((a) => a.id === card.coverAttachmentId)
     : null
-  if (!cover || !isImage(cover)) return null
+  const video = !!cover && !isImage(cover) && isVideo(cover)
+  if (!cover || (!isImage(cover) && !video)) return null
   const domain = cover.sourceUrl ? domainOf(cover.sourceUrl) : null
   return (
     <div
@@ -100,11 +93,27 @@ export function CardCoverThumb({
       }`}
       onClick={onClick}
     >
-      <img
-        src={srcFor(cover)}
-        alt=""
-        className="block h-20 w-full object-cover"
-      />
+      {video ? (
+        // A still frame on the board (no autoplay on a busy board); it
+        // plays in the card's detail.
+        <>
+          <video
+            src={videoPosterSrc(cover)}
+            preload="metadata"
+            muted
+            playsInline
+            aria-hidden
+            className="pointer-events-none block h-20 w-full bg-black object-cover"
+          />
+          <PlayBadge />
+        </>
+      ) : (
+        <img
+          src={srcFor(cover)}
+          alt=""
+          className="block h-20 w-full object-cover"
+        />
+      )}
       {domain && (
         <span
           title={
@@ -131,26 +140,50 @@ export function CoverImage({ card }: { card: CardView }) {
   const cover = card.coverAttachmentId
     ? card.attachments.find((a) => a.id === card.coverAttachmentId)
     : null
-  if (!cover || !isImage(cover)) return null
+  const video = !!cover && !isImage(cover) && isVideo(cover)
+  if (!cover || (!isImage(cover) && !video)) return null
   // Capture as a const so the `&&` narrowing below survives into the
   // ContextMenu render-prop closures (a `cover.sourceUrl` property
   // access wouldn't narrow inside a nested function).
   const sourceUrl = cover.sourceUrl
   const domain = sourceUrl ? domainOf(sourceUrl) : null
+  const media = cardMedia(card)
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="block w-full overflow-hidden rounded-t-lg bg-muted"
-        aria-label="Expand cover image"
-      >
-        <img
-          src={srcFor(cover)}
-          alt={cover.filename}
-          className="block max-h-72 w-full object-cover"
-        />
-      </button>
+      {video ? (
+        // A video cover plays right here; the corner button opens it in
+        // the full viewer with the card's other media.
+        <div className="relative overflow-hidden rounded-t-lg bg-black">
+          <video
+            src={srcFor(cover)}
+            controls
+            preload="metadata"
+            aria-label={cover.filename}
+            className="block max-h-72 w-full object-contain"
+          />
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            aria-label="Expand cover video"
+            className="absolute right-2 top-2 rounded bg-black/60 p-1 text-white/90 hover:bg-black/80 hover:text-white"
+          >
+            <Maximize2 className="size-4" />
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="block w-full overflow-hidden rounded-t-lg bg-muted"
+          aria-label="Expand cover image"
+        >
+          <img
+            src={srcFor(cover)}
+            alt={cover.filename}
+            className="block max-h-72 w-full object-cover"
+          />
+        </button>
+      )}
       {sourceUrl && (
         <ContextMenu
           width={180}
@@ -210,10 +243,11 @@ export function CoverImage({ card }: { card: CardView }) {
         <div className="border-b border-border" />
       )}
       {open && (
-        <ImageLightbox
-          src={srcFor(cover)}
-          alt={cover.filename}
+        <MediaViewer
+          items={media}
+          startIndex={Math.max(0, media.findIndex((m) => m.id === cover.id))}
           onClose={() => setOpen(false)}
+          onOpenInApp={CAN_OPEN_IN_APP ? openInApp : undefined}
         />
       )}
     </>
@@ -354,6 +388,10 @@ export function Attachments({
     )
   }
 
+  // The card's images + videos, and the one open in the viewer (by id).
+  const media = cardMedia(card)
+  const [viewing, setViewing] = useState<string | null>(null)
+
   return (
     <section className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
@@ -371,26 +409,53 @@ export function Attachments({
         )}
       </div>
       {card.attachments.length === 0 && (
-        <p className="text-xs text-muted-foreground/70">No attachments yet.</p>
+        <p className="text-xs text-muted-foreground/70">
+          No attachments yet.
+          {!readOnly && ' Drop files here or paste them with Ctrl+V.'}
+        </p>
       )}
       {card.attachments.map((att) => (
         <AttachmentRow
           key={att.id}
           att={att}
           isCover={card.coverAttachmentId === att.id}
+          onPreview={() => setViewing(att.id)}
           onDelete={() => del(att.id)}
           onSetCover={() => setCover(att.id)}
           onRemoveCover={() => setCover(null)}
           readOnly={readOnly}
         />
       ))}
+      {viewing && (
+        <MediaViewer
+          items={media}
+          startIndex={Math.max(0, media.findIndex((m) => m.id === viewing))}
+          onClose={() => setViewing(null)}
+          onOpenInApp={CAN_OPEN_IN_APP ? openInApp : undefined}
+        />
+      )}
     </section>
+  )
+}
+
+/** The round play mark on a video's still frame. */
+function PlayBadge({ small = false }: { small?: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className="pointer-events-none absolute inset-0 flex items-center justify-center"
+    >
+      <span className={`rounded-full bg-black/60 text-white ${small ? 'p-1' : 'p-1.5'}`}>
+        <Play className={small ? 'size-3 fill-current' : 'size-4 fill-current'} />
+      </span>
+    </span>
   )
 }
 
 function AttachmentRow({
   att,
   isCover,
+  onPreview,
   onDelete,
   onSetCover,
   onRemoveCover,
@@ -398,21 +463,29 @@ function AttachmentRow({
 }: {
   att: AttachmentView
   isCover: boolean
+  /** Open it in the media viewer (images and videos). */
+  onPreview: () => void
   onDelete: () => void
   onSetCover: () => void
   onRemoveCover: () => void
   readOnly: boolean
 }) {
   const img = isImage(att)
-  const [preview, setPreview] = useState(false)
+  const video = !img && isVideo(att)
   const [thumbError, setThumbError] = useState(false)
-  const showThumb = img && !thumbError
+  // Why "Open in default app" didn't (shown under the name for a while).
+  const [openError, setOpenError] = useState<string | null>(null)
+  const open = async (): Promise<void> => {
+    const error = await openInApp(att.id)
+    setOpenError(error)
+    if (error) window.setTimeout(() => setOpenError(null), 6000)
+  }
   return (
     <div className="group/att flex items-center gap-3 rounded-md border border-border bg-background/40 p-2">
-      {showThumb ? (
+      {img && !thumbError ? (
         <button
           type="button"
-          onClick={() => setPreview(true)}
+          onClick={onPreview}
           className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded bg-muted"
           aria-label="Preview image"
         >
@@ -423,17 +496,27 @@ function AttachmentRow({
             className="size-full object-cover"
           />
         </button>
+      ) : video && !thumbError ? (
+        <button
+          type="button"
+          onClick={onPreview}
+          className="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded bg-black"
+          aria-label="Play video"
+        >
+          <video
+            src={videoPosterSrc(att)}
+            preload="metadata"
+            muted
+            playsInline
+            onError={() => setThumbError(true)}
+            className="pointer-events-none size-full object-cover"
+          />
+          <PlayBadge small />
+        </button>
       ) : (
         <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded bg-muted">
           <FileIcon className="size-5 text-muted-foreground" />
         </div>
-      )}
-      {preview && img && (
-        <ImageLightbox
-          src={srcFor(att)}
-          alt={att.filename}
-          onClose={() => setPreview(false)}
-        />
       )}
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="truncate text-sm">{att.filename}</span>
@@ -445,9 +528,14 @@ function AttachmentRow({
             </span>
           )}
         </span>
+        {openError && (
+          <span role="alert" className="text-xs text-danger">
+            {openError}
+          </span>
+        )}
       </div>
-      <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover/att:opacity-100">
-        {img &&
+      <div className="flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover/att:opacity-100">
+        {(img || video) &&
           !readOnly &&
           (isCover ? (
             <button
@@ -464,6 +552,17 @@ function AttachmentRow({
               Make cover
             </button>
           ))}
+        {CAN_OPEN_IN_APP && (
+          <button
+            type="button"
+            aria-label="Open in default app"
+            title="Open in default app"
+            onClick={() => void open()}
+            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <ExternalLink className="size-3.5" />
+          </button>
+        )}
         {/* `hidden`, not a condition: the web edition's swap inserts a
             Download link right before this button (apps/web/swaps.ts),
             which must stay a plain sibling to remain valid JSX. */}
@@ -476,6 +575,81 @@ function AttachmentRow({
           <X className="size-3.5" />
         </button>
       </div>
+    </div>
+  )
+}
+
+/** Files dragged in from the file manager can be dropped anywhere on an
+ *  open card to attach them (any type: a GIF keeps its animation). Shows
+ *  a dashed "Drop to attach" over the card while files hover it. Locked
+ *  board (`disabled`): the drop is swallowed, nothing is attached. Only
+ *  reacts to file drags, so text or link drags inside the card are left
+ *  alone. */
+export function FileDropZone({
+  cardId,
+  disabled,
+  children
+}: {
+  cardId: string
+  disabled: boolean
+  children: React.ReactNode
+}) {
+  const [over, setOver] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  // dragenter / dragleave fire for every child crossed; count them.
+  const depth = useRef(0)
+  const hasFiles = (e: React.DragEvent): boolean =>
+    Array.from(e.dataTransfer.types).includes('Files')
+  return (
+    <div
+      className="relative"
+      onDragEnter={(e) => {
+        if (!hasFiles(e)) return
+        e.preventDefault()
+        depth.current += 1
+        if (!disabled) setOver(true)
+      }}
+      onDragOver={(e) => {
+        if (!hasFiles(e)) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = disabled ? 'none' : 'copy'
+      }}
+      onDragLeave={(e) => {
+        if (!hasFiles(e)) return
+        depth.current = Math.max(0, depth.current - 1)
+        if (depth.current === 0) setOver(false)
+      }}
+      onDrop={(e) => {
+        if (!hasFiles(e)) return
+        e.preventDefault()
+        depth.current = 0
+        setOver(false)
+        const files = Array.from(e.dataTransfer.files)
+        if (disabled || files.length === 0) return
+        setError(null)
+        ipc.attachmentAddFiles(cardId, files).catch((err: unknown) => {
+          setError(err instanceof Error ? err.message : "Couldn't attach those files.")
+          window.setTimeout(() => setError(null), 6000)
+        })
+      }}
+    >
+      {children}
+      {over && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10 text-sm font-medium text-primary"
+        >
+          Drop to attach
+        </div>
+      )}
+      {error && (
+        <p
+          role="alert"
+          className="absolute inset-x-5 bottom-3 z-20 rounded-md bg-card px-3 py-2 text-xs text-danger shadow"
+        >
+          {error}
+        </p>
+      )}
     </div>
   )
 }

@@ -98,6 +98,13 @@ const pass = (channel: string) => (arg?: unknown) => call(channel, arg)
     const image = await nextPastedImage()
     return image ? call(IPC.attachmentPasteImage, { cardId }, image) : null
   },
+  // Dropped files: upload each through the same call the file picker uses.
+  attachmentAddFiles: async (cardId: string, files: File[]) => {
+    const added = []
+    for (const file of files) added.push(await call(IPC.attachmentAdd, { cardId }, file))
+    return added.filter(Boolean)
+  },
+  attachmentOpen: unavailable('Opening a file in an app'),
   linkPreviewCreate: pass(IPC.linkPreviewCreate),
   exportNow: pass(IPC.exportNow),
   importFolder: unavailable('Restoring from an export folder (use a backup from the list instead)'),

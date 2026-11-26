@@ -45,6 +45,8 @@ export const WEB_SWAPS: Record<string, Swap[]> = {
   // they have to be downloadable. The name is a link (works on phones too),
   // and the row's actions get a Download button beside Make cover.
   'components/attachments.tsx': [
+    // No apps to open a file with in a browser; the Download link stands in.
+    ['const CAN_OPEN_IN_APP = true', 'const CAN_OPEN_IN_APP = false'],
     [
       '<span className="truncate text-sm">{att.filename}</span>',
       '<a href={srcFor(att)} download={att.filename} title="Download" className="truncate text-sm hover:underline">{att.filename}</a>'

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { IPC } from '@kanbini/shared/channels'
 import type {
   AgendaRequest,
@@ -6,6 +6,7 @@ import type {
   GetArchivedItemsRequest,
   AgendaView,
   AppInfo,
+  AttachmentOpenResult,
   AttachmentView,
   BoardBackground,
   BoardExportRequest,
@@ -71,6 +72,17 @@ const api = {
    *  paste and let a text paste fall through. */
   attachmentPasteImage: (cardId: string): Promise<AttachmentView | null> =>
     ipcRenderer.invoke(IPC.attachmentPasteImage, { cardId }),
+  /** Attach files dropped onto a card. A dropped File has no path in the
+   *  page since Electron 32; webUtils recovers it here, and main copies
+   *  each file in. */
+  attachmentAddFiles: (cardId: string, files: File[]): Promise<AttachmentView[]> =>
+    ipcRenderer.invoke(IPC.attachmentAddPaths, {
+      cardId,
+      paths: files.map((f) => webUtils.getPathForFile(f)).filter((p) => p.length > 0)
+    }),
+  /** Open an attachment in the OS's default app for its type. */
+  attachmentOpen: (id: string): Promise<AttachmentOpenResult> =>
+    ipcRenderer.invoke(IPC.attachmentOpen, { id }),
   /** M4-H / ADR-0023: opt-in link-preview fetch. Renderer must gate
    *  on settings.linkPreviews - main does the network egress and the
    *  fetched preview is stored as a normal local attachment so the

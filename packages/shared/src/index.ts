@@ -14,6 +14,7 @@ export * from "./agenda";
 export * from "./board-file";
 export * from "./card-number";
 export * from "./channels";
+export * from "./clipboard-files";
 export * from "./html";
 export * from "./id";
 export * from "./mcp-config";

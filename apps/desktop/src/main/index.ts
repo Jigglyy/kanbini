@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import * as fsSync from 'node:fs'
 import { promises as fsp } from 'node:fs'
+import { Readable } from 'node:stream'
 import * as nodePath from 'node:path'
 import { join, resolve, sep } from 'node:path'
 import {
@@ -16,6 +17,7 @@ import {
   type WebContents
 } from 'electron'
 import {
+  type AttachmentView,
   type ChangeEvent,
   APP_CODENAME,
   BOARD_FILE_EXTENSION,
@@ -28,8 +30,12 @@ import {
   runsFromTempFolder,
   IPC,
   newId,
+  parseByteRange,
   zAppInfo,
+  zAttachmentAddPathsRequest,
   zAttachmentAddRequest,
+  zAttachmentOpenRequest,
+  zAttachmentOpenResult,
   zAttachmentPasteRequest,
   zAttachmentView,
   zBoardBackground,
@@ -81,6 +87,7 @@ import {
   addAttachmentFromBytes,
   addAttachmentFromPath,
   applyMutationRecorded,
+  attachmentFilePath,
   applyMutationsRecorded,
   clearUndoLog,
   dbInfo,
@@ -98,6 +105,7 @@ import {
   importFromTrello,
   instantiateBoardTemplate,
   instantiateListTemplate,
+  isRunnableFile,
   listBackups,
   listBoards,
   listTemplates,
@@ -119,6 +127,7 @@ import {
   startControlChannel,
   type ControlChannelHandle
 } from './control-channel'
+import { clipboardFilePaths } from './clipboard-files'
 import { sweepOrphanedFiles } from './gc'
 import { createLinkPreviewAttachment } from './link-preview'
 import { pushToObsidianVault } from './obsidian-push'
@@ -272,12 +281,12 @@ function resolveNoticesPath(): string {
 const noticesPath = resolveNoticesPath()
 
 function applyCsp(): void {
-  // `kanbini-file:` is allowed for img/connect so attachment thumbnails
-  // + previews can load via the custom protocol (handler is sandboxed
+  // `kanbini-file:` is allowed for img/media/connect so attachment
+  // thumbnails, previews and videos can load via the custom protocol (handler is sandboxed
   // to userData/attachments - see registerAttachmentProtocol).
   const policy = isDev
-    ? "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: kanbini-file:; font-src 'self' data:; connect-src 'self' ws: http://localhost:* kanbini-file:"
-    : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: kanbini-file:; font-src 'self' data:; connect-src 'self' kanbini-file:"
+    ? "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: kanbini-file:; media-src 'self' kanbini-file:; font-src 'self' data:; connect-src 'self' ws: http://localhost:* kanbini-file:"
+    : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: kanbini-file:; media-src 'self' kanbini-file:; font-src 'self' data:; connect-src 'self' kanbini-file:"
 
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
@@ -329,10 +338,35 @@ function registerAttachmentProtocol(
       if (!ok) {
         return new Response('Forbidden', { status: 403 })
       }
-      const data = await fsp.readFile(abs)
-      const mime = mimeOf(abs) ?? 'application/octet-stream'
-      return new Response(new Uint8Array(data), {
-        headers: { 'Content-Type': mime }
+      const stat = await fsp.stat(abs)
+      if (!stat.isFile()) return new Response('Not found', { status: 404 })
+      const stored = mimeOf(abs) ?? 'application/octet-stream'
+      // Chromium won't play a file labelled video/quicktime, but most .mov
+      // files are H.264 it plays fine as MP4.
+      const mime = stored === 'video/quicktime' ? 'video/mp4' : stored
+      // A <video> seeks by asking for byte ranges; stream the file (or the
+      // range) instead of reading it all into memory. The web edition calls
+      // this with a bare { url } (apps/web/server.ts), hence the `?.`.
+      const range = parseByteRange(req.headers?.get?.('range'), stat.size)
+      if (range === 'unsatisfiable') {
+        return new Response(null, {
+          status: 416,
+          headers: { 'Content-Range': `bytes */${stat.size}` }
+        })
+      }
+      const { start, end } = range ?? { start: 0, end: stat.size - 1 }
+      const body =
+        stat.size === 0
+          ? null
+          : (Readable.toWeb(fsSync.createReadStream(abs, { start, end })) as unknown as ReadableStream)
+      return new Response(body, {
+        status: range ? 206 : 200,
+        headers: {
+          'Content-Type': mime,
+          'Content-Length': String(stat.size === 0 ? 0 : end - start + 1),
+          'Accept-Ranges': 'bytes',
+          ...(range ? { 'Content-Range': `bytes ${start}-${end}/${stat.size}` } : {})
+        }
       })
     } catch {
       return new Response('Not found', { status: 404 })
@@ -445,6 +479,34 @@ function registerIpc(
   exportRoot: string,
   getControlChannel: () => ControlChannelHandle | null
 ): void {
+  /** Attach files a person chose (dropped or pasted: no size cap, like the
+   *  file dialog), one change event per board. A file that can't be
+   *  attached (gone, a folder) is skipped; none at all is an error. */
+  const addAttachmentsFromPaths = async (
+    cardId: string,
+    paths: readonly string[]
+  ): Promise<AttachmentView[]> => {
+    const added: AttachmentView[] = []
+    const boards = new Set<string | null>()
+    for (const sourcePath of paths) {
+      try {
+        const { attachment, boardId } = await addAttachmentFromPath(db, {
+          userDataDir,
+          cardId,
+          sourcePath,
+          maxBytes: Number.POSITIVE_INFINITY
+        })
+        added.push(zAttachmentView.parse(attachment))
+        boards.add(boardId)
+      } catch (e) {
+        console.warn('[attachments] skipped', sourcePath, e instanceof Error ? e.message : e)
+      }
+    }
+    for (const b of boards) broadcastChange(b)
+    if (added.length === 0) throw new Error("Couldn't attach those files.")
+    return added
+  }
+
   // Validate request + response at the boundary so the shared zod
   // schema is the contract both sides trust (DESIGN §5 single-writer).
   ipcMain.handle(IPC.boardsList, () => {
@@ -548,6 +610,15 @@ function registerIpc(
   // plain text paste fall through untouched.
   ipcMain.handle(IPC.attachmentPasteImage, async (_event, raw: unknown) => {
     const { cardId } = zAttachmentPasteRequest.parse(raw)
+    // Files copied in Explorer come first: they attach as themselves (a
+    // GIF keeps its animation, a PDF stays a PDF). A copied file can also
+    // put its icon on the clipboard as an image, which isn't what you
+    // meant to paste.
+    const files = await clipboardFilePaths()
+    if (files.length > 0) {
+      const added = await addAttachmentsFromPaths(cardId, files)
+      return added[0] ?? null
+    }
     const image = clipboard.readImage()
     if (image.isEmpty()) return null
     // Normalise to PNG - lossless and what the clipboard hands back for a
@@ -566,6 +637,35 @@ function registerIpc(
     })
     broadcastChange(boardId)
     return zAttachmentView.parse(attachment)
+  })
+
+  // Files dropped onto an open card: the preload turned each dropped File
+  // into its path (webUtils.getPathForFile). Like the file dialog, a
+  // person picked these, so no size cap.
+  ipcMain.handle(IPC.attachmentAddPaths, async (_event, raw: unknown) => {
+    const { cardId, paths } = zAttachmentAddPathsRequest.parse(raw)
+    const added = await addAttachmentsFromPaths(cardId, paths)
+    return added
+  })
+
+  // "Open in default app": hands the file to the OS. Something that would
+  // RUN a program (an .exe the AI attached, a shortcut) is shown in its
+  // folder instead of launched.
+  ipcMain.handle(IPC.attachmentOpen, async (_event, raw: unknown) => {
+    const { id } = zAttachmentOpenRequest.parse(raw)
+    const abs = attachmentFilePath(db, userDataDir, id)
+    if (!abs || !fsSync.existsSync(abs)) {
+      return zAttachmentOpenResult.parse({ ok: false, error: 'The file is missing.' })
+    }
+    if (isRunnableFile(abs)) {
+      shell.showItemInFolder(abs)
+      return zAttachmentOpenResult.parse({
+        ok: false,
+        error: "Kanbini doesn't open programs, so it's shown in its folder instead."
+      })
+    }
+    const error = await shell.openPath(abs)
+    return zAttachmentOpenResult.parse(error ? { ok: false, error } : { ok: true })
   })
 
   // ADR-0034 · set a board background from an image file. Opens the

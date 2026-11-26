@@ -54,6 +54,15 @@ export function mimeOf(filename: string): string | null {
       return 'image/x-icon'
     case 'svg':
       return 'image/svg+xml'
+    case 'mp4':
+    case 'm4v':
+      return 'video/mp4'
+    case 'webm':
+      return 'video/webm'
+    case 'mov':
+      return 'video/quicktime'
+    case 'ogv':
+      return 'video/ogg'
     case 'pdf':
       return 'application/pdf'
     case 'txt':
@@ -278,6 +287,35 @@ export async function deleteAttachmentWithFile(
     })
   }
   return result
+}
+
+/** The attachment's file on disk, or null when the row is gone or its
+ *  relPath would resolve outside `<userData>/attachments/` (a tampered
+ *  row can't point "open" anywhere else). */
+export function attachmentFilePath(db: Db, userDataDir: string, id: string): string | null {
+  const rel = getAttachmentRelPath(db, id)
+  if (!rel) return null
+  const root = resolve(userDataDir, 'attachments')
+  const abs = resolve(userDataDir, rel)
+  return abs.startsWith(root + sep) ? abs : null
+}
+
+/** Extensions that run something when "opened" on Windows (or are
+ *  shortcuts to something that does). An attachment can come from the
+ *  AI or an import, so "Open in default app" reveals these in their
+ *  folder instead of launching them. */
+const RUNNABLE_EXTS = new Set([
+  'exe', 'com', 'bat', 'cmd', 'msi', 'msp', 'msc', 'scr', 'pif', 'cpl',
+  'ps1', 'psm1', 'vbs', 'vbe', 'js', 'jse', 'wsf', 'wsh', 'hta', 'jar',
+  'lnk', 'url', 'reg', 'inf', 'appx', 'msix', 'appref-ms', 'application',
+  'gadget', 'sh', 'command', 'app', 'pkg', 'dmg', 'deb', 'rpm', 'appimage'
+])
+
+/** True when opening `filename` would run a program rather than show a
+ *  document. */
+export function isRunnableFile(filename: string): boolean {
+  const ext = filename.toLowerCase().split('.').pop() ?? ''
+  return filename.includes('.') && RUNNABLE_EXTS.has(ext)
 }
 
 const BASE64_BODY = /^[A-Za-z0-9+/]*={0,2}$/

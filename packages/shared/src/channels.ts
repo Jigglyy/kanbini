@@ -24,6 +24,13 @@ export const IPC = {
    *  inserts an attachment row. Returns the new AttachmentView, or null
    *  when the clipboard holds no image (a plain text paste). */
   attachmentPasteImage: 'attachment:pasteImage',
+  /** renderer → main: attach local files by path (files dropped onto an
+   *  open card; the preload turns each dropped File into its path).
+   *  Returns the new AttachmentViews. */
+  attachmentAddPaths: 'attachment:addPaths',
+  /** renderer → main: open an attachment in the OS's default app for its
+   *  type (Photos, a PDF reader, ...). Returns { ok, error? }. */
+  attachmentOpen: 'attachment:open',
   /** renderer → main: fetch OG metadata + preview image from a URL,
    *  copy the image into userData/attachments, insert an attachment
    *  row (sourceUrl/sourceTitle set), then make it the card's cover.

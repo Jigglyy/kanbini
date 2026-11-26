@@ -83,6 +83,8 @@ export const dialog = {
 
 // Paste: the browser uploads the pasted image (always PNG from a clipboard).
 export const clipboard = {
+  // No Explorer file list in a browser (main only reads it on Windows).
+  readBuffer: () => Buffer.alloc(0),
   readImage() {
     const file = request.getStore()?.file
     const png = file ? readFileSync(file) : Buffer.alloc(0)

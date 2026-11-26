@@ -4,6 +4,7 @@ import type {
   GetArchivedItemsRequest,
   AgendaView,
   AppInfo,
+  AttachmentOpenResult,
   AttachmentView,
   BoardBackground,
   BoardExportRequest,
@@ -121,6 +122,11 @@ export const ipc = {
    *  (text) paste. */
   attachmentPasteImage: (cardId: string): Promise<AttachmentView | null> =>
     guarded(() => bridge().attachmentPasteImage(cardId)),
+  /** Files dropped onto an open card. */
+  attachmentAddFiles: (cardId: string, files: File[]): Promise<AttachmentView[]> =>
+    guarded(() => bridge().attachmentAddFiles(cardId, files)),
+  /** Open an attachment in the OS's default app (a read: not guarded). */
+  attachmentOpen: (id: string): Promise<AttachmentOpenResult> => bridge().attachmentOpen(id),
   linkPreviewCreate: (req: LinkPreviewRequest): Promise<LinkPreviewResult> =>
     guarded(() => bridge().linkPreviewCreate(req)),
   exportNow: (): Promise<ExportSummary> => bridge().exportNow(),

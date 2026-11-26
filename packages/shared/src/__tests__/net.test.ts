@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isPrivateOrReservedHost, makePinnedLookup } from '../net'
+import { isPrivateOrReservedHost, makePinnedLookup, parseByteRange } from '../net'
 
 // SSRF guard classifier (ADR-0023). These ranges are the load-bearing
 // part of the link-preview safety check - a regression here re-opens
@@ -108,5 +108,29 @@ describe('isPrivateOrReservedHost', () => {
     expect(isPrivateOrReservedHost('example.com')).toBe(false)
     expect(isPrivateOrReservedHost('sub.domain.io')).toBe(false)
     expect(isPrivateOrReservedHost('2606:4700:4700::1111')).toBe(false) // public v6
+  })
+})
+
+describe('parseByteRange', () => {
+  it('reads a start-end, an open end, and a suffix range', () => {
+    expect(parseByteRange('bytes=0-99', 1000)).toEqual({ start: 0, end: 99 })
+    expect(parseByteRange('bytes=500-', 1000)).toEqual({ start: 500, end: 999 })
+    expect(parseByteRange('bytes=-200', 1000)).toEqual({ start: 800, end: 999 })
+    // An end past the file is clamped.
+    expect(parseByteRange('bytes=900-5000', 1000)).toEqual({ start: 900, end: 999 })
+  })
+
+  it('serves the whole file for no range or one it does not handle', () => {
+    expect(parseByteRange(null, 1000)).toBeNull()
+    expect(parseByteRange('bytes=0-1,5-9', 1000)).toBeNull()
+    expect(parseByteRange('items=0-1', 1000)).toBeNull()
+    expect(parseByteRange('bytes=-', 1000)).toBeNull()
+  })
+
+  it('refuses a range past the end', () => {
+    expect(parseByteRange('bytes=1000-', 1000)).toBe('unsatisfiable')
+    expect(parseByteRange('bytes=5-2', 1000)).toBe('unsatisfiable')
+    expect(parseByteRange('bytes=0-', 0)).toBe('unsatisfiable')
+    expect(parseByteRange('bytes=-0', 1000)).toBe('unsatisfiable')
   })
 })

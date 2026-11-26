@@ -6,7 +6,7 @@ import type {
   CardView,
   Mutation
 } from '@kanbini/shared'
-import { Attachments, CardCoverThumb, CoverImage } from '../attachments'
+import { Attachments, CardCoverThumb, CoverImage, FileDropZone } from '../attachments'
 import { kanbiniMock } from '../../__tests__/_kanbini-mock'
 
 // Tests for the attachments surface - three exported pieces:
@@ -379,5 +379,126 @@ describe('<Attachments> on a locked board (ADR-0089)', () => {
     expect(screen.queryByRole('button', { name: 'Make cover' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Delete attachment' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Preview image' })).toBeInTheDocument()
+  })
+})
+
+describe('videos, Open in default app and dropped files', () => {
+  const clip = (over: Partial<AttachmentView> = {}) =>
+    makeAttachment({
+      id: 'v1',
+      filename: 'clip.mp4',
+      relPath: 'attachments/v1/clip.mp4',
+      mime: 'video/mp4',
+      ...over
+    })
+
+  it('a video row shows its first frame and plays in the viewer', async () => {
+    const user = userEvent.setup()
+    const { baseElement } = render(
+      <Attachments card={makeCard({ attachments: [clip()] })} apply={vi.fn()} />
+    )
+    const thumb = screen.getByRole('button', { name: 'Play video' })
+    expect(thumb.querySelector('video')?.getAttribute('src')).toBe(
+      'kanbini-file://attachments/v1/clip.mp4#t=0.1'
+    )
+    await user.click(thumb)
+    expect(screen.getByRole('dialog', { name: 'clip.mp4' })).toBeInTheDocument()
+    const player = baseElement.querySelector('[data-overlay="media-viewer"] video')
+    expect(player).toHaveAttribute('controls')
+  })
+
+  it('a video can be made the cover', async () => {
+    const user = userEvent.setup()
+    const apply = vi.fn<(m: Mutation, o: unknown) => void>()
+    render(<Attachments card={makeCard({ attachments: [clip()] })} apply={apply} />)
+    await user.click(screen.getByRole('button', { name: 'Make cover' }))
+    expect(apply.mock.calls[0]?.[0]).toEqual({
+      type: 'card.update',
+      id: 'c1',
+      patch: { coverAttachmentId: 'v1' }
+    })
+  })
+
+  it('a video cover is a still frame on the board and a player in the detail', () => {
+    const card = makeCard({ attachments: [clip()], coverAttachmentId: 'v1' })
+    const { container, unmount } = render(<CardCoverThumb card={card} />)
+    const still = container.querySelector('video')!
+    expect(still).not.toHaveAttribute('controls')
+    expect(still).not.toHaveAttribute('autoplay')
+    unmount()
+    render(<CoverImage card={card} />)
+    expect(screen.getByLabelText('clip.mp4')).toHaveAttribute('controls')
+    expect(screen.getByRole('button', { name: 'Expand cover video' })).toBeInTheDocument()
+  })
+
+  it('Open in default app asks main and shows why it failed', async () => {
+    const user = userEvent.setup()
+    kanbiniMock().attachmentOpen.mockResolvedValue({ ok: false, error: 'No app for .xyz files.' })
+    render(
+      <Attachments
+        card={makeCard({ attachments: [makeAttachment({ id: 'f1', filename: 'odd.xyz' })] })}
+        apply={vi.fn()}
+      />
+    )
+    await user.click(screen.getByRole('button', { name: 'Open in default app' }))
+    expect(kanbiniMock().attachmentOpen).toHaveBeenCalledWith('f1')
+    expect(await screen.findByRole('alert')).toHaveTextContent('No app for .xyz files.')
+  })
+
+  it('Open in default app is there on a locked board too (it only reads)', () => {
+    render(
+      <Attachments card={makeCard({ attachments: [makeAttachment()] })} apply={vi.fn()} readOnly />
+    )
+    expect(screen.getByRole('button', { name: 'Open in default app' })).toBeInTheDocument()
+  })
+
+  it('the empty list says files can be dropped or pasted', () => {
+    render(<Attachments card={makeCard()} apply={vi.fn()} />)
+    expect(screen.getByText(/drop files here or paste them with ctrl\+v/i)).toBeInTheDocument()
+  })
+
+  function dropFiles(target: Element, files: File[]): void {
+    const dataTransfer = { types: ['Files'], files, dropEffect: 'none' }
+    fireEvent.dragEnter(target, { dataTransfer })
+    fireEvent.dragOver(target, { dataTransfer })
+    fireEvent.drop(target, { dataTransfer })
+  }
+
+  it('dropping files on the card attaches them', () => {
+    render(
+      <FileDropZone cardId="c1" disabled={false}>
+        <p>card body</p>
+      </FileDropZone>
+    )
+    const body = screen.getByText('card body')
+    fireEvent.dragEnter(body, { dataTransfer: { types: ['Files'], files: [] } })
+    expect(screen.getByText('Drop to attach')).toBeInTheDocument()
+    const gif = new File(['GIF89a'], 'cat.gif', { type: 'image/gif' })
+    dropFiles(body, [gif])
+    expect(kanbiniMock().attachmentAddFiles).toHaveBeenCalledWith('c1', [gif])
+    expect(screen.queryByText('Drop to attach')).toBeNull()
+  })
+
+  it('a locked card takes no drop', () => {
+    render(
+      <FileDropZone cardId="c1" disabled>
+        <p>card body</p>
+      </FileDropZone>
+    )
+    dropFiles(screen.getByText('card body'), [new File(['x'], 'a.txt')])
+    expect(screen.queryByText('Drop to attach')).toBeNull()
+    expect(kanbiniMock().attachmentAddFiles).not.toHaveBeenCalled()
+  })
+
+  it('a text drag (not files) is left alone', () => {
+    render(
+      <FileDropZone cardId="c1" disabled={false}>
+        <p>card body</p>
+      </FileDropZone>
+    )
+    fireEvent.dragEnter(screen.getByText('card body'), {
+      dataTransfer: { types: ['text/plain'], files: [] }
+    })
+    expect(screen.queryByText('Drop to attach')).toBeNull()
   })
 })

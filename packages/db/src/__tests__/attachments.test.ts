@@ -8,8 +8,10 @@ import {
   addAttachmentFromBytes,
   addAttachmentFromPath,
   addAttachmentFromRequest,
+  attachmentFilePath,
   decodeAttachmentContent,
   deleteAttachmentWithFile,
+  isRunnableFile,
   mimeOf,
   sanitizeAttachmentFilename
 } from '../attachments'
@@ -104,6 +106,38 @@ describe('mimeOf', () => {
     expect(mimeOf('a.PNG')).toBe('image/png')
     expect(mimeOf('a.csv')).toBe('text/csv')
     expect(mimeOf('a.unknownext')).toBeNull()
+  })
+
+  it('knows the video types Chromium plays', () => {
+    expect(mimeOf('clip.MP4')).toBe('video/mp4')
+    expect(mimeOf('clip.m4v')).toBe('video/mp4')
+    expect(mimeOf('clip.webm')).toBe('video/webm')
+    expect(mimeOf('clip.mov')).toBe('video/quicktime')
+    expect(mimeOf('clip.ogv')).toBe('video/ogg')
+  })
+})
+
+describe('Open in default app helpers', () => {
+  it('finds the stored file, and nothing for a missing or tampered row', async () => {
+    const { attachment: a } = await addAttachmentFromBytes(db, {
+      userDataDir,
+      cardId,
+      filename: 'cat.gif',
+      bytes: new TextEncoder().encode('GIF89a')
+    })
+    expect(attachmentFilePath(db, userDataDir, a.id)).toBe(join(userDataDir, a.relPath))
+    expect(attachmentFilePath(db, userDataDir, 'no-such-id')).toBeNull()
+    db.run(sql`UPDATE attachment SET rel_path = '../secret.txt' WHERE id = ${a.id}`)
+    expect(attachmentFilePath(db, userDataDir, a.id)).toBeNull()
+  })
+
+  it('treats programs and shortcuts as runnable, documents as not', () => {
+    for (const f of ['setup.exe', 'RUN.BAT', 'x.ps1', 'link.lnk', 'site.url', 'a.js', 'tool.msi']) {
+      expect(isRunnableFile(f)).toBe(true)
+    }
+    for (const f of ['cat.gif', 'clip.mp4', 'notes.pdf', 'data.json', 'README', 'exe']) {
+      expect(isRunnableFile(f)).toBe(false)
+    }
   })
 })
 

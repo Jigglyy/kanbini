@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test'
+import { execFileSync } from 'node:child_process'
+import { copyFile, mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { launchKanbini, type E2EHandle } from './_launch.js'
+import { mutate, rpc, waitForDiscovery } from './_channel.js'
 
 // E2E: Ctrl+V while a card is open attaches the clipboard image.
 //
@@ -12,6 +18,9 @@ import { launchKanbini, type E2EHandle } from './_launch.js'
 // the renderer unit test.
 
 let handle: E2EHandle
+
+// Both tests write the real system clipboard: one at a time.
+test.describe.configure({ mode: 'serial' })
 
 test.afterEach(async () => {
   await handle?.cleanup()
@@ -63,4 +72,41 @@ test('Ctrl+V in an open card attaches the clipboard image', async () => {
   // happy path is well under 1 s.
   await expect(thumbs).toHaveCount(1, { timeout: 15_000 })
   await expect(detail.getByText(/pasted-\d+\.png/).first()).toBeVisible()
+})
+
+test('Ctrl+V with files copied in Explorer attaches the files themselves', async () => {
+  test.skip(process.platform !== 'win32', 'reads the Windows clipboard file list')
+  const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
+  const userDataDir = await mkdtemp(join(tmpdir(), 'kanbini-e2e-clip-'))
+  handle = await launchKanbini({ userDataDir })
+  const { page } = handle
+  const d = await waitForDiscovery(userDataDir)
+  const boardId = await mutate(d, { type: 'board.create', name: 'Media' })
+  const listId = await mutate(d, { type: 'list.create', boardId, name: 'Shots' })
+  const cardId = await mutate(d, { type: 'card.create', listId, title: 'Trailer' })
+
+  // A GIF and a video copied in Explorer: they attach as themselves (the
+  // GIF keeps its animation), not as a picture of the clipboard.
+  const gif = join(userDataDir, 'cat.gif')
+  const clip = join(userDataDir, 'clip.mp4')
+  await copyFile(join(fixtures, 'big.png'), gif)
+  await copyFile(join(fixtures, 'tiny.mp4'), clip)
+  execFileSync('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-STA',
+    '-Command',
+    `Set-Clipboard -LiteralPath '${gif}','${clip}'`
+  ])
+
+  await page.getByText('Media', { exact: true }).click()
+  await page.getByText('Trailer', { exact: true }).click()
+  const detail = page.getByRole('dialog', { name: 'Trailer' })
+  await detail.getByRole('heading', { name: 'Attachments' }).click()
+  await page.keyboard.press('Control+v')
+  const names = async (): Promise<string[]> =>
+    (await rpc<{ attachments: Array<{ filename: string }> }>(d, 'card.get', { id: cardId })).attachments
+      .map((a) => a.filename)
+      .sort()
+  await expect.poll(names, { timeout: 15_000 }).toEqual(['cat.gif', 'clip.mp4'])
 })

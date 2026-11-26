@@ -31,9 +31,28 @@ export type AttachmentView = z.infer<typeof zAttachmentView>
 export const zAttachmentAddRequest = z.object({ cardId: z.string() })
 export type AttachmentAddRequest = z.infer<typeof zAttachmentAddRequest>
 
-/** Request payload for `attachment:pasteImage` (clipboard image paste). */
+/** Request payload for `attachment:pasteImage` (clipboard paste: files
+ *  copied in the file manager, else the clipboard image). */
 export const zAttachmentPasteRequest = z.object({ cardId: z.string() })
 export type AttachmentPasteRequest = z.infer<typeof zAttachmentPasteRequest>
+
+/** Request payload for `attachment:addPaths` (files dropped onto a card). */
+export const zAttachmentAddPathsRequest = z.object({
+  cardId: z.string(),
+  paths: z.array(z.string().min(1)).min(1).max(100)
+})
+export type AttachmentAddPathsRequest = z.infer<typeof zAttachmentAddPathsRequest>
+
+/** Request payload for `attachment:open` (open in the default app). */
+export const zAttachmentOpenRequest = z.object({ id: z.string() })
+export type AttachmentOpenRequest = z.infer<typeof zAttachmentOpenRequest>
+
+/** `attachment:open` result: `error` is the OS's reason when it failed. */
+export const zAttachmentOpenResult = z.object({
+  ok: z.boolean(),
+  error: z.string().optional()
+})
+export type AttachmentOpenResult = z.infer<typeof zAttachmentOpenResult>
 
 /** Control-channel `attachment.add` (MCP). No dialog - the caller says
  *  where the bytes come from, one of two ways:

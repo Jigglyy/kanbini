@@ -103,6 +103,12 @@ function makeBridge() {
     attachmentPasteImage: vi.fn(
       async (_cardId: string): Promise<AttachmentView | null> => null
     ),
+    attachmentAddFiles: vi.fn(
+      async (_cardId: string, _files: File[]): Promise<AttachmentView[]> => []
+    ),
+    attachmentOpen: vi.fn(
+      async (_id: string): Promise<{ ok: boolean; error?: string }> => ({ ok: true })
+    ),
     linkPreviewCreate: vi.fn(
       async (_req: LinkPreviewRequest): Promise<LinkPreviewResult> => ({
         ok: false,

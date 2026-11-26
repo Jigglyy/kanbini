@@ -7,6 +7,7 @@ import type {
   GetArchivedItemsRequest,
   AgendaView,
   AppInfo,
+  AttachmentOpenResult,
   AttachmentView,
   BoardBackground,
   BoardExportRequest,
@@ -57,6 +58,8 @@ declare global {
       mutateBatch: (ms: Mutation[]) => Promise<MutationResult[]>
       attachmentAdd: (cardId: string) => Promise<AttachmentView | null>
       attachmentPasteImage: (cardId: string) => Promise<AttachmentView | null>
+      attachmentAddFiles: (cardId: string, files: File[]) => Promise<AttachmentView[]>
+      attachmentOpen: (id: string) => Promise<AttachmentOpenResult>
       linkPreviewCreate: (
         req: LinkPreviewRequest
       ) => Promise<LinkPreviewResult>

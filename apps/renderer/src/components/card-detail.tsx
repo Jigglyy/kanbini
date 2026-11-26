@@ -4,7 +4,7 @@ import type { BoardView, CardView } from '@kanbini/shared'
 import { useBoard } from '../hooks/useBoard'
 import { useBoardMutation } from '../hooks/useBoardMutation'
 import { Activity } from './activity'
-import { Attachments, CoverActions, CoverImage } from './attachments'
+import { Attachments, CoverActions, CoverImage, FileDropZone } from './attachments'
 import { CardLabels } from './labels'
 import { Checklists } from './checklists'
 import { Comments } from './comments'
@@ -96,8 +96,9 @@ export function CardDetail({
     if (cardId && data && !card) onClose()
   }, [cardId, data, card, onClose])
 
-  // Ctrl/Cmd+V while a card is open: if the clipboard holds an image,
-  // attach it to this card. Main returns null for a non-image paste, so a
+  // Ctrl/Cmd+V while a card is open: files copied in the file manager
+  // (Windows) attach as themselves, else a clipboard image attaches as a
+  // PNG. Main returns null when there's neither, so a
   // plain text paste into the title/description falls through untouched;
   // we don't preventDefault for that reason. The broadcast after a
   // successful attach refetches the board, so the new attachment appears.
@@ -157,106 +158,108 @@ export function CardDetail({
   return (
     <>
     <Modal open onClose={onClose} label={card.title}>
-      <CoverImage card={card} />
-      <div className="flex flex-col gap-4 p-5">
-        {/* Header: labels + close */}
-        <div className="flex items-start gap-3">
-          <div className="flex flex-1 flex-col gap-2">
-            <CardLabels
-              labelIds={card.labelIds}
-              labels={data?.labels ?? []}
-            />
-            <input
-              value={title}
-              readOnly={readOnly}
-              onChange={(e) => setTitle(e.target.value)}
-              onBlur={saveTitle}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  // Just blur: onBlur runs saveTitle once. Calling
-                  // saveTitle() here AND blurring fired it twice (the
-                  // optimistic update hasn't synced card.title back yet, so
-                  // the blur's saveTitle still sees a changed title) - two
-                  // card.update mutations + two "renamed" activity rows.
-                  ;(e.target as HTMLInputElement).blur()
-                }
-              }}
-              className="-mx-1 rounded border border-transparent bg-transparent px-1 text-xl font-semibold text-foreground hover:border-border focus:border-ring focus:outline-none"
-            />
-            <CardLocation
-              listName={listNameOf(data, card.id)}
-              boardName={data?.board.name ?? null}
-              onShow={onShowOnBoard ? () => onShowOnBoard(card.id) : undefined}
-            />
-            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              <label className="flex cursor-pointer items-center gap-1.5">
-                <input
-                  type="checkbox"
-                  checked={card.completed}
-                  onChange={toggleComplete}
-                  className="size-3.5 cursor-pointer accent-primary"
-                />
-                {card.completed ? 'Completed' : 'Mark complete'}
-              </label>
-              <BlockedBadge card={card} />
-              <PriorityBadge card={card} />
-              <DueBadge card={card} />
-              <RepeatBadge card={card} withText />
-              <CardNumberCopy number={card.number} />
+      <FileDropZone cardId={card.id} disabled={readOnly}>
+        <CoverImage card={card} />
+        <div className="flex flex-col gap-4 p-5">
+          {/* Header: labels + close */}
+          <div className="flex items-start gap-3">
+            <div className="flex flex-1 flex-col gap-2">
+              <CardLabels
+                labelIds={card.labelIds}
+                labels={data?.labels ?? []}
+              />
+              <input
+                value={title}
+                readOnly={readOnly}
+                onChange={(e) => setTitle(e.target.value)}
+                onBlur={saveTitle}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    // Just blur: onBlur runs saveTitle once. Calling
+                    // saveTitle() here AND blurring fired it twice (the
+                    // optimistic update hasn't synced card.title back yet, so
+                    // the blur's saveTitle still sees a changed title) - two
+                    // card.update mutations + two "renamed" activity rows.
+                    ;(e.target as HTMLInputElement).blur()
+                  }
+                }}
+                className="-mx-1 rounded border border-transparent bg-transparent px-1 text-xl font-semibold text-foreground hover:border-border focus:border-ring focus:outline-none"
+              />
+              <CardLocation
+                listName={listNameOf(data, card.id)}
+                boardName={data?.board.name ?? null}
+                onShow={onShowOnBoard ? () => onShowOnBoard(card.id) : undefined}
+              />
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                <label className="flex cursor-pointer items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={card.completed}
+                    onChange={toggleComplete}
+                    className="size-3.5 cursor-pointer accent-primary"
+                  />
+                  {card.completed ? 'Completed' : 'Mark complete'}
+                </label>
+                <BlockedBadge card={card} />
+                <PriorityBadge card={card} />
+                <DueBadge card={card} />
+                <RepeatBadge card={card} withText />
+                <CardNumberCopy number={card.number} />
+              </div>
             </div>
+            <ReadOnlyPill boardId={boardId} />
+            <button
+              aria-label="Close"
+              onClick={onClose}
+              className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              <X className="size-4" />
+            </button>
           </div>
-          <ReadOnlyPill boardId={boardId} />
-          <button
-            aria-label="Close"
-            onClick={onClose}
-            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
 
-        {/* Description - read-only by default; click to edit. The
-            key={card.id} guarantees a fresh editor when switching cards
-            so the previous card's content can't leak in. */}
-        <section className="flex flex-col gap-2">
-          <h3 className="text-sm font-medium text-muted-foreground">
-            Description
-          </h3>
-          {readOnly ? (
-            <MarkdownView value={card.description ?? ''} />
-          ) : (
-            <MarkdownField
-              key={card.id}
-              value={card.description ?? ''}
-              onChange={saveDescription}
+          {/* Description - read-only by default; click to edit. The
+              key={card.id} guarantees a fresh editor when switching cards
+              so the previous card's content can't leak in. */}
+          <section className="flex flex-col gap-2">
+            <h3 className="text-sm font-medium text-muted-foreground">
+              Description
+            </h3>
+            {readOnly ? (
+              <MarkdownView value={card.description ?? ''} />
+            ) : (
+              <MarkdownField
+                key={card.id}
+                value={card.description ?? ''}
+                onChange={saveDescription}
+              />
+            )}
+          </section>
+
+          <Checklists card={card} apply={apply} readOnly={readOnly} />
+
+          <CardDependencies
+            card={card}
+            boardId={boardId}
+            onOpenCard={onOpenCard ?? (() => {})}
+            readOnly={readOnly}
+          />
+
+          {!readOnly && (
+            <CoverActions
+              card={card}
+              apply={apply}
+              onRequestUrl={() => setUrlCoverOpen(true)}
             />
           )}
-        </section>
 
-        <Checklists card={card} apply={apply} readOnly={readOnly} />
+          <Attachments card={card} apply={apply} readOnly={readOnly} />
 
-        <CardDependencies
-          card={card}
-          boardId={boardId}
-          onOpenCard={onOpenCard ?? (() => {})}
-          readOnly={readOnly}
-        />
+          <Comments card={card} apply={apply} readOnly={readOnly} />
 
-        {!readOnly && (
-          <CoverActions
-            card={card}
-            apply={apply}
-            onRequestUrl={() => setUrlCoverOpen(true)}
-          />
-        )}
-
-        <Attachments card={card} apply={apply} readOnly={readOnly} />
-
-        <Comments card={card} apply={apply} readOnly={readOnly} />
-
-        <Activity card={card} labels={data?.labels ?? []} />
-      </div>
+          <Activity card={card} labels={data?.labels ?? []} />
+        </div>
+      </FileDropZone>
     </Modal>
     {/* URL cover modal lives as a sibling of the detail Modal so it
         portals to the body on its own and stacks on top - same pattern
