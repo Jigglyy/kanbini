@@ -9,6 +9,48 @@ Releases are cut by pushing a `v*` tag, which builds the Windows,
 macOS and Linux downloads and publishes a GitHub Release (see
 [`.github/workflows/release.yml`](.github/workflows/release.yml)).
 
+## [0.19.0] - 2026-11-26
+
+### Added
+
+- **Zoom in on images.** Clicking an attached image opens a new viewer:
+  scroll to zoom toward the pointer, drag to move around, double-click to
+  switch between fitting the window and 100%, or use the zoom buttons and
+  the + / - / 0 / 1 keys. It shows the image's size in pixels and on
+  disk, keeps pixels crisp when you zoom past 100%, and shows a
+  checkerboard behind transparent parts. The left and right arrows step
+  through the card's other images and videos.
+- **Videos.** MP4, WebM, MOV and OGV attachments play in the viewer
+  with play, pause, seek and volume. A video can be a card's cover: a
+  still frame on the board, playable in the card.
+- **Open in default app.** Every attachment has a button that opens it
+  in the app Windows uses for that kind of file (Photos, your PDF
+  reader, ...), also from the viewer. Programs and shortcuts are shown
+  in their folder instead of being started.
+- **Drop files on a card.** Drag files from Explorer onto an open card
+  to attach them.
+- **Paste copied files.** Copy files in Explorer and press Ctrl+V in an
+  open card to attach them as they are, so a GIF keeps its animation
+  (Windows).
+
+### Changed
+
+- **Locked boards hide what they don't allow.** Menus, buttons and bars
+  on a read-only board now only show what still works there instead of
+  refusing it when clicked. Collapsing cards, a list's size and "Show at
+  most", and Group by work on a locked board.
+- **Undo can't change a locked board.** If Ctrl+Z (or Ctrl+Y) would
+  change a locked board, for example by taking back a card you moved
+  onto it from another board, it's refused with a note saying which
+  board to unlock first.
+
+### Fixed
+
+- Changing a list's "Show at most" now takes effect right away, even on
+  a list you had already opened up with "Show more".
+- A lock on a board that was deleted (for example by the AI) no longer
+  stays behind.
+
 ## [0.18.0] - 2026-11-25
 
 ### Added
