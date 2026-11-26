@@ -89,6 +89,43 @@ export function visibleCards<T extends { id: string }>(
   return { shown, hiddenCount: hidden }
 }
 
+/** Each list's own "Show at most" (list.visibleCardLimit), by list id. */
+export function limitsById(
+  lists: readonly { id: string; visibleCardLimit: number | null }[]
+): Map<string, number | null> {
+  return new Map(lists.map((l) => [l.id, l.visibleCardLimit]))
+}
+
+/** Lists whose own limit changed since `prev` (from `limitsById` on an
+ *  earlier render): picked in the list menu or set by the AI. A list that
+ *  wasn't there before doesn't count. Board starts these fresh (drops
+ *  their session reveal and pinned cards), the same as reopening the
+ *  board, or a list shown in full this session would ignore the new
+ *  limit. */
+export function listsWithNewLimit(
+  prev: ReadonlyMap<string, number | null>,
+  lists: readonly { id: string; visibleCardLimit: number | null }[]
+): string[] {
+  return lists
+    .filter((l) => prev.has(l.id) && prev.get(l.id) !== l.visibleCardLimit)
+    .map((l) => l.id)
+}
+
+/** `set` without `ids`; the same Set when none of them were in it, so a
+ *  state update that changes nothing doesn't re-render memoised lists. */
+export function withoutIds(
+  set: ReadonlySet<string>,
+  ids: Iterable<string>
+): ReadonlySet<string> {
+  let next: Set<string> | null = null
+  for (const id of ids) {
+    if (!set.has(id)) continue
+    next ??= new Set(set)
+    next.delete(id)
+  }
+  return next ?? set
+}
+
 /** Is this card currently hidden by its list's limit? */
 export function isCardHidden<T extends { id: string }>(
   cards: readonly T[],

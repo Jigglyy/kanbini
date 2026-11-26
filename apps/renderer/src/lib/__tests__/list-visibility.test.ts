@@ -3,10 +3,13 @@ import {
   effectiveCardLimit,
   isCardHidden,
   limitCardCount,
+  limitsById,
   listFooterState,
+  listsWithNewLimit,
   resolveTruncatedDrop,
   visibleCards,
-  VISIBLE_LIMIT_OPTIONS
+  VISIBLE_LIMIT_OPTIONS,
+  withoutIds
 } from '../list-visibility'
 
 // "Show first N" rules. The limit only decides what's mounted; these pin
@@ -182,5 +185,42 @@ describe('a card dragged within its own list', () => {
     // Had the card been treated as pinned here, c11 would have popped in.
     const wrongly = visibleCards(cards(30), 10, false, NONE, 'c1')
     expect(ids(wrongly.shown)).toContain('c11')
+  })
+})
+
+describe('a new limit starts the list fresh (board card #1)', () => {
+  const lists = (a: number | null, b: number | null) => [
+    { id: 'a', visibleCardLimit: a },
+    { id: 'b', visibleCardLimit: b }
+  ]
+
+  it('names only the lists whose own limit changed', () => {
+    const prev = limitsById(lists(10, null))
+    expect(listsWithNewLimit(prev, lists(10, null))).toEqual([])
+    expect(listsWithNewLimit(prev, lists(20, null))).toEqual(['a'])
+    expect(listsWithNewLimit(prev, lists(10, 0))).toEqual(['b'])
+    expect(listsWithNewLimit(prev, lists(null, 20))).toEqual(['a', 'b'])
+  })
+
+  it('a list added since the last render is not a change', () => {
+    const prev = limitsById([{ id: 'a', visibleCardLimit: 10 }])
+    expect(listsWithNewLimit(prev, lists(10, 20))).toEqual([])
+  })
+
+  it('withoutIds drops ids and keeps the Set when none were in it', () => {
+    const s: ReadonlySet<string> = new Set(['a', 'b'])
+    expect([...withoutIds(s, ['a', 'z'])]).toEqual(['b'])
+    expect(withoutIds(s, ['z'])).toBe(s)
+    expect(withoutIds(s, [])).toBe(s)
+  })
+
+  it('a revealed list folds again once its reveal is dropped', () => {
+    // The bug: Board kept the reveal, so the new limit showed every card.
+    expect(visibleCards(cards(30), 20, true, NONE).hiddenCount).toBe(0)
+    const revealed = withoutIds(new Set(['a']), listsWithNewLimit(
+      limitsById(lists(10, null)),
+      lists(20, null)
+    ))
+    expect(visibleCards(cards(30), 20, revealed.has('a'), NONE).hiddenCount).toBe(10)
   })
 })

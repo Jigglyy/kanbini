@@ -95,6 +95,47 @@ test('the list menu sets and clears the limit', async () => {
   await expect(longCards(page)).toHaveCount(20)
 })
 
+/** Pick "Show at most" in Long's list menu (`name` = the button's label). */
+async function pickLimit(page: Page, name: string): Promise<void> {
+  await page.getByRole('button', { name: 'Edit list' }).first().click()
+  await page.getByRole('button', { name: /^Cards/ }).click()
+  await page.getByRole('button', { name }).click()
+}
+
+test('a new limit applies to a list that was shown in full this session', async () => {
+  // Board card #1: after "Show more" (or anything else that opens the list
+  // for you), switching "Show at most" changed nothing until you left the
+  // board and came back.
+  const { page } = handle
+  await page.getByRole('button', { name: 'Show 20 more' }).click()
+  await expect(longCards(page)).toHaveCount(TOTAL)
+  await pickLimit(page, 'Show at most 20 cards')
+  await expect(longCards(page)).toHaveCount(20)
+  await expect(page.getByRole('button', { name: 'Show 10 more' })).toBeVisible()
+  await pickLimit(page, 'Show at most 10 cards')
+  await expect(longCards(page)).toHaveCount(10)
+})
+
+test('a new limit applies after adding a card opened the list', async () => {
+  const { page } = handle
+  const add = page.getByPlaceholder('+ Add a card').first()
+  await add.click()
+  await add.fill('Brand new')
+  await add.press('Enter')
+  await expect(longCards(page)).toHaveCount(TOTAL + 1)
+  await add.press('Escape')
+  await pickLimit(page, 'Show at most 20 cards')
+  await expect(longCards(page)).toHaveCount(20)
+})
+
+test('a limit the AI changes applies to a list that was shown in full', async () => {
+  const { page } = handle
+  await page.getByRole('button', { name: 'Show 20 more' }).click()
+  await expect(longCards(page)).toHaveCount(TOTAL)
+  await mutate(d, { type: 'list.update', id: ids.longId, patch: { visibleCardLimit: 20 } })
+  await expect(longCards(page)).toHaveCount(20)
+})
+
 test('keyboard focus past the last visible card reveals the list', async () => {
   const { page } = handle
   await page.getByText('Card 10', { exact: true }).click()

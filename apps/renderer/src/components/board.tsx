@@ -99,9 +99,12 @@ import {
   effectiveCardLimit,
   isCardHidden,
   limitCardCount,
+  limitsById,
   listFooterState,
+  listsWithNewLimit,
   resolveTruncatedDrop,
-  visibleCards
+  visibleCards,
+  withoutIds
 } from '../lib/list-visibility'
 import { whenCardMounted } from '../lib/when-card-mounted'
 import { cn } from '../lib/utils'
@@ -804,6 +807,25 @@ export function Board({
       return next
     })
   }, [])
+  // A new "Show at most" (list menu or the AI) starts that list fresh, the
+  // same as reopening the board: drop its session reveal and its pinned
+  // cards. Otherwise a list shown in full this session (Show more, adding
+  // a card, jumping to a hidden card) kept showing every card and the new
+  // limit seemed to do nothing. Layout effect, so the folded list is what
+  // paints first.
+  const limitsRef = useRef<ReadonlyMap<string, number | null> | null>(null)
+  useLayoutEffect(() => {
+    const prev = limitsRef.current
+    limitsRef.current = limitsById(board.lists)
+    if (!prev) return
+    const changed = listsWithNewLimit(prev, board.lists)
+    if (changed.length === 0) return
+    const cardIds = board.lists
+      .filter((l) => changed.includes(l.id))
+      .flatMap((l) => l.cards.map((c) => c.id))
+    setRevealedLists((s) => withoutIds(s, changed))
+    setPinnedCards((s) => withoutIds(s, cardIds))
+  }, [board.lists])
   /** Reveal a card's list when the card is hidden by the list's limit.
    *  Called wherever the UI moves you TO a card - keyboard focus, a
    *  search hit - so a limit never leaves you focused on something that
